@@ -1,0 +1,50 @@
+{
+  "repository": "ExplodeCode6324/Secretary",
+  "visibility": "PUBLIC",
+  "checked_at": "2026-11-17",
+  "method": "GitHub repository metadata and commit endpoint; this is reachability, not source-byte reconstruction",
+  "commits": [
+    {
+      "sha": "1291b9435c4539749a3640cb147e0db3a11b02c4",
+      "publicly_reachable": true,
+      "url": "https://github.com/ExplodeCode6324/Secretary/commit/1291b9435c4539749a3640cb147e0db3a11b02c4",
+      "commit_reproduces_source_digest": null
+    },
+    {
+      "sha": "6576545d7cb205e24b81282ffd34ff37f5cc9701",
+      "publicly_reachable": true,
+      "url": "https://github.com/ExplodeCode6324/Secretary/commit/6576545d7cb205e24b81282ffd34ff37f5cc9701",
+      "commit_reproduces_source_digest": null
+    },
+    {
+      "sha": "a838f09137d4a824fee67298eb5025e874539c9d",
+      "publicly_reachable": true,
+      "url": "https://github.com/ExplodeCode6324/Secretary/commit/a838f09137d4a824fee67298eb5025e874539c9d",
+      "commit_reproduces_source_digest": null
+    },
+    {
+      "sha": "bde4356a0e95c1b3e205bcebc0ee29d6d8de78c1",
+      "publicly_reachable": true,
+      "url": "https://github.com/ExplodeCode6324/Secretary/commit/bde4356a0e95c1b3e205bcebc0ee29d6d8de78c1",
+      "commit_reproduces_source_digest": null
+    },
+    {
+      "sha": "befdccaf7422207fb13d9d6ad2c5240f6d4fd042",
+      "publicly_reachable": true,
+      "url": "https://github.com/ExplodeCode6324/Secretary/commit/befdccaf7422207fb13d9d6ad2c5240f6d4fd042",
+      "commit_reproduces_source_digest": null
+    },
+    {
+      "sha": "e10c24768a39c4ae1f526fcd6f9ee2090b3b8390",
+      "publicly_reachable": true,
+      "url": "https://github.com/ExplodeCode6324/Secretary/commit/e10c24768a39c4ae1f526fcd6f9ee2090b3b8390",
+      "commit_reproduces_source_digest": null
+    },
+    {
+      "sha": "e8accd1778350dd7652c2beba403a8c166d49a74",
+      "publicly_reachable": true,
+      "url": "https://github.com/ExplodeCode6324/Secretary/commit/e8accd1778350dd7652c2beba403a8c166d49a74",
+      "commit_reproduces_source_digest": null
+    }
+  ]
+}

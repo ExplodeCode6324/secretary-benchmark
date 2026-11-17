@@ -17,7 +17,7 @@ npm run verify
 
 `npm run benchmark -- ...` is the sole harness entry point. See [operations](test_case/online/benchmark/README.md). Use explicit facility roots under this repository's `.local/benchmark/`. Do not run this from a deployment checkout. The protected agile checkout and path aliases are rejected. There are no start/stop deployment scripts in this package.
 
-The SUT dependency must match the Git link and lock, including recursive submodules, and contain no tracked or untracked source changes. Only the differential regression tests import the SUT's historical harness. Production benchmark execution uses this repository's harness. Differential tests create ignored runtime fixtures under `sut/secretary/.local/`; Python helpers may create ignored bytecode caches. The source pin stays unchanged. These nested local fixtures are included in the deferred local-retention scope. Updating the SUT pin is a separate reviewed change.
+The SUT dependency must match the Git link and lock, including recursive submodules, and contain no tracked or untracked source changes. Only the differential regression tests import the SUT's historical harness. Production benchmark execution uses this repository's harness. Differential tests create ignored runtime fixtures under `sut/secretary/.local/`; Python helpers may create ignored bytecode caches. The source pin stays unchanged. These nested fixtures are included in verified archival and local-retention receipts. Updating the SUT pin is a separate reviewed change.
 
 ## Evidence and limits
 
@@ -34,3 +34,5 @@ Extracted from Secretary PR [#134](https://github.com/ExplodeCode6324/Secretary/
 No additional software license has been selected or granted for this repository. Public visibility is not a license grant. Third-party components retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
 
 [中文说明](README.zh-CN.md) · [reviewed extraction plan](docs/fix/standalone-publication.en.md)
+
+If the operating system cannot resolve the current account in its password database (for example, a container UID with no entry), protected-checkout verification fails closed; provide a normal account entry before running the harness.

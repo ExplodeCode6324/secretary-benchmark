@@ -53,7 +53,7 @@
     "command": "npm run verify",
     "duration_ms": 211157.370709
   },
-  "archival": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK",
+  "archival": "VERIFIED_NAS_ARCHIVE_AND_SOURCE_RELEASED; see archive-verification.json; post-publication validation has a separate completion receipt",
   "historical_first_pilot": "NOT_REPLACED_BY_THIS_CORRECTNESS_RUN",
   "prepublication_guard_amendment": {
     "basis": "Opus R31: two bounded pre-push fixes",

@@ -60,8 +60,11 @@
               "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           }
         ],
@@ -106,8 +109,11 @@
               "source_files_digest": "59ef09d56f1f57cf1dc8b179b89b66fa525549f323594e8cae38c3814ca95e4f",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -131,8 +137,11 @@
               "source_files_digest": "59ef09d56f1f57cf1dc8b179b89b66fa525549f323594e8cae38c3814ca95e4f",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           }
         ],
@@ -178,8 +187,11 @@
               "source_files_digest": "15cfe0a13e11f1788e6d863ccf73b0ecef31cb090d1d043b84a071af52cda98e",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -203,8 +215,11 @@
               "source_files_digest": "c3949ab9a3374ad65e46d54784d76cf482a12f24db05cc2c1d77e5a6f6ed08d2",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -228,8 +243,11 @@
               "source_files_digest": "15cfe0a13e11f1788e6d863ccf73b0ecef31cb090d1d043b84a071af52cda98e",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           }
         ],
@@ -276,8 +294,11 @@
               "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           }
         ],
@@ -310,8 +331,11 @@
               "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -335,8 +359,11 @@
               "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -360,8 +387,11 @@
               "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           }
         ],
@@ -408,8 +438,11 @@
               "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -433,8 +466,11 @@
               "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -458,8 +494,11 @@
               "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -483,8 +522,11 @@
               "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -508,8 +550,11 @@
               "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -533,8 +578,11 @@
               "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -558,8 +606,11 @@
               "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -583,8 +634,11 @@
               "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -608,8 +662,11 @@
               "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -633,8 +690,11 @@
               "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -658,8 +718,11 @@
               "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -683,8 +746,11 @@
               "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           }
         ],
@@ -740,8 +806,11 @@
               "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -765,8 +834,11 @@
               "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -790,8 +862,11 @@
               "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           }
         ],
@@ -838,8 +913,11 @@
               "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -863,8 +941,11 @@
               "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -888,8 +969,11 @@
               "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           }
         ],
@@ -936,8 +1020,11 @@
               "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -961,8 +1048,11 @@
               "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           },
           {
@@ -986,8 +1076,11 @@
               "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
               "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
               "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+              "commit_publicly_reachable": true,
+              "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+              "commit_reproduces_source_digest": null,
               "node": "v22.22.0",
-              "source_tree_clean": true
+              "tracked_diff_empty": true
             }
           }
         ],
@@ -1049,8 +1142,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1087,8 +1183,11 @@
           "source_files_digest": "59ef09d56f1f57cf1dc8b179b89b66fa525549f323594e8cae38c3814ca95e4f",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1124,8 +1223,11 @@
           "source_files_digest": "59ef09d56f1f57cf1dc8b179b89b66fa525549f323594e8cae38c3814ca95e4f",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1161,8 +1263,11 @@
           "source_files_digest": "15cfe0a13e11f1788e6d863ccf73b0ecef31cb090d1d043b84a071af52cda98e",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1198,8 +1303,11 @@
           "source_files_digest": "c3949ab9a3374ad65e46d54784d76cf482a12f24db05cc2c1d77e5a6f6ed08d2",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1235,8 +1343,11 @@
           "source_files_digest": "15cfe0a13e11f1788e6d863ccf73b0ecef31cb090d1d043b84a071af52cda98e",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1272,8 +1383,11 @@
           "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1309,8 +1423,11 @@
           "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1346,8 +1463,11 @@
           "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1383,8 +1503,11 @@
           "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1420,8 +1543,11 @@
           "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1457,8 +1583,11 @@
           "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1494,8 +1623,11 @@
           "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1531,8 +1663,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1568,8 +1703,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1605,8 +1743,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1642,8 +1783,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1679,8 +1823,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1716,8 +1863,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1753,8 +1903,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1790,8 +1943,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1827,8 +1983,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1864,8 +2023,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1901,8 +2063,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1938,8 +2103,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -1976,8 +2144,11 @@
           "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2013,8 +2184,11 @@
           "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2050,8 +2224,11 @@
           "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2087,8 +2264,11 @@
           "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2124,8 +2304,11 @@
           "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2161,8 +2344,11 @@
           "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2200,8 +2386,11 @@
           "source_files_digest": "7acd2264259f38196714a9bc0ac5adccc908e1a0a5c405ffa343811af9357bda",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": false
+          "tracked_diff_empty": false
         }
       },
       {
@@ -2239,8 +2428,11 @@
           "source_files_digest": "be0264515c46bb1058774a78dad4b82984859aa79d779194e0b6ac66fb7e6ea0",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2278,8 +2470,11 @@
           "source_files_digest": "be0264515c46bb1058774a78dad4b82984859aa79d779194e0b6ac66fb7e6ea0",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2317,8 +2512,11 @@
           "source_files_digest": "be0264515c46bb1058774a78dad4b82984859aa79d779194e0b6ac66fb7e6ea0",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2356,8 +2554,11 @@
           "source_files_digest": "be0264515c46bb1058774a78dad4b82984859aa79d779194e0b6ac66fb7e6ea0",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2395,8 +2596,11 @@
           "source_files_digest": "be0264515c46bb1058774a78dad4b82984859aa79d779194e0b6ac66fb7e6ea0",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2434,8 +2638,11 @@
           "source_files_digest": "be0264515c46bb1058774a78dad4b82984859aa79d779194e0b6ac66fb7e6ea0",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2473,8 +2680,11 @@
           "source_files_digest": "be0264515c46bb1058774a78dad4b82984859aa79d779194e0b6ac66fb7e6ea0",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2512,8 +2722,11 @@
           "source_files_digest": "be0264515c46bb1058774a78dad4b82984859aa79d779194e0b6ac66fb7e6ea0",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2551,8 +2764,11 @@
           "source_files_digest": "be0264515c46bb1058774a78dad4b82984859aa79d779194e0b6ac66fb7e6ea0",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2590,8 +2806,11 @@
           "source_files_digest": "be0264515c46bb1058774a78dad4b82984859aa79d779194e0b6ac66fb7e6ea0",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2629,8 +2848,11 @@
           "source_files_digest": "be0264515c46bb1058774a78dad4b82984859aa79d779194e0b6ac66fb7e6ea0",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2668,8 +2890,11 @@
           "source_files_digest": "be0264515c46bb1058774a78dad4b82984859aa79d779194e0b6ac66fb7e6ea0",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2707,8 +2932,11 @@
           "source_files_digest": "be0264515c46bb1058774a78dad4b82984859aa79d779194e0b6ac66fb7e6ea0",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2746,8 +2974,11 @@
           "source_files_digest": "be0264515c46bb1058774a78dad4b82984859aa79d779194e0b6ac66fb7e6ea0",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2785,8 +3016,11 @@
           "source_files_digest": "be0264515c46bb1058774a78dad4b82984859aa79d779194e0b6ac66fb7e6ea0",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2822,8 +3056,11 @@
           "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2859,8 +3096,11 @@
           "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       },
       {
@@ -2896,8 +3136,11 @@
           "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         }
       }
     ],
@@ -2999,8 +3242,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -3132,8 +3378,11 @@
           "source_files_digest": "59ef09d56f1f57cf1dc8b179b89b66fa525549f323594e8cae38c3814ca95e4f",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "HOST_ONLY"
@@ -3217,8 +3466,11 @@
           "source_files_digest": "59ef09d56f1f57cf1dc8b179b89b66fa525549f323594e8cae38c3814ca95e4f",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -3350,8 +3602,11 @@
           "source_files_digest": "c3949ab9a3374ad65e46d54784d76cf482a12f24db05cc2c1d77e5a6f6ed08d2",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "HOST_ONLY"
@@ -3437,8 +3692,11 @@
           "source_files_digest": "15cfe0a13e11f1788e6d863ccf73b0ecef31cb090d1d043b84a071af52cda98e",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -3578,8 +3836,11 @@
           "source_files_digest": "15cfe0a13e11f1788e6d863ccf73b0ecef31cb090d1d043b84a071af52cda98e",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -3719,8 +3980,11 @@
           "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -3860,8 +4124,11 @@
           "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -4001,8 +4268,11 @@
           "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -4141,8 +4411,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -4281,8 +4554,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -4422,8 +4698,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -4563,8 +4842,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -4704,8 +4986,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -4845,8 +5130,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -4984,8 +5272,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -5125,8 +5416,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -5266,8 +5560,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -5407,8 +5704,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -5548,8 +5848,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -5689,8 +5992,11 @@
           "source_files_digest": "dac1e3549a111f0f4ad95fff0f0a10d9fcf23567c6e7024ab04630090e473207",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "ASSESSMENT",
@@ -5824,8 +6130,11 @@
           "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "MIGRATION",
@@ -5957,8 +6266,11 @@
           "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "MIGRATION",
@@ -6111,8 +6423,11 @@
           "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "MIGRATION",
@@ -6250,8 +6565,11 @@
           "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "MIGRATION",
@@ -6389,8 +6707,11 @@
           "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "MIGRATION",
@@ -6524,8 +6845,11 @@
           "source_files_digest": "36a35f41c10134504ebabe6fcc54795fdaf29d50b0dd67ea00a84534ddf030f9",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "MIGRATION",
@@ -6677,8 +7001,11 @@
           "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "MIGRATION",
@@ -6810,8 +7137,11 @@
           "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "MIGRATION",
@@ -6947,8 +7277,11 @@
           "source_files_digest": "47c0d07da82793facef7822ee4f13376797691bc948677824a24de1f16e13020",
           "lockfile_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
           "recursive_dependency_commit": "16787ad5b2dc748047f314ca1bfe7708f30f54f3",
+          "commit_publicly_reachable": true,
+          "commit_reachability_basis": "GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json",
+          "commit_reproduces_source_digest": null,
           "node": "v22.22.0",
-          "source_tree_clean": true
+          "tracked_diff_empty": true
         },
         "provenance": {
           "kind": "MIGRATION",
@@ -7033,7 +7366,7 @@
     "Public Opus QA variant is NOT_EXERCISED and NOT_CALIBRATED; official public accuracy remains NOT_TESTED.",
     "Independent effect/no-shell receipts remain authoritative evidence; judge rationales cannot override them.",
     "Replay inputs are local and private and must be retained, or restored and replay-verified before releasing archived originals.",
-    "Some historical run fingerprints bind a nonempty working-tree diff. The commit alone does not reconstruct those exact historical source bytes.",
+    "tracked_diff_empty describes only tracked git diff HEAD paths. The source_files_digest also binds untracked nonignored files. Neither an empty tracked diff nor public commit reachability proves that a commit alone reconstructs the recorded source bytes; commit_reproduces_source_digest is untested (null).",
     "Initial snapshot, resource audit and final selected report are distinct snapshots; no model rankings, performance pooling or pass rates are produced."
   ]
 }

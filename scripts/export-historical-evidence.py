@@ -28,22 +28,32 @@ resources=verified(review/'r11-resource-accounting.json','review/r11-resource-ac
 private_cases=sorted({r['case_id'] for r in report['rows'] if r['case_id'].startswith('R-')}|{r['case'] for r in resources['rows'] if r['case'].startswith('R-')}|{r['case'] for f in pilot['facilities'] for r in f['leaf_rows'] if r['case'].startswith('R-')})
 aliases={name:'private-case-%02d'%(i+1) for i,name in enumerate(private_cases)}
 def case(name):return aliases.get(name,name)
+reachability={r['sha']:r for r in load(pathlib.Path(__file__).resolve().parent.parent/'evidence/historical-commit-reachability.json')['commits']}
 def sut(run):
     row,p=registries[run]
     f=row['frozen']
     return {'record_sha256':sha(p.read_bytes()),'commit':f['head'],'tree':f['tree'],
         'working_tree_diff_sha256':f['dirty'],'source_files_digest':f['source'],
         'lockfile_sha256':f['lockfile'],'recursive_dependency_commit':f['submodules'].strip().split()[0],
-        'node':f['node'],'source_tree_clean':f['dirty']==sha(b'')}
+        'commit_publicly_reachable':reachability[f['head']]['publicly_reachable'],'commit_reachability_basis':'GitHub commit endpoint in public Secretary repository verified 2026-11-17; see historical-commit-reachability.json','commit_reproduces_source_digest':None,
+        'node':f['node'],'tracked_diff_empty':f['dirty']==sha(b'')}
 def error_digest(value):
     return None if value is None else sha(json.dumps(value,sort_keys=True,ensure_ascii=False).encode())
+def family(value):
+    assert value is None or value in ['M1','M2','M3','M4','M5','M6'], 'Unknown public family category'
+    return value
+def public_report_id(value):
+    assert re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}',value), 'Non-UUID report identifier'
+    return value
 initial=[]
 for index,f in enumerate(pilot['facilities']):
+    assert type(f['episodes_by_lineage']) is int and f['episodes_by_lineage']>=0
+    for r in f['leaf_rows']:family(r['family'])
     initial.append({**advisory(),'facility_alias':'initial-facility-%02d'%(index+1),
       'episodes_by_lineage':f['episodes_by_lineage'],
       'rows':[{**advisory(),**{k:r[k] for k in ['run','lineage','model','profile','family','state','trajectory_available','grader_receipts']},
        'case_alias':case(r['case']),'driver_failure':code(r['driver_failure']),'historical_sut':sut(r['run'])} for r in f['leaf_rows']],
-      'planned_reports':[{**advisory(),'report_id':r['report_id'],'planned_rows':r['planned_rows'],
+      'planned_reports':[{**advisory(),'report_id':public_report_id(r['report_id']),'planned_rows':r['planned_rows'],
          'first_failure_present':r['first_failure'] is not None,'first_failure_digest':error_digest(r['first_failure']),
          'case_statuses':[c['status'] for c in r['cases']]} for r in f['planned_reports']]})
 resource_keys=['run','lineage','model','profile','reservations','settled','unknown_usage','input_tokens','output_tokens','cached_input_tokens','cache_write_tokens','reasoning_output_tokens','reported_cost_estimate_usd','conservative_accounted_usd','unknown_cost_attempts','outcomes','request_elapsed_sum_ms','request_elapsed_max_ms']
@@ -57,6 +67,7 @@ observations={r['run']:{'status':'OBSERVED_CONSTRAINT_VIOLATION_REQUIRES_HUMAN_A
  'projection_limit':'Frozen judge packet did not decode the no-shell goal; original packet remains unchanged.'} for r in casebook['rows']}
 selected=[]
 for r in report['rows']:
+    family(r['family'])
     sealed=verified(replay/'facilities'/r['facility_nonce']/'oracles'/(r['run']+'-sealed-v3.json'),'sealed/'+r['run']+'-sealed-v3.json')
     observed=sealed['payload']['evidence'].get('audit',{}).get('evidence_complete',{}).get('all_external_effects')
     verdicts=[]
@@ -85,7 +96,7 @@ result={**advisory(),'version':'secretary-first-pilot-public-evidence-v1',
  'frozen_history':'Fable v3 remains unchanged and archived; Opus is the selected judge contract. Cross-judge labels are not evidence of agreement.',
  'withheld':['private prompts, outputs, rationales, free-text first-failure details, run database credentials, operator paths, run-specific control maps','private-case names replaced by deterministic within-release aliases'],
  'reproducibility':'This script deterministically projects the verified private source set. Public hashes do not reconstruct withheld inputs. Public standalone correctness fixtures reproduce harness behavior, not live model outcomes.',
- 'limitations':report['limitations']+['Some historical run fingerprints bind a nonempty working-tree diff. The commit alone does not reconstruct those exact historical source bytes.','Initial snapshot, resource audit and final selected report are distinct snapshots; no model rankings, performance pooling or pass rates are produced.']}
+ 'limitations':report['limitations']+['tracked_diff_empty describes only tracked git diff HEAD paths. The source_files_digest also binds untracked nonignored files. Neither an empty tracked diff nor public commit reachability proves that a commit alone reconstructs the recorded source bytes; commit_reproduces_source_digest is untested (null).','Initial snapshot, resource audit and final selected report are distinct snapshots; no model rankings, performance pooling or pass rates are produced.']}
 assert len(selected)==30 and sum(r['eligible'] for r in selected)==28
 assert len(accounting)==50 and result['resource_snapshot']['physical_send_reservations']==563
 out.mkdir(parents=True,exist_ok=True)

@@ -2,11 +2,19 @@
   "deterministic_projection": "Three byte-identical exports, including hash-bound exporter",
   "tampered_input_refusal": "PASS: modified copy refused before public output",
   "source_original_unchanged_sha256": "243f59a9a5c5304159d807f81a7d58453089d70d79a92ce9e356c2ceea5f88e2",
-  "public_projection_sha256": "f5dd901ed6ec085cb6f6313c7d042c3cacf05a5886c09e5dfe353f39af330d5f",
+  "public_projection_sha256": "7108b291735ad164d55fc32ef238f84671b54468457973c151dd623e95f7a062",
   "live_requests": 0,
   "validation_status": "PASS",
   "status": "ADVISORY",
   "human_qualification": "NOT_HUMAN_QUALIFIED",
   "public_source_index_sha256": "f43e434b57d89e946188de264f27a3ac0dac5a79ba4f6ed784e7adfc2f9086c9",
-  "extra_registries_verified_in_archives": 21
+  "extra_registries_verified_in_archives": 21,
+  "r32_evidence_amendment": {
+    "deterministic_projection": "Two byte-identical current exports",
+    "selected_assertion_labels": "168 unchanged from preceding candidate",
+    "family_fields": "public M1-M6 enums or null; no private family names",
+    "episode_fields": "integer counts only; no names",
+    "planned_report_fields": "UUID, counts, failure digest and status enums; no titles",
+    "historical_source_reconstruction": "NOT_TESTED; tracked diff and file digest are distinct"
+  }
 }

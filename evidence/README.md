@@ -14,3 +14,5 @@ Historical fixed-input reports were reproducible with the private, frozen input 
 Generate that projection with `python3 scripts/export-historical-evidence.py --review <verified-private-review> --replay <verified-private-replay> --extra-registries <verified-private-run-registries> --output <output-directory>`. These private source packages are not included in the public repository. Source hashes and transformation code are published; this is traceability, not public reconstruction of private data.
 
 - `archive-verification.json`: hashes and readback scope for recovered historical packages, six additional early facilities, and prepublication standalone fixtures. Private locations are omitted. `historical-source-index.json` pins exporter input hashes; `historical-projection-verification.json` records deterministic output and tamper refusal.
+
+- `historical-commit-reachability.json`: all seven historical commits were accessible in the public Secretary repository. This does not establish exact source reconstruction. `tracked_diff_empty` excludes untracked files; the separate source digest includes them. Commit-only reconstruction remains untested.

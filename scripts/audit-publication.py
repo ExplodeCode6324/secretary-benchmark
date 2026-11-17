@@ -11,11 +11,13 @@ args = parser.parse_args()
 private_literals = pathlib.Path(args.literals).resolve()
 assert private_literals.is_relative_to(root / '.local'), 'Literals must be ignored local input'
 assert private_literals.stat().st_mode & 0o077 == 0, 'Literals must be owner-only'
-literals = json.loads(private_literals.read_text())['literals']
+literal_input = json.loads(private_literals.read_text())
+literals = literal_input['literals']
+case_literals = literal_input.get('case_literals', [])
 assert literals and all(isinstance(x,str) and x for x in literals)
 allowances = json.loads(pathlib.Path(args.allowlist).read_text()) if args.allowlist else []
 assert all(x.get('rationale') for x in allowances)
-allowed = {(x['path'],x['rule'],x['match_sha256']):x['rationale'] for x in allowances}
+allowed = {(x['path'],x['rule'],x['match_sha256']):x for x in allowances}
 def git(*xs): return subprocess.check_output(['git','-C',str(root),*xs])
 def digest(s): return hashlib.sha256(s.encode()).hexdigest()
 patterns = {
@@ -30,14 +32,14 @@ patterns = {
 }
 findings=[]; reviewed=[]
 def scan(commit,name,text):
- for rule,pattern in [*patterns.items(), *[(f'operator-literal-{i}',r'(?<![A-Za-z0-9])'+re.escape(value)+r'(?![A-Za-z0-9])') for i,value in enumerate(literals)]]:
+ for rule,pattern in [*patterns.items(), *[(f'operator-literal-{i}',r'(?<![A-Za-z0-9])'+re.escape(value)+r'(?![A-Za-z0-9])') for i,value in enumerate(literals)], *[(f'case-literal-{i}', re.escape(value)) for i,value in enumerate(case_literals)]]:
   for m in re.finditer(pattern,text,re.I):
    item={'commit':commit,'path':name,'rule':rule,'line':text.count('\n',0,m.start())+1,'match_sha256':digest(m.group())}
    key=(name,rule,item['match_sha256'])
    if name=='@commit-metadata' and rule=='email' and re.fullmatch(r'[A-Za-z0-9+_.-]+@users\.noreply\.github\.com',m.group()):
     reviewed.append({**item,'rationale':'Public GitHub noreply identity'})
-   elif key in allowed and not rule.startswith('operator-literal'):
-    reviewed.append({**item,'rationale':allowed[key]})
+   elif key in allowed and not rule.startswith('operator-literal') and (not rule.startswith('case-literal') or allowed[key].get('blob_sha256') == digest(text)):
+    reviewed.append({**item,'rationale':allowed[key]['rationale']})
    else: findings.append(item)
 commits=git('rev-list','--all').decode().splitlines()
 for commit in commits:
@@ -48,7 +50,7 @@ for commit in commits:
    findings.append({'commit':commit,'path':name,'rule':'private-directory'});continue
   scan(commit,name,git('show',commit+':'+name).decode())
 result={'version':2,'status':'PASS' if not findings else 'FAIL','commits':commits,
- 'operator_literal_count':len(literals),'patterns':list(patterns),'findings':findings,
+ 'operator_literal_count':len(literals),'case_literal_count':len(case_literals),'patterns':list(patterns),'findings':findings,
  'reviewed_matches':reviewed,
  'limitation':'Heuristic scan plus manual per-file classification, including evidence logs; already-public pinned dependency history is not rewritten.'}
 print(json.dumps(result,indent=2))

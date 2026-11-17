@@ -29,7 +29,7 @@ def classify(record, status, host=None, live=None):
 
 
 def main():
-    source = pathlib.Path(__file__).resolve().parents[3] / 'src/pi_secretary/src/process-runner.py'
+    source = pathlib.Path(__file__).resolve().parents[3] / 'sut/secretary/src/pi_secretary/src/process-runner.py'
     spec = importlib.util.spec_from_file_location('runner', source)
     runner = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(runner)

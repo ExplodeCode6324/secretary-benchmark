@@ -116,7 +116,7 @@ test("standalone runtime never imports the historical harness", () => {
   for (const name of fs.readdirSync(
     path.join(repository, "test_case/online/benchmark"),
   )) {
-    if (!name.endsWith(".ts")) continue;
+    if (!/\.(ts|py)$/.test(name)) continue;
     const text = fs.readFileSync(
       path.join(repository, "test_case/online/benchmark", name),
       "utf8",

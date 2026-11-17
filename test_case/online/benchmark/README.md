@@ -142,7 +142,7 @@ R11 freezes neutral disposition metadata only; reviewer identity/prose stays pri
 
 ## #121 单独版本的 Opus 评分员迁移
 
-[中英文迁移计划](../../../docs/fix/fix_20261116_issue121_judge_migration.md)仅覆盖原来未发送的第 10–15 批。原冻结 v3、前九批与 Fable 身份校验保持原义；新子批次使用 `opus-5.5-extra-migration-v1`，不是 v4 重标。导出、尝试记录、导入、计分均持有原 controller lease；新文件先暂存并核验全部哈希，最后发布提交标记。部分写入或丢失标记会拒绝读取，不能直接重跑覆盖。
+[中英文迁移计划](https://github.com/ExplodeCode6324/Secretary/blob/50ffe5dd0ec50c89bb9421c38a7827bc75dc799a/docs/fix/fix_20261116_issue121_judge_migration.md)仅覆盖原来未发送的第 10–15 批。原冻结 v3、前九批与 Fable 身份校验保持原义；新子批次使用 `opus-5.5-extra-migration-v1`，不是 v4 重标。导出、尝试记录、导入、计分均持有原 controller lease；新文件先暂存并核验全部哈希，最后发布提交标记。部分写入或丢失标记会拒绝读取，不能直接重跑覆盖。
 
 所有命令都必须指定已有、已停止且归属确认的 `--root`。`memory-judge-export --source <private-bundle> --batch <child-id> --approval <review-CI-proof>` 只接受固定六批清单与仓库中的不透明哈希锚；先推送锚与实现，通过准确 HEAD 的复核/CI，再对真实设施导出。`memory-judge-ready --source <roots-json> --approval <proof>` 分别加锁检查三个设施的六批并写入一致的就绪快照。每次发送前仍重新检查本设施；跨设施快照不是原子事务。
 

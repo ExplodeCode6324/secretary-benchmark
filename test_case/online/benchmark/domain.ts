@@ -1,5 +1,6 @@
 import { initializeGuard, forbiddenPayload } from "./payload-guard.ts";
 import { fingerprint } from "./source.ts";
+import { captureProcessWitness } from "./process-witness.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -439,6 +440,7 @@ export class Domains {
       );
       if (child.connected) child.disconnect();
       child.unref();
+      captureProcessWitness(run.evidence, run.process, "RUNNING");
       return run;
     } catch (e) {
       if (child.connected) child.disconnect();
@@ -482,6 +484,7 @@ export class Domains {
         processStatus(run.process) === "STOPPED",
         "WORKER_STOP_UNCONFIRMED",
       );
+      captureProcessWitness(run.evidence, run.process, "STOPPED");
     }
     run.state = "STOPPED";
     this.save(run);

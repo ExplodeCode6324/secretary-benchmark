@@ -1,4 +1,9 @@
 import { fingerprint } from "./source.ts";
+import {
+  validateBaselineLimits,
+  assertBaselineReservation,
+  type BaselineLimits,
+} from "./baseline-budget.ts";
 // Durable accounting belongs to each sender, not to the short-lived CLI or a checkpoint.
 import fs from "node:fs";
 import path from "node:path";
@@ -31,6 +36,7 @@ export type Campaign = {
   source?: ReturnType<typeof fingerprint>;
   closed_at?: string;
   final_ledger?: FinalLedger;
+  baseline_limits?: BaselineLimits;
 };
 type ClosedCampaign = Campaign & {
   state: "CLOSED";
@@ -42,6 +48,7 @@ export type Attempt = {
   model: string;
   run: string;
   episode?: string;
+  lane?: string;
   request_sha256: string;
   reserved_usd: number;
   at: string;
@@ -89,6 +96,8 @@ export function loadCampaign(root: string): Campaign {
       (Number.isFinite(c.ceiling_usd) && c.ceiling_usd > 0),
     "CAMPAIGN_INVALID_CEILING",
   );
+  if (c.baseline_limits)
+    validateBaselineLimits(c.baseline_limits, c.ceiling_usd);
   return c;
 }
 export function ledger(root: string) {
@@ -167,7 +176,9 @@ export async function createCampaign(
   root: string,
   approvalID: string,
   ceiling: number | null,
+  baselineLimits?: BaselineLimits,
 ) {
+  if (baselineLimits) validateBaselineLimits(baselineLimits, ceiling);
   requireThat(
     /^[a-zA-Z0-9_-]{1,100}$/.test(approvalID),
     "CAMPAIGN_APPROVAL_ID",
@@ -197,6 +208,7 @@ export async function createCampaign(
       state: "OPEN",
       ceiling_usd: ceiling,
       created_at: new Date().toISOString(),
+      ...(baselineLimits ? { baseline_limits: baselineLimits } : {}),
     };
     // A crash after binding fails closed; never silently rebind to a different root.
     writeJSON(registration, c);
@@ -221,6 +233,13 @@ export async function reserve(
   return locked(directory(root), async () => {
     const campaign = assertCampaignSource(root),
       current = ledger(root);
+    if (campaign.baseline_limits)
+      assertBaselineReservation(
+        campaign.baseline_limits,
+        [...current.entries.values()],
+        details,
+        Date.now(),
+      );
     requireThat(campaign.state === "OPEN", "CAMPAIGN_CLOSED");
     if (maxSends !== undefined)
       requireThat(

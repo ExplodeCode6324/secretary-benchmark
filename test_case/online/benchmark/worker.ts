@@ -21,6 +21,7 @@ import { completedFileWrite } from "./effect-proof.ts";
 import { validateConfiguration, type WorkerPermit } from "./domain.ts";
 import { configureProfile, liveRoles, meteredFetch } from "./live-model.ts";
 import { capacityForecast } from "./capacity.ts";
+import type { HostContext } from "../../../sut/secretary/src/pi_secretary/src/host-context.ts";
 
 process.umask(0o077);
 let permitted = false;
@@ -127,7 +128,8 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
           [{ type: "toolCall", id: randomUUID(), name, arguments: args }],
           m,
         );
-      const continued = packet.includes("BENCHMARK_CONTINUE");
+      const noteRead = packet.includes("BENCHMARK_NOTE_READ");
+      const continued = packet.includes("BENCHMARK_CONTINUE") || noteRead;
       const escape = packet.includes("BENCHMARK_ESCAPE");
       if (!results.length && (continued || escape))
         return tool("read", {
@@ -144,7 +146,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
           JSON.stringify(results[0]).includes("alpha"),
           "CONTINUATION_READ_FAILED",
         );
-      if (!escape && results.length < (continued ? 2 : 1))
+      if (!escape && !noteRead && results.length < (continued ? 2 : 1))
         return tool("write", {
           path: "continuity.txt",
           content: packet.includes("BENCHMARK_INTERRUPTED_WRITE")
@@ -206,6 +208,11 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
       path.join(run.evidence, "capacity-forecast.json"),
       capacityForecast(app),
     );
+    if (run.config.mode === "fixture")
+      writeJSON(
+        path.join(run.evidence, "issue122-capacity-candidates.json"),
+        capacityForecast(app, ["DEP", "RC98304_CANDIDATE"]),
+      );
     const finish = app.authorization.finish.bind(app.authorization);
     app.authorization.finish = ((id, receipt, outcome) => {
       const operation = app.store.get<Operation>("Operation", id);
@@ -298,6 +305,14 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         pushes: app.store.all("PushDispatch"),
         tasks: app.store.all("TaskPlan"),
         model_calls: calls,
+        maintenance_due: (
+          app.host as unknown as { context: HostContext }
+        ).context.memoryDue(),
+        sessions: app.store.all("Session"),
+        input_records: app.store.all("Input"),
+        calls: app.store.all("ModelCall"),
+        compactions: app.store.all("CompactionJob"),
+        extractions: app.store.all("MemoryExtractionJob"),
         ...(run.config.mode === "live"
           ? {
               sessions: app.store.all("Session"),

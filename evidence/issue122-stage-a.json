@@ -1,0 +1,763 @@
+{
+  "schema": "issue122-stage-a-evidence-v1",
+  "date": "2026-11-18",
+  "sut": {
+    "commit": "873b66f4b906ff53a62476ff5dd1466649c427f7",
+    "submodules": {
+      "src/pi_resource": "16787ad5b2dc748047f314ca1bfe7708f30f54f3"
+    },
+    "lock_sha256": "d912ff15d9fe363ffa91c583d28b0eeb37140f082b9d6eea3ea9558720384687"
+  },
+  "harness_source_sha256": "4f0c27ca990c8c29323793a9e60223e3c9bbc7a9c18b6a3f21d292c9d4e9114d",
+  "report_sha256": "487837ff07eb801b44f9a3b02f63af3134d086c890003ad313fb4d0a70bfd4fd",
+  "case_count": 34,
+  "forecast_cells": 204,
+  "physical_provider_sends": 0,
+  "cases": [
+    {
+      "id": "C01-direct",
+      "family": "M1",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": true,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "492132151318e20d804e6f8da167797de7a87ecd12d1ef2b0fbb539b3ca15894",
+      "oracle_sha256": "6c5f6bae6109daeace3b5592f82f20002f89090db7760a61d68751701842bc47"
+    },
+    {
+      "id": "C02-incidental",
+      "family": "M1",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": true,
+      "restart": "DIRECT_SAME_DOMAIN",
+      "pair": {
+        "id": "C02",
+        "position": "A",
+        "post_restart": true
+      },
+      "input_sha256": "c5bb17763b294a25b62523748cea455da938c8cd5d1896ae4e3d93c1bfb3a1df",
+      "oracle_sha256": "ef3327942fe1261ec9d1b09f1342a078632cadd9d157b6f27b26c81de6b88e97"
+    },
+    {
+      "id": "C02-implicit",
+      "family": "M1",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": true,
+      "restart": "CHECKPOINT_RESTORE",
+      "pair": {
+        "id": "C02",
+        "position": "B",
+        "post_restart": true
+      },
+      "input_sha256": "f35f65d48cccccef001d06d1c6a5c4249d7fcb8942aac8747dd9ba6b1186745e",
+      "oracle_sha256": "3731c983e79541ebc1d9ba6b6ce6e5d6c053f363455218a25f16329ac0cade9b"
+    },
+    {
+      "id": "C03-ambiguous",
+      "family": "M6",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "e41782df7b24f02fb3a2ae5c72a37c46a89dbe4a4751d5fdc6ae40e1fb310e3e",
+      "oracle_sha256": "4ab677fc21f1bdd012632554d77c77772a6f549ab854afcc60de29fe2e5ea1d3"
+    },
+    {
+      "id": "C04-resident",
+      "family": "M1",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "c7b357f77f3f0606c2d71af5fb338676b159c9f7cc9e244bf68ae9b591f0aa22",
+      "oracle_sha256": "b1f1fe96438286b530112ec2b52d71c99cef0313426460e72d149aa22a1c38d0"
+    },
+    {
+      "id": "C04-irrelevant",
+      "family": "M1",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "9c366122176ed0c6d3fe3430e5d963895df2d969b4bf8e8769ffcd49cf156eaf",
+      "oracle_sha256": "ce5c76db1c0a4dac38e65d37a3905b591e4688c264bd230cdb4321043162b9ee"
+    },
+    {
+      "id": "C04-nonexistent",
+      "family": "M1",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "95c84890d898a508b902d78807400a13cfa271f7b6aa1ae0dd2131db2eff714e",
+      "oracle_sha256": "fffea03b991ba89bf191bd282b14766668a0310f3eb2f1510786b04a60cc8e36"
+    },
+    {
+      "id": "C05-current",
+      "family": "M2",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 1,
+      "requires_cold": false,
+      "restart": "DIRECT_SAME_DOMAIN",
+      "pair": {
+        "id": "C05",
+        "position": "A",
+        "post_restart": true
+      },
+      "input_sha256": "1244587ff7ed52806c70c0215329418b3e78cdd9cd32ade69f54a72136cfa4c5",
+      "oracle_sha256": "5d6d26f6df4b6d2179ef508b612226d22b3cbfec154e9f75ad2070866a2d3380"
+    },
+    {
+      "id": "C05-history",
+      "family": "M2",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 1,
+      "requires_cold": false,
+      "restart": "CHECKPOINT_RESTORE",
+      "pair": {
+        "id": "C05",
+        "position": "B",
+        "post_restart": true
+      },
+      "input_sha256": "0c673956d386b9513d3f34d55cd6cc8ce90bcbc04cb2e1380ca7b5d9c18e474c",
+      "oracle_sha256": "0cea1539ff7367bdf1ebb0e70f8364b010a0694c5a4a1c0baab3c317bdbed8df"
+    },
+    {
+      "id": "C05-W",
+      "family": "M2",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "DIRECT_SAME_DOMAIN",
+      "pair": null,
+      "input_sha256": "6e574991a9cdf1f2b95d455ee05ba5b5f48476a841d40b800bc9574a0530951c",
+      "oracle_sha256": "f8af0f94e23bb07a50ab4e8bcd557de37cb8e867e552f136f6be723069401661"
+    },
+    {
+      "id": "C06-stale-cold",
+      "family": "M2",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 1,
+      "requires_cold": true,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "79e47893690a65d2908b39c5cde245a5cf81d169c9fa81490d3e2567acb52abe",
+      "oracle_sha256": "ef8ce1c777b8c1b23ec968490113dce7a719e5f0171a592b35634604939372ab"
+    },
+    {
+      "id": "C07-completed",
+      "family": "M5",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 1,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "4eb451b6c064837a0f219910c6783db99aa5cb605485b4a744d33abcc61d1173",
+      "oracle_sha256": "d48bd9476abdc39464f28a1228f93ea39442a3ce8f9827a9102d8713c14dd636"
+    },
+    {
+      "id": "C07-cancelled",
+      "family": "M5",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 1,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "c5128b63e30e8477ea0cd366950735220541fb5efab354ec633f3f762626a269",
+      "oracle_sha256": "4e7c57cc57a1151accf7a5972a1fbfbae7c6da8bcaa08588ffc3d4257b81a5d4"
+    },
+    {
+      "id": "C07-open",
+      "family": "M5",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 1,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "6092de975354d0349fd60f5a339cec21366a8d91d0ed893ad34f9ae5caabd5a1",
+      "oracle_sha256": "eaa6f8543010da984a4c0d760a97bfdaf088ddaa085e0b63ce988cd28f79070a"
+    },
+    {
+      "id": "C08-inference",
+      "family": "M3",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 2,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "ac3fcd87ae4bb1822c2fe7739e0a94c7db30702f5522db80491b209ac8588b92",
+      "oracle_sha256": "330d36e376f766407705446554c9eaa69dc654b8e7c508f136f2f9183b80a53a"
+    },
+    {
+      "id": "C09-finished",
+      "family": "M3",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 2,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "f22b97f82a59afb28f8c694670549a32518eb9c172b022e342b33ccb5579d178",
+      "oracle_sha256": "a64ef7fde5dd6fba258c7b4537df56f3af25cbda4f80deda9f55f257dc685a43"
+    },
+    {
+      "id": "C10-condition",
+      "family": "M5",
+      "route": "resource_present",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "ccce6e323caae8170878de68ac7c1ffcf9cf5d8a2528b67c5de9536113845e7d",
+      "oracle_sha256": "9f7d9d6b6d363277b533fb6938e8e75bb6bbee7cf715f02c667c8ca747e44c4a"
+    },
+    {
+      "id": "C10-answer",
+      "family": "M5",
+      "route": "answer",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "a808992522682e7d4e2ed5ef4e245e583904c1f09471167eae769e590d1199f9",
+      "oracle_sha256": "5f0284d1b04144e7b73dd0755744ba0cb32caa2bee458806ac9c0b74f0668052"
+    },
+    {
+      "id": "C11-completed",
+      "family": "M5",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "DIRECT_SAME_DOMAIN",
+      "pair": null,
+      "input_sha256": "3930f3b1facf2c0a1f9e52ff8b7e92390bcd8661f7f98ffc56713b662651fbee",
+      "oracle_sha256": "aed17ec6c5a72e69ff3e12f001e7ec411db4b82cb9d7a73ac94d2a4a9b791d21"
+    },
+    {
+      "id": "C11-cancelled",
+      "family": "M5",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "DIRECT_SAME_DOMAIN",
+      "pair": null,
+      "input_sha256": "3560f2b03310e7941021dce59aadbe3a63f275a1d634861e45a56fd00c8a0d41",
+      "oracle_sha256": "aed17ec6c5a72e69ff3e12f001e7ec411db4b82cb9d7a73ac94d2a4a9b791d21"
+    },
+    {
+      "id": "C11-invalidated",
+      "family": "M5",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "DIRECT_SAME_DOMAIN",
+      "pair": null,
+      "input_sha256": "cf6d8ed61fa20cabfdbe085e7910bb28094589836cbe049ce31f1f3b3dfc819a",
+      "oracle_sha256": "aed17ec6c5a72e69ff3e12f001e7ec411db4b82cb9d7a73ac94d2a4a9b791d21"
+    },
+    {
+      "id": "C12a",
+      "family": "M5",
+      "route": "master",
+      "status": "REUSE_AUDIT",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "CHECKPOINT_RESTORE",
+      "pair": null,
+      "input_sha256": "6f890eea7d572e30b6cc51ade66089a045e3caa468e90f04383573eef85305df",
+      "oracle_sha256": "44ea8fb7e77276383ffce9424f4e9563e85317054f2118df327d69083feb505a"
+    },
+    {
+      "id": "C12b",
+      "family": "M5",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "DIRECT_SAME_DOMAIN",
+      "pair": null,
+      "input_sha256": "02adb49f63543a8e834a3e48ea80671849608a9888e7a87a8e5486bd26e6e074",
+      "oracle_sha256": "a8bc36166935db7395abbdc17031adbf986e6447013086c4e16b9f11c1f67a51"
+    },
+    {
+      "id": "C13-master",
+      "family": "M6",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "549aa60bd4624d58d9c76b327998f8a1198f6ba6b90871319822b807e99ca076",
+      "oracle_sha256": "81c1bc2fa8dd6255f3b40b8208548ce03e7acaaa2e8523c5d71b433728bd6383"
+    },
+    {
+      "id": "C13-quote",
+      "family": "M6",
+      "route": "quote",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "94df265f77f100f38c0e4c30a66fee99af1353f1c47f74b9abe22d7968bcbcb7",
+      "oracle_sha256": "81c1bc2fa8dd6255f3b40b8208548ce03e7acaaa2e8523c5d71b433728bd6383"
+    },
+    {
+      "id": "C13-imported_note",
+      "family": "M6",
+      "route": "imported_note",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "94df265f77f100f38c0e4c30a66fee99af1353f1c47f74b9abe22d7968bcbcb7",
+      "oracle_sha256": "81c1bc2fa8dd6255f3b40b8208548ce03e7acaaa2e8523c5d71b433728bd6383"
+    },
+    {
+      "id": "C13-task",
+      "family": "M6",
+      "route": "task",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "94df265f77f100f38c0e4c30a66fee99af1353f1c47f74b9abe22d7968bcbcb7",
+      "oracle_sha256": "81c1bc2fa8dd6255f3b40b8208548ce03e7acaaa2e8523c5d71b433728bd6383"
+    },
+    {
+      "id": "C13-inference",
+      "family": "M6",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "5b6ca65a8b969518f8d3a79a0f17960ffdb4deff7f04406c3e3167bdcc27ee79",
+      "oracle_sha256": "a0901a1a0fe3719ed14a17de31818173881f49afc9c15618604a54fb2f44b70f"
+    },
+    {
+      "id": "C13-scope-import",
+      "family": "M6",
+      "route": "scope_import",
+      "status": "HARNESS_EXCLUDED",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "6b41ab5cdd5593788050654d839425c4f62a4afc4f9e28db40b638033e99969f",
+      "oracle_sha256": "9e520042f2c3b2b9ea61635fc17dc8b6ce292341f153afa526ad72c33baa54ad"
+    },
+    {
+      "id": "C13-text-attachment",
+      "family": "M6",
+      "route": "text_attachment",
+      "status": "UNSUPPORTED",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "bd3d38df5543985e8bfa1a36f4b4de642b4b65bbe1fff46766950de7435f806c",
+      "oracle_sha256": "d3928b2d87012f371625c371dcffc4bd6279040d565700504f3e75b2d72c5ba5"
+    },
+    {
+      "id": "C14-retraction",
+      "family": "M6",
+      "route": "semantic_retraction",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 1,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "1068afd12c8ac5b28d178270d2abfa3e8889ceb61ce52385289ff8e325db3dde",
+      "oracle_sha256": "85a397cf38e6d14479a28c7ab1bf7d3482b1973ab4cdda5275b232ff541b4aaa"
+    },
+    {
+      "id": "C14-physical",
+      "family": "M6",
+      "route": "handled_text_withdrawal",
+      "status": "UNSUPPORTED",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "e2868a4aa38ed531b48308d36edd6e19a14d4117d01a9c7c891308ff32c2c50f",
+      "oracle_sha256": "c631bd9ca9b61121d8f371956c386e79831c3115760a4d3a63cda0b1522c6a5f"
+    },
+    {
+      "id": "C15-time",
+      "family": "M4",
+      "route": "master",
+      "status": "DEFERRED_TIME",
+      "maintenance_cycles": 0,
+      "requires_cold": false,
+      "restart": "NONE",
+      "pair": null,
+      "input_sha256": "03f12348deae90e3ca149910138f31c901bfc197ca8bed38f3942269e30005c9",
+      "oracle_sha256": "46e105ecab5307496739e2491241d728367218352d16156165416e4de005491f"
+    },
+    {
+      "id": "C16-combined",
+      "family": "M2",
+      "route": "master",
+      "status": "READY_FOR_OFFLINE_VALIDATION",
+      "maintenance_cycles": 2,
+      "requires_cold": true,
+      "restart": "DIRECT_SAME_DOMAIN",
+      "pair": null,
+      "input_sha256": "f09fc4cb91d269217c79aae0c07632cd26e10f3c2713d59d3cbcd48c1f7452e6",
+      "oracle_sha256": "445e9ef740dad7ea8d7b2625d4e161be19ab5996606443dca9883e7dc24e0d19"
+    }
+  ],
+  "capacity": [
+    {
+      "model": "gpt-6.1-sol",
+      "profile": "DEP_DEFAULT_UNVERIFIED",
+      "deployment_capacity_verified": false,
+      "budget": {
+        "count_method": "utf8_bytes_upper_estimate_v1",
+        "policy_id": "5299bf66da61def9fad166bcd0512305ef886ea1edb145dbd7c699035c6850da",
+        "estimated_tokens": 19336,
+        "effective_context_window": 1050000,
+        "usable_input_tokens": 989308,
+        "requested_output_tokens": 4096,
+        "effective_output_tokens": 4096,
+        "tool_reserve_tokens": 4096,
+        "safety_margin_tokens": 52500,
+        "occupancy": 0.0195449748713242,
+        "deployment_limit_verified": false
+      },
+      "policy": {
+        "policy": "request-utf8-v1",
+        "contextLimit": null,
+        "inputLimit": null,
+        "outputLimit": null,
+        "outputTokens": 4096,
+        "summaryOutputTokens": 16384,
+        "summaryRetryTokens": 32768,
+        "toolReserve": 4096,
+        "safetyTokens": null,
+        "safetyRatio": 0.05,
+        "target": 0.3,
+        "normal": 0.6,
+        "forced": 0.8
+      },
+      "recent_input_window": {
+        "count": 12,
+        "ratio": 0.15
+      },
+      "initial_system_bytes": 3695,
+      "tool_schema_bytes": 9435,
+      "initial_messages_bytes": 13220,
+      "summary": {
+        "status": "PLANNABLE",
+        "outputs": [
+          16384,
+          32768
+        ],
+        "segment_count": 4,
+        "prior_input_bytes": 23464,
+        "metadata_bytes": 6624
+      },
+      "actual_provider_bytes": null,
+      "price_and_reasoning_bound": "PENDING_FREEZE",
+      "live_status": "NOT_AUTHORIZED"
+    },
+    {
+      "model": "deepseek-flash",
+      "profile": "DEP_DEFAULT_UNVERIFIED",
+      "deployment_capacity_verified": false,
+      "budget": {
+        "count_method": "utf8_bytes_upper_estimate_v1",
+        "policy_id": "04cdfb2cc7c23d226ef0579181bb3ec56a6b30a773e2d5734589f91d8274b6c4",
+        "estimated_tokens": 19339,
+        "effective_context_window": 1000000,
+        "usable_input_tokens": 941808,
+        "requested_output_tokens": 4096,
+        "effective_output_tokens": 4096,
+        "tool_reserve_tokens": 4096,
+        "safety_margin_tokens": 50000,
+        "occupancy": 0.020533909246895334,
+        "deployment_limit_verified": false
+      },
+      "policy": {
+        "policy": "request-utf8-v1",
+        "contextLimit": null,
+        "inputLimit": null,
+        "outputLimit": null,
+        "outputTokens": 4096,
+        "summaryOutputTokens": 16384,
+        "summaryRetryTokens": 32768,
+        "toolReserve": 4096,
+        "safetyTokens": null,
+        "safetyRatio": 0.05,
+        "target": 0.3,
+        "normal": 0.6,
+        "forced": 0.8
+      },
+      "recent_input_window": {
+        "count": 12,
+        "ratio": 0.15
+      },
+      "initial_system_bytes": 3695,
+      "tool_schema_bytes": 9435,
+      "initial_messages_bytes": 13220,
+      "summary": {
+        "status": "PLANNABLE",
+        "outputs": [
+          16384,
+          32768
+        ],
+        "segment_count": 4,
+        "prior_input_bytes": 23464,
+        "metadata_bytes": 6624
+      },
+      "actual_provider_bytes": null,
+      "price_and_reasoning_bound": "PENDING_FREEZE",
+      "live_status": "NOT_AUTHORIZED"
+    },
+    {
+      "model": "gpt-6-luna",
+      "profile": "DEP_DEFAULT_UNVERIFIED",
+      "deployment_capacity_verified": false,
+      "budget": {
+        "count_method": "utf8_bytes_upper_estimate_v1",
+        "policy_id": "17e82b3e07b7ba395fbd34aeae92db8fc0c60125c9b0390b8c8fb957687a6ee9",
+        "estimated_tokens": 19335,
+        "effective_context_window": 1050000,
+        "usable_input_tokens": 989308,
+        "requested_output_tokens": 4096,
+        "effective_output_tokens": 4096,
+        "tool_reserve_tokens": 4096,
+        "safety_margin_tokens": 52500,
+        "occupancy": 0.019543964063769827,
+        "deployment_limit_verified": false
+      },
+      "policy": {
+        "policy": "request-utf8-v1",
+        "contextLimit": null,
+        "inputLimit": null,
+        "outputLimit": null,
+        "outputTokens": 4096,
+        "summaryOutputTokens": 16384,
+        "summaryRetryTokens": 32768,
+        "toolReserve": 4096,
+        "safetyTokens": null,
+        "safetyRatio": 0.05,
+        "target": 0.3,
+        "normal": 0.6,
+        "forced": 0.8
+      },
+      "recent_input_window": {
+        "count": 12,
+        "ratio": 0.15
+      },
+      "initial_system_bytes": 3695,
+      "tool_schema_bytes": 9435,
+      "initial_messages_bytes": 13220,
+      "summary": {
+        "status": "PLANNABLE",
+        "outputs": [
+          16384,
+          32768
+        ],
+        "segment_count": 4,
+        "prior_input_bytes": 23464,
+        "metadata_bytes": 6624
+      },
+      "actual_provider_bytes": null,
+      "price_and_reasoning_bound": "PENDING_FREEZE",
+      "live_status": "NOT_AUTHORIZED"
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "profile": "RC98304_CANDIDATE",
+      "deployment_capacity_verified": false,
+      "budget": {
+        "count_method": "utf8_bytes_upper_estimate_v1",
+        "policy_id": "e4cdec8491e50292d4cb474fb63da3c2990badf4580db1a9fc62635b59791716",
+        "estimated_tokens": 19336,
+        "effective_context_window": 98304,
+        "usable_input_tokens": 85196,
+        "requested_output_tokens": 4096,
+        "effective_output_tokens": 4096,
+        "tool_reserve_tokens": 4096,
+        "safety_margin_tokens": 4916,
+        "occupancy": 0.22695901216019532,
+        "deployment_limit_verified": true
+      },
+      "policy": {
+        "policy": "request-utf8-v1",
+        "contextLimit": 98304,
+        "inputLimit": null,
+        "outputLimit": null,
+        "outputTokens": 4096,
+        "summaryOutputTokens": 16384,
+        "summaryRetryTokens": 32768,
+        "toolReserve": 4096,
+        "safetyTokens": null,
+        "safetyRatio": 0.05,
+        "target": 0.3,
+        "normal": 0.6,
+        "forced": 0.8
+      },
+      "recent_input_window": {
+        "count": 12,
+        "ratio": 0.15
+      },
+      "initial_system_bytes": 3695,
+      "tool_schema_bytes": 9435,
+      "initial_messages_bytes": 13220,
+      "summary": {
+        "status": "PLANNABLE",
+        "outputs": [
+          16384,
+          32768
+        ],
+        "segment_count": 4,
+        "prior_input_bytes": 23464,
+        "metadata_bytes": 6624
+      },
+      "actual_provider_bytes": null,
+      "price_and_reasoning_bound": "PENDING_FREEZE",
+      "live_status": "NOT_AUTHORIZED"
+    },
+    {
+      "model": "deepseek-flash",
+      "profile": "RC98304_CANDIDATE",
+      "deployment_capacity_verified": false,
+      "budget": {
+        "count_method": "utf8_bytes_upper_estimate_v1",
+        "policy_id": "eb290d8eca599e8e558d978e78d1b77005151e3deaa36c1e250bb6946f2408c0",
+        "estimated_tokens": 19339,
+        "effective_context_window": 98304,
+        "usable_input_tokens": 85196,
+        "requested_output_tokens": 4096,
+        "effective_output_tokens": 4096,
+        "tool_reserve_tokens": 4096,
+        "safety_margin_tokens": 4916,
+        "occupancy": 0.2269942250809897,
+        "deployment_limit_verified": true
+      },
+      "policy": {
+        "policy": "request-utf8-v1",
+        "contextLimit": 98304,
+        "inputLimit": null,
+        "outputLimit": null,
+        "outputTokens": 4096,
+        "summaryOutputTokens": 16384,
+        "summaryRetryTokens": 32768,
+        "toolReserve": 4096,
+        "safetyTokens": null,
+        "safetyRatio": 0.05,
+        "target": 0.3,
+        "normal": 0.6,
+        "forced": 0.8
+      },
+      "recent_input_window": {
+        "count": 12,
+        "ratio": 0.15
+      },
+      "initial_system_bytes": 3695,
+      "tool_schema_bytes": 9435,
+      "initial_messages_bytes": 13220,
+      "summary": {
+        "status": "PLANNABLE",
+        "outputs": [
+          16384,
+          32768
+        ],
+        "segment_count": 4,
+        "prior_input_bytes": 23464,
+        "metadata_bytes": 6624
+      },
+      "actual_provider_bytes": null,
+      "price_and_reasoning_bound": "PENDING_FREEZE",
+      "live_status": "NOT_AUTHORIZED"
+    },
+    {
+      "model": "gpt-6-luna",
+      "profile": "RC98304_CANDIDATE",
+      "deployment_capacity_verified": false,
+      "budget": {
+        "count_method": "utf8_bytes_upper_estimate_v1",
+        "policy_id": "92d4aaec21c60020cfd98a0fcb8e344cb0595b28d894264f5b243bd775afd81d",
+        "estimated_tokens": 19335,
+        "effective_context_window": 98304,
+        "usable_input_tokens": 85196,
+        "requested_output_tokens": 4096,
+        "effective_output_tokens": 4096,
+        "tool_reserve_tokens": 4096,
+        "safety_margin_tokens": 4916,
+        "occupancy": 0.22694727451993052,
+        "deployment_limit_verified": true
+      },
+      "policy": {
+        "policy": "request-utf8-v1",
+        "contextLimit": 98304,
+        "inputLimit": null,
+        "outputLimit": null,
+        "outputTokens": 4096,
+        "summaryOutputTokens": 16384,
+        "summaryRetryTokens": 32768,
+        "toolReserve": 4096,
+        "safetyTokens": null,
+        "safetyRatio": 0.05,
+        "target": 0.3,
+        "normal": 0.6,
+        "forced": 0.8
+      },
+      "recent_input_window": {
+        "count": 12,
+        "ratio": 0.15
+      },
+      "initial_system_bytes": 3695,
+      "tool_schema_bytes": 9435,
+      "initial_messages_bytes": 13220,
+      "summary": {
+        "status": "PLANNABLE",
+        "outputs": [
+          16384,
+          32768
+        ],
+        "segment_count": 4,
+        "prior_input_bytes": 23464,
+        "metadata_bytes": 6624
+      },
+      "actual_provider_bytes": null,
+      "price_and_reasoning_bound": "PENDING_FREEZE",
+      "live_status": "NOT_AUTHORIZED"
+    }
+  ],
+  "limits": "Initial offline prompts/planning only; not physical provider requests, achieved cold exit, validated deployment capacity or spending authorization."
+}

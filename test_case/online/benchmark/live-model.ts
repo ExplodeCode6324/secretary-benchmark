@@ -17,7 +17,8 @@ import {
   sha,
   writeJSON,
 } from "./io.ts";
-import { reserve, settle } from "./campaign.ts";
+import { reserve, settle, loadCampaign } from "./campaign.ts";
+import { baselineReservation } from "./baseline-budget.ts";
 import { transportFailure } from "../../../sut/secretary/src/pi_secretary/src/model-retry.ts";
 
 /** Preserve the product's retry class without retaining provider error text. */
@@ -153,6 +154,7 @@ export function meteredFetch(
     root: string;
     run: string;
     episode?: string;
+    lane?: string;
     evidence: string;
     model: ModelID;
     key: string;
@@ -214,10 +216,12 @@ export function meteredFetch(
           maxOutput <= model.maxTokens,
         "PROVIDER_OUTPUT_CAP_MISSING",
       );
-      const worst =
-        (Buffer.byteLength(body) * model.cost.input +
-          maxOutput * model.cost.output) /
-        1e6;
+      const limits = loadCampaign(options.root).baseline_limits;
+      const worst = limits
+        ? baselineReservation(body, maxOutput, limits.models[options.model])
+        : (Buffer.byteLength(body) * model.cost.input +
+            maxOutput * model.cost.output) /
+          1e6;
       phase = "CAMPAIGN_RESERVATION_REFUSED";
       const id = await reserve(
         options.root,
@@ -225,6 +229,7 @@ export function meteredFetch(
           model: options.model,
           run: options.run,
           episode: options.episode ?? options.run,
+          ...(options.lane ? { lane: options.lane } : {}),
           request_sha256: sha(body),
           reserved_usd: worst,
         },
@@ -304,7 +309,19 @@ export function meteredFetch(
           id,
           outcome,
           { provider: usage, returned_model: returnedModel },
-          usageCost(model, usage),
+          usageCost(
+            limits
+              ? {
+                  ...model,
+                  cost: {
+                    ...model.cost,
+                    input: limits.models[options.model].input_rate,
+                    output: limits.models[options.model].output_rate,
+                  },
+                }
+              : model,
+            usage,
+          ),
         );
       };
       return new Response(

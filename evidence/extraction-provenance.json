@@ -1,0 +1,535 @@
+{
+  "version": 1,
+  "status": "ADVISORY",
+  "qualification": "NOT_HUMAN_QUALIFIED",
+  "baseline_reviewed_head": "50ffe5dd0ec50c89bb9421c38a7827bc75dc799a",
+  "baseline_merged_head": "873b66f4b906ff53a62476ff5dd1466649c427f7",
+  "merge_benchmark_diff": "EMPTY (verified before extraction)",
+  "frozen_grading_source": "BYTE_IDENTICAL",
+  "adaptations": [
+    "SUT imports and Python/runtime paths",
+    "SUT pin, recursive cleanliness and replay binding",
+    "home-relative protected checkout guard",
+    "explicit private archive configuration",
+    "standalone package, scoped CI, docs and differential/guard tests"
+  ],
+  "excluded": [
+    "private inputs and run-specific controls",
+    "private model responses and rationales",
+    "private Git history and local settings",
+    "evidence files (each has its own provenance)"
+  ],
+  "files": [
+    {
+      "path": ".github/workflows/verify.yml",
+      "sha256": "33b2cc66f7299d56a35d1a6a7a1fa84824161d7c6b4c76e2c2c31960971da0b9",
+      "classification": "public documentation/configuration/validation tooling",
+      "baseline_sha256": "e116378503796d73a656b62cdd596446f0a525ec7fe266fc1990c6a7dd3da1a4",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "733c61100ce7602304a4310594e33ef0c6cbb76fe60f49425b0ef82b21b4c012",
+      "classification": "public documentation/configuration/validation tooling",
+      "baseline_sha256": "b69240ce37804e8aa33abee9089bad8fd35e549c83e2e154d281da10f5e72894",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": ".gitmodules",
+      "sha256": "9d40df1d627f7c7aeb637f7a86611d39fc3899faac306c8d0cafed2f8f84d110",
+      "classification": "public documentation/configuration/validation tooling",
+      "baseline_sha256": "393482bd4e3e0a01761dec4a462dc3c17e3cb5de5024c82c665936e7b44e0f70",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "README.md",
+      "sha256": "1e81c7ef7b7ad3937696b8891e982db4cbdc6af953f1c21ec860f923654249e6",
+      "classification": "public documentation/configuration/validation tooling",
+      "baseline_sha256": "29fba4de2fb84585e0908268846011318ab401f55ac9309af8349ddacf6c72be",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "README.zh-CN.md",
+      "sha256": "e9d33177767c787912074f610f89e4110c35bbc7c9edd994bfb65dd18c6a3b66",
+      "classification": "public documentation/configuration/validation tooling",
+      "baseline_sha256": "8e82cf9551d878a5d52b815277e4d94ca2d6d70923bb42f5b54dea8044e4c7e5",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "THIRD_PARTY_NOTICES.md",
+      "sha256": "7b68772c13335092ccc10c51cfa5271ffebcb632e90062482016c2d5cabdd741",
+      "classification": "public documentation/configuration/validation tooling",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "docs/fix/standalone-publication.en.md",
+      "sha256": "c1ef2fb3d3d29c289c71fa47f68c70b3b0d6e82c2a5a77c003e573c4b201714e",
+      "classification": "public documentation/configuration/validation tooling",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "docs/fix/standalone-publication.md",
+      "sha256": "68e73239fa0a0e347eb9a286b692c58396319d6a780ec431eb4d2f55f011bf9b",
+      "classification": "public documentation/configuration/validation tooling",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "5744fe1fdd08bb0ec892f815214561fd52b5d44b33b181b4061c4bf5928406c3",
+      "classification": "public documentation/configuration/validation tooling",
+      "baseline_sha256": "504b6611a518b224628955a1ac1643a5f421d0eba8afa6052386b12b4729dc71",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "package.json",
+      "sha256": "e329c2ddb1feaba0e7c1b55ccb6ae08153d472e9a13a964d54f8f05485447061",
+      "classification": "public documentation/configuration/validation tooling",
+      "baseline_sha256": "e760adcce8180005ca8f8481afc2c46d657e9601f0df22b9f980ef2437256212",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "scripts/audit-publication.py",
+      "sha256": "da030f8a43702ad3008cf1104ad90e7cabcef3e4559bc91bae39ee5374fc6fcf",
+      "classification": "public documentation/configuration/validation tooling",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "scripts/extraction-provenance.py",
+      "sha256": "2ea6d737f23f11b930a24fb7078bd84f34de230dc714db1b5820dc7221675e00",
+      "classification": "public documentation/configuration/validation tooling",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "sut.lock.json",
+      "sha256": "d912ff15d9fe363ffa91c583d28b0eeb37140f082b9d6eea3ea9558720384687",
+      "classification": "public documentation/configuration/validation tooling",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/benchmarks/common/report.schema.json",
+      "sha256": "2d9a780a6c20480797aa56498f67ed1c40f74d9009837cdb6090dc4d6ab680b6",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "2d9a780a6c20480797aa56498f67ed1c40f74d9009837cdb6090dc4d6ab680b6",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/benchmarks/common/report.ts",
+      "sha256": "8723d3760a585b15897c61534f194e995e462835273968541cebd293cba17b27",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "8723d3760a585b15897c61534f194e995e462835273968541cebd293cba17b27",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/offline/benchmark/archive.test.ts",
+      "sha256": "22ac031898b6a849f6b905e9f4b04515afaa5f68f249e0dc3cbd776f23cca2b8",
+      "classification": "synthetic development fixture/regression",
+      "baseline_sha256": "22ac031898b6a849f6b905e9f4b04515afaa5f68f249e0dc3cbd776f23cca2b8",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/offline/benchmark/assessment.test.ts",
+      "sha256": "36ae8512619ce811e75cedbd78713eb344f707e4a230ab2d6a4156a942776698",
+      "classification": "synthetic development fixture/regression",
+      "baseline_sha256": "36ae8512619ce811e75cedbd78713eb344f707e4a230ab2d6a4156a942776698",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/offline/benchmark/differential-fixture.ts",
+      "sha256": "78ff0797b7b29b8e1958f35f0f230c1241c4b4578fe1a0783a51702130261ca1",
+      "classification": "synthetic development fixture/regression",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/offline/benchmark/differential.test.ts",
+      "sha256": "c462e628177f8b6776d7ba5b9eb386ec5da6d65ff49a7f2e65184b121bc0e46e",
+      "classification": "synthetic development fixture/regression",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/offline/benchmark/fixtures/LongMemEval-LICENSE",
+      "sha256": "70ffd87a6df47c75c06bc5a8fa7a477aecb8c0cca9b4ca3dbaacb0f3c6d1f16b",
+      "classification": "synthetic development fixture/regression",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/offline/benchmark/fixtures/evaluate_qa.py",
+      "sha256": "ecce9c4c79dc89d99534ac17b383a5cbb5b9f0c69ee98adaf0684742e3d95251",
+      "classification": "synthetic development fixture/regression",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/offline/benchmark/guards.test.ts",
+      "sha256": "07fc487375ace1a2ed21cdbb0c51b51d43096c83d0164b647c7177b9d44a1b3e",
+      "classification": "synthetic development fixture/regression",
+      "baseline_sha256": "848e1559603123627910557b4d18cc0c522286b5444c0da5e4f98aa64e3c0df4",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/offline/benchmark/judge-migration.test.ts",
+      "sha256": "2cc2f923666534e658b790c06a7472db910873f6e1c0318a1cab49e69742b094",
+      "classification": "synthetic development fixture/regression",
+      "baseline_sha256": "2cc2f923666534e658b790c06a7472db910873f6e1c0318a1cab49e69742b094",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/offline/benchmark/memory.test.ts",
+      "sha256": "3837bce4c17cb2ed23104a40aeaa187a133ec76c21a7243cf9edd2e7d4e568dd",
+      "classification": "synthetic development fixture/regression",
+      "baseline_sha256": "4e0b82df42aa5399cad145e7a68d27eeeedcbed7916d74fe5d7f67d25c80a274",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/offline/benchmark/recovery.test.ts",
+      "sha256": "c0dab5648870946f67801529e6e4b1910ec8c71548f2eabf1617d06600d9aae5",
+      "classification": "synthetic development fixture/regression",
+      "baseline_sha256": "c2635d7849a66232339c080bd2c5b918c3ab9040531927a77739f99287804959",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/offline/benchmark/standalone.test.ts",
+      "sha256": "b4ea30ee65716439c15ac9528b485ac69a98812eae910df4734f297a784cb3b9",
+      "classification": "synthetic development fixture/regression",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/OPUS-GRADING.en.md",
+      "sha256": "d47720be934b4fc491b3d1db11fd8594dc9cdb7bbb9050db9b0469d6806f2377",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "d47720be934b4fc491b3d1db11fd8594dc9cdb7bbb9050db9b0469d6806f2377",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/OPUS-GRADING.md",
+      "sha256": "568bc03acb89fe254dc35124222bd66960b04d4408e04e364c500f3dbc9432ae",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "568bc03acb89fe254dc35124222bd66960b04d4408e04e364c500f3dbc9432ae",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/README.md",
+      "sha256": "8fe36ea7cc2561f4f7066e700b553056985b473178256bfa9cea6c8c7cea0ccb",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "21c30a6e7ed674a697958bf28dd865a6a533160daf1b654b2594eee0202946c0",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/archive.py",
+      "sha256": "76271dbd499a8cb7ff73caa2b76440dd580aab9c3fb4e32f54cd790ac45bec84",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "76271dbd499a8cb7ff73caa2b76440dd580aab9c3fb4e32f54cd790ac45bec84",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/archive.ts",
+      "sha256": "ccce43e496390d052cd5ed54ff7c75c2957d76a9e4d89ea7b73c11c716d3abf4",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "6ca93eea6a93596ca2f0863da70526bed1cc5b53de815267428502caa835798d",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/assessment-process.py",
+      "sha256": "57e9c4d8e0cc0ff9e682caba5b7c92be32b506e092057ac84320488e7b0930a8",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "5c23544dceb5765e01a29ab00949567f27d40da6838b876a0b8738b19ae6a62a",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/assessment-report.ts",
+      "sha256": "67cb94bf3e7f6b95259e3495534ffcd6ee8ac4d4a96fd65a95b0b9c568164bf6",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "ea24ebf1440e2ee6a1a64014a263c8311379e678fbe61fcdeb2c4a09629c5dbc",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/assessment.ts",
+      "sha256": "ba9aff19ec9324c54cead0eb0a8b76c5b11bfe2d7a090201fab73f4e582540fe",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "ba9aff19ec9324c54cead0eb0a8b76c5b11bfe2d7a090201fab73f4e582540fe",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/campaign.ts",
+      "sha256": "66b347f6961bde2532d295079f32bb1225544b15ddba5e542d672d238f8f8758",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "66b347f6961bde2532d295079f32bb1225544b15ddba5e542d672d238f8f8758",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/capacity.ts",
+      "sha256": "e5c95eb0fc51e75df9e5fdc7bb8572a820497741eb17c5c25ca656e3b5deeaf7",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "1c715c18874d516dbc337dcbdba6bd945c2ea1c9a7617083c255983d3a38fc5d",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/cli.ts",
+      "sha256": "e80aa3998852b918c6b34b5e77613e47deea6df17e8675bb0f5eeaf783048338",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "8a508ffa555e25cf5053955c3a94b621f0c6c55aa99e4cc9597c6a0f7eefe660",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/dataset.ts",
+      "sha256": "4125b88e8c3fbd050c03cec954882bf5b50e025d7a0a938463781ca4c2269246",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "4125b88e8c3fbd050c03cec954882bf5b50e025d7a0a938463781ca4c2269246",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/domain.ts",
+      "sha256": "aeb6a6ad08c7bba01eba0d48196e7a0bea07211227d4e8ca9c4421b3892b1179",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "2aae0eed500e92c68fe38bb6cc2892c035a4c7e463553ead72976c636abed8f3",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/effect-proof.ts",
+      "sha256": "727894c5521c84ae236afb51b8a3718a7349c31ecf43f3af42c6a7382ea07287",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "97bf4a8f0ce99b96cef9a9b37bc2a4405a2989b9f4ee68b25b99a8715462fd00",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/episodes.ts",
+      "sha256": "9cba0638f8d7bc6a1e951627343d264b87c71694c04839b81c1c27952cfddaf1",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "e46aeeef9e936bba8cff9978f468807110665c58d18e47c09a7a71b2bfa40bf6",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/evidence-audit.ts",
+      "sha256": "10f2ac4d3317ba6ee8d80f63304098b1e18953b0cb83f5b3d830d188a435a157",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "10f2ac4d3317ba6ee8d80f63304098b1e18953b0cb83f5b3d830d188a435a157",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/grader-controls.ts",
+      "sha256": "fb3a80bb7096aff527720abe00062dd0520b922042f06c12dc03bd4782b6be87",
+      "classification": "synthetic development scenarios/controls",
+      "baseline_sha256": "fb3a80bb7096aff527720abe00062dd0520b922042f06c12dc03bd4782b6be87",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/grading-attempt.ts",
+      "sha256": "940ec19bce7a8699213bd3a8d74035609a80b61295b3ddaf01c52ccb5a61d32a",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "940ec19bce7a8699213bd3a8d74035609a80b61295b3ddaf01c52ccb5a61d32a",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/grading-batch.ts",
+      "sha256": "f8c4e53175e6b465cb0ebfdd7b9f8bbc6d9efe42ee5d33567d403a4e2dffd90a",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "f8c4e53175e6b465cb0ebfdd7b9f8bbc6d9efe42ee5d33567d403a4e2dffd90a",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/grading-migration-store.ts",
+      "sha256": "d6fbf521e49636aca61be5249a348153fc25802c75bff49d2011fda05e5ebaab",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "d6fbf521e49636aca61be5249a348153fc25802c75bff49d2011fda05e5ebaab",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/grading-migration.ts",
+      "sha256": "95748e60053fdf240becc48d715c35bf35b93684b863846f7670bb45eec028bb",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "95748e60053fdf240becc48d715c35bf35b93684b863846f7670bb45eec028bb",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/grading-transaction.ts",
+      "sha256": "80470fbad6c69f79f8133a7886d850704a0848915022765c0c53b60d78344755",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "80470fbad6c69f79f8133a7886d850704a0848915022765c0c53b60d78344755",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/grading.ts",
+      "sha256": "b0460cbb41e06c2e623ebf0ef1ec91dfc0c57ca136572ba04aba2a04b2a3790a",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "b0460cbb41e06c2e623ebf0ef1ec91dfc0c57ca136572ba04aba2a04b2a3790a",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/identity.py",
+      "sha256": "5e7dfcc0690d6bf331a46a2577c12adb51e77fce383bb47a171a584d33f48930",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "dba70e69cbdf23bb47eab2ca9601d0bdecbc4420d0a88bb3e599cf98c0c80a35",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/io.ts",
+      "sha256": "048612893198a67590e237cb367e1a9e5fb4978159cf436d6d9b0ca391c7f53e",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "31ef1dd46709d1a997266d3f5bcaeab1772364da90c8df9cc215b6b5ea97b516",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/lease.py",
+      "sha256": "913efd187f64e56c014a0bfcd84975580a849fa341edc8cc75522105ba2557db",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "913efd187f64e56c014a0bfcd84975580a849fa341edc8cc75522105ba2557db",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/lifecycle.ts",
+      "sha256": "5bb58c5af90e0f4649d59846a4c909e79fdc6e7cc93d8371aa958137bebc8adb",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "4578af2a125fc30d90bad52fcbb0f1d9ecc5b5b19a4ca0b2cb3de48b33d97222",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/live-model.ts",
+      "sha256": "355ae0bf72fe32fae7c39ec86200e6fa97cf212988059f2d6d75aa7a015a9105",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "472f522512a255134a3d474f922fab8447563573b97f490f24b4a0b3075bd0ad",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/memory-config.ts",
+      "sha256": "4ab77e43d206847638bf129266ad941936d17851f031416761aff37355941a8b",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "4ab77e43d206847638bf129266ad941936d17851f031416761aff37355941a8b",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/payload-guard.ts",
+      "sha256": "645a1b904502fb49ec3b9a035cdbe036198c567544797c3589a279cc4093fba4",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "645a1b904502fb49ec3b9a035cdbe036198c567544797c3589a279cc4093fba4",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/pilot-report.ts",
+      "sha256": "4271cc48031f4816fd371b639856737a4eb69aa9fcc8db6e2cc184ee01bf621b",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "4271cc48031f4816fd371b639856737a4eb69aa9fcc8db6e2cc184ee01bf621b",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/postgres.ts",
+      "sha256": "7fb6d2b6025f6d5e749ef755b891724d62f4d7f07f4323d4e8a75c26b3d6ceb7",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "7fb6d2b6025f6d5e749ef755b891724d62f4d7f07f4323d4e8a75c26b3d6ceb7",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/private-replay.ts",
+      "sha256": "35e428a3aa33dfd98a1251d89d2d9aa04908470cf0057739fb829aa5a0833fd1",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "35e428a3aa33dfd98a1251d89d2d9aa04908470cf0057739fb829aa5a0833fd1",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/probe.ts",
+      "sha256": "955a8754e7c491559d97f0e1f0043e8e50491112cdd72320fbbb53652a4de79c",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "b75c76050c285e84a78e7d6e19dec36f0bff57d61f1a9fe49a41be3ef61d0653",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/public-bundle.ts",
+      "sha256": "e1180e09074e167769fa3dfbeb1874ccb373a94f4df348904b986b6e3b39c96a",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "e1180e09074e167769fa3dfbeb1874ccb373a94f4df348904b986b6e3b39c96a",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/public-grading.ts",
+      "sha256": "12aaa938a3650e5c05b3927f85a6de8b1d52f66311b23285e21bf66273e54e71",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "12aaa938a3650e5c05b3927f85a6de8b1d52f66311b23285e21bf66273e54e71",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/public-reader.ts",
+      "sha256": "c3f11e6c0b07ff62172dfc132be08ceb8676e3b765a1c2af34f6e79cdfb7d8b7",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "9f44e0d3939cb7dadf215f1f9366ae89de2d48acf2004f272225dcfe9f3f8d58",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/public-score.ts",
+      "sha256": "8c503433198970d97f8a71a82aac52d57e02e111c9b8acb3dca5e3f6175e38cd",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "8c503433198970d97f8a71a82aac52d57e02e111c9b8acb3dca5e3f6175e38cd",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/repository-replay.ts",
+      "sha256": "ef7e78edccf3e1d52f872d79e2f1db26473392d9a4f1950289b30fa50bf18fb9",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "4f1d7f6589a9dbd95b872b837199b23c350061633b76c9ec7ec6c41c92b30578",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/scenarios.ts",
+      "sha256": "621db07e20498167d66a32ebf1d0abdde52c333b8b348f5ba17761dea910c3fa",
+      "classification": "synthetic development scenarios/controls",
+      "baseline_sha256": "621db07e20498167d66a32ebf1d0abdde52c333b8b348f5ba17761dea910c3fa",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/score.ts",
+      "sha256": "8b512b2f24b0b9a634e39312bdcd6df6ec07c26b472e3826dfe42309da06c7db",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "8b512b2f24b0b9a634e39312bdcd6df6ec07c26b472e3826dfe42309da06c7db",
+      "change": "UNCHANGED"
+    },
+    {
+      "path": "test_case/online/benchmark/self-check.ts",
+      "sha256": "48460e7c0c4bba4bd81d18c41e1585f59df13ba2a6395acd079800a2215ef0b4",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "85031979af487bdba16a52a480f1e89e041c60e93d25ab58737a801728118273",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/snapshot.ts",
+      "sha256": "ec6e402cc7b222d34554ebf1e31ce3c9d7402f00237938294a95f850d7c156f5",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "0700443b37ed5b604ba14d59f95d00fb82a4165e859bdbeb735be91d26e03a37",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/source.ts",
+      "sha256": "bbd8eab58c537b628833bd27870fa018cfe1b9f99c1b3b58a6fe26b1086a9374",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "cc53878fa50bc11831c8cb8a4869a147d189c6bbd63c3d6b326720bae4b6879e",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/worker.ts",
+      "sha256": "4919d78324dfdd3ba0c90a70e21bb62c3150d929dd8b6e65e17f359ea151dc53",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "c647f8a20be2073b0264d624dd6a7ce5e32c49c0fd91e96505da5fd457b8d460",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "test_case/online/benchmark/world-replay.ts",
+      "sha256": "26e33cb6faa42c44fce2b90e7b2805ea266bfd823020691f81d7bc77bdcd2bd2",
+      "classification": "harness source/schema (private input readers contain no private input data)",
+      "baseline_sha256": "0a5d10e14a8f5f8a9b396a4c123cc7ddd79f2453edeb4c2fdb2f41f8f911185b",
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "3574a78db93cb9ae15b9fd2df4f8c1857f2147649397cf554be37cc142e72066",
+      "classification": "public documentation/configuration/validation tooling",
+      "baseline_sha256": "dc4c00a35c36f414b069519efbc764429d75e2d8ad6502778899fac2026a75a9",
+      "change": "ADAPTED_OR_NEW"
+    }
+  ]
+}

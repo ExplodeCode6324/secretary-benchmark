@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "status": "ADVISORY",
+  "qualification": "NOT_HUMAN_QUALIFIED",
+  "scope": "Standalone fixture/correctness validation, not historical pilot performance",
+  "new_live_SUT_requests": 0,
+  "environment": {
+    "platform": "macOS",
+    "node": "v22.22.0",
+    "postgres": "initdb (PostgreSQL) 18.6 (Homebrew)"
+  },
+  "first_type_check": {
+    "status": "FAIL",
+    "failures": 3,
+    "cause": "Missing types for callback parameters in the new differential test helper",
+    "raw_log_sha256": "7d48fb33847b3b84fbdfaccee58c7c9135500ed0bb8f28b24baefac30adc6694",
+    "repair": "Explicit controller callback parameter types; second type check passed"
+  },
+  "first_full_suite": {
+    "commit": "1072d42a7cdb577860736026b50ab3bbdb688184",
+    "status": "FAIL",
+    "tests": 99,
+    "passed": 87,
+    "failed": 12,
+    "skipped": 0,
+    "raw_log_sha256": "2c21bc3618e1ef030a9b39a1365db8190881ac28001340e66dd65b69a8210a9c",
+    "public_log": "standalone-first-attempt.tap",
+    "transformation": "Absolute local repository prefix replaced with <benchmark>; trailing whitespace removed; no failure omitted",
+    "cause": "Two Python process-identity helpers still resolved the old SUT path",
+    "repair_commit": "afaef37d969d623a4ad1fc16549bc5b7745fcb50",
+    "repair": "Resolve process-runner.py under sut/secretary; no scoring rule changes"
+  },
+  "differential_validation": {
+    "tests": 6,
+    "passed": 6,
+    "failed": 0,
+    "scope": [
+      "byte-identical assessment/migration judge request and controls",
+      "identical selected-report body except code_head and replay_input_sha256",
+      "byte-identical public QA variant packet (same allocated fixture UUID)",
+      "protected path, archive configuration, SUT identity and import isolation guards"
+    ]
+  },
+  "final_full_suite": {
+    "status": "PASS",
+    "commit": "afaef37d969d623a4ad1fc16549bc5b7745fcb50",
+    "tests": 99,
+    "passed": 99,
+    "failed": 0,
+    "skipped": 0,
+    "raw_log_sha256": "f9e0382821ccbec84d95c90ec0bf283575faf0353ccc6b784814a25fd30908b1",
+    "public_log": "standalone-passing-attempt.tap",
+    "command": "npm run verify",
+    "duration_ms": 211157.370709
+  },
+  "archival": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK",
+  "historical_first_pilot": "NOT_REPLACED_BY_THIS_CORRECTNESS_RUN"
+}

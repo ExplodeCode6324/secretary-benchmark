@@ -1,0 +1,998 @@
+
+> verify
+> npm run check && npm test
+
+
+> check
+> tsc --noEmit
+
+
+> test
+> tsx --test --test-concurrency=1 "test_case/offline/benchmark/*.test.ts"
+
+TAP version 13
+# Subtest: archive never adopts an unmarked/mixed root and requires an external mounted volume at the CLI boundary
+ok 1 - archive never adopts an unmarked/mixed root and requires an external mounted volume at the CLI boundary
+  ---
+  duration_ms: 1.926416
+  type: 'test'
+  ...
+# Traceback (most recent call last):
+#   File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+#     spec.loader.exec_module(module)
+#   File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+#   File "<frozen importlib._bootstrap_external>", line 982, in get_code
+#   File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+# FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+# Subtest: complete stopped Core/PG facility archives with original failures; publication failure preserves source
+not ok 2 - complete stopped Core/PG facility archives with original failures; publication failure preserves source
+  ---
+  duration_ms: 1629.366
+  type: 'test'
+  location: '<benchmark>/test_case/offline/benchmark/archive.test.ts:50:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Command failed: /usr/bin/python3 <benchmark>/test_case/online/benchmark/identity.py 35553 2a31f2f9-084e-44a7-b897-a3f225209d0b
+    Traceback (most recent call last):
+      File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+        spec.loader.exec_module(module)
+      File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+      File "<frozen importlib._bootstrap_external>", line 982, in get_code
+      File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+    FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    genericNodeError (node:internal/errors:983:15)
+    wrappedFn (node:internal/errors:537:14)
+    checkExecSyncError (node:child_process:916:11)
+    execFileSync (node:child_process:952:15)
+    processIdentity (<benchmark>/test_case/online/benchmark/io.ts:361:5)
+    Domains.start (<benchmark>/test_case/online/benchmark/domain.ts:411:21)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/archive.test.ts:59:21)
+    async lease (<benchmark>/test_case/online/benchmark/io.ts:352:12)
+    async TestContext.<anonymous> (<benchmark>/test_case/offline/benchmark/archive.test.ts:58:7)
+  ...
+# Subtest: Opus fresh export never publishes a Fable batch and exactly matches the frozen migration contract
+ok 3 - Opus fresh export never publishes a Fable batch and exactly matches the frozen migration contract
+  ---
+  duration_ms: 207.044084
+  type: 'test'
+  ...
+# Subtest: accepted Opus inputs replay deterministically, preserve raw fences and cannot be imported or reserved twice
+ok 4 - accepted Opus inputs replay deterministically, preserve raw fences and cannot be imported or reserved twice
+  ---
+  duration_ms: 1663.834291
+  type: 'test'
+  ...
+# Subtest: control, identity and schema failures are terminal and stay unassessed without Fable fallback
+ok 5 - control, identity and schema failures are terminal and stay unassessed without Fable fallback
+  ---
+  duration_ms: 2707.61875
+  type: 'test'
+  ...
+# Subtest: only format or confirmed no-response failures retry, three reservations exhaust permanently
+ok 6 - only format or confirmed no-response failures retry, three reservations exhaust permanently
+  ---
+  duration_ms: 1749.555417
+  type: 'test'
+  ...
+# Subtest: selection duplicates, source drift, changed anchors and unaccepted Fable reassessment are rejected
+ok 7 - selection duplicates, source drift, changed anchors and unaccepted Fable reassessment are rejected
+  ---
+  duration_ms: 185.305
+  type: 'test'
+  ...
+# Subtest: public Opus variant binds its exact identity and requires independent public controls
+ok 8 - public Opus variant binds its exact identity and requires independent public controls
+  ---
+  duration_ms: 0.255208
+  type: 'test'
+  ...
+# Subtest: read-only assessment guard recognizes positive PID reuse and rejects ambiguous identity
+ok 9 - read-only assessment guard recognizes positive PID reuse and rejects ambiguous identity
+  ---
+  duration_ms: 42.429625
+  type: 'test'
+  ...
+# Subtest: assessment proof remains required with an injected anchor, and source changes block sends
+ok 10 - assessment proof remains required with an injected anchor, and source changes block sends
+  ---
+  duration_ms: 432.00125
+  type: 'test'
+  ...
+# Subtest: accepted raw-response or receipt tampering is detected before report use
+ok 11 - accepted raw-response or receipt tampering is detected before report use
+  ---
+  duration_ms: 561.5345
+  type: 'test'
+  ...
+# Subtest: accepted Fable parent reassessment preserves its mapping and rejects duplicate accepted parents
+ok 12 - accepted Fable parent reassessment preserves its mapping and rejects duplicate accepted parents
+  ---
+  duration_ms: 331.787459
+  type: 'test'
+  ...
+# Subtest: replay rejects rehashed cohort changes and missing selections
+ok 13 - replay rejects rehashed cohort changes and missing selections
+  ---
+  duration_ms: 662.05775
+  type: 'test'
+  ...
+# Subtest: real CLI snapshots and replays a fixture and restored copy with identical report hashes
+ok 14 - real CLI snapshots and replays a fixture and restored copy with identical report hashes
+  ---
+  duration_ms: 3994.498875
+  type: 'test'
+  ...
+# Subtest: split preserves exact judge requests, controls and selected report semantics
+ok 15 - split preserves exact judge requests, controls and selected report semantics
+  ---
+  duration_ms: 2265.877208
+  type: 'test'
+  ...
+# Subtest: public QA Opus variant packet is byte-identical to the pinned baseline
+ok 16 - public QA Opus variant packet is byte-identical to the pinned baseline
+  ---
+  duration_ms: 382.038333
+  type: 'test'
+  ...
+# Subtest: pre-write deployment refusal covers markers, alias paths and root traversal
+ok 17 - pre-write deployment refusal covers markers, alias paths and root traversal
+  ---
+  duration_ms: 4.439375
+  type: 'test'
+  ...
+# Subtest: checkpoint inventory preserves empty directories and refuses symlink/hardlink escapes
+ok 18 - checkpoint inventory preserves empty directories and refuses symlink/hardlink escapes
+  ---
+  duration_ms: 9.274292
+  type: 'test'
+  ...
+# Subtest: controller lease excludes concurrent mutation and releases after EOF
+ok 19 - controller lease excludes concurrent mutation and releases after EOF
+  ---
+  duration_ms: 112.308292
+  type: 'test'
+  ...
+# Subtest: report keeps full denominators and cannot label scripted memory or incomplete runs PASS
+ok 20 - report keeps full denominators and cannot label scripted memory or incomplete runs PASS
+  ---
+  duration_ms: 19.643
+  type: 'test'
+  ...
+# Traceback (most recent call last):
+#   File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+#     spec.loader.exec_module(module)
+#   File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+#   File "<frozen importlib._bootstrap_external>", line 982, in get_code
+#   File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+# FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+# Subtest: owned PG/marker/process refusals preserve domains and evidence
+not ok 21 - owned PG/marker/process refusals preserve domains and evidence
+  ---
+  duration_ms: 1986.8215
+  type: 'test'
+  location: '<benchmark>/test_case/offline/benchmark/guards.test.ts:167:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Command failed: /usr/bin/python3 <benchmark>/test_case/online/benchmark/identity.py 40411 c878fff7-7e91-4d19-87d0-c11318290311
+    Traceback (most recent call last):
+      File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+        spec.loader.exec_module(module)
+      File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+      File "<frozen importlib._bootstrap_external>", line 982, in get_code
+      File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+    FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    genericNodeError (node:internal/errors:983:15)
+    wrappedFn (node:internal/errors:537:14)
+    checkExecSyncError (node:child_process:916:11)
+    execFileSync (node:child_process:952:15)
+    processIdentity (<benchmark>/test_case/online/benchmark/io.ts:361:5)
+    Domains.start (<benchmark>/test_case/online/benchmark/domain.ts:411:21)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/guards.test.ts:223:13)
+    async lease (<benchmark>/test_case/online/benchmark/io.ts:352:12)
+    async TestContext.<anonymous> (<benchmark>/test_case/offline/benchmark/guards.test.ts:172:5)
+  ...
+# Traceback (most recent call last):
+#   File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+#     spec.loader.exec_module(module)
+#   File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+#   File "<frozen importlib._bootstrap_external>", line 982, in get_code
+#   File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+# FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+# Subtest: actual Core/PG isolation, OS restart, backup/import and original Shared task continuation
+not ok 22 - actual Core/PG isolation, OS restart, backup/import and original Shared task continuation
+  ---
+  duration_ms: 1763.791
+  type: 'test'
+  location: '<benchmark>/test_case/offline/benchmark/guards.test.ts:254:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    {"directory":"<benchmark>/.local/benchmark/tests/2e2500d9-12e4-4007-839a-3baae3bcb186/reports/6ef06ac3-bfb8-4da1-b3a3-1ec04b6f861d","cases":[{"id":"fresh-domain","status":"FAIL","reason":"Error: Command failed: /usr/bin/python3 <benchmark>/test_case/online/benchmark/identity.py 41008 6bde9653-f8b9-47aa-97fc-86f41f1c3c6a\nTraceback (most recent call last):\n  File \"<benchmark>/test_case/online/benchmark/identity.py\", line 6, in <module>\n    spec.loader.exec_module(module)\n  File \"<frozen importlib._bootstrap_external>\", line 846, in exec_module\n  File \"<frozen importlib._bootstrap_external>\", line 982, in get_code\n  File \"<frozen importlib._bootstrap_external>\", line 1039, in get_data\nFileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'\n","evidence":[]},{"id":"same-run-restart","status":"NOT_TESTED","reason":"Earlier infrastructure failure","evidence":[]},{"id":"restore-continue","status":"NOT_TESTED","reason":"Earlier infrastructure failure","evidence":[]},{"id":"tool-boundary","status":"NOT_TESTED","reason":"Earlier infrastructure failure","evidence":[]},{"id":"checkpoint-integrity","status":"NOT_TESTED","reason":"Earlier infrastructure failure","evidence":[]},{"id":"evidence-preserving-clean","status":"NOT_TESTED","reason":"Earlier infrastructure failure","evidence":[]},{"id":"memory-workload","status":"NOT_APPLICABLE","reason":"Master assigned concrete benchmark workloads to #121","evidence":[]}]}
+    + actual - expected
+
+    + 'Error: Command failed: /usr/bin/python3 <benchmark>/test_case/online/benchmark/identity.py 41008 6bde9653-f8b9-47aa-97fc-86f41f1c3c6a\n' +
+    +   'Traceback (most recent call last):\n' +
+    +   '  File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>\n' +
+    +   '    spec.loader.exec_module(module)\n' +
+    +   '  File "<frozen importlib._bootstrap_external>", line 846, in exec_module\n' +
+    +   '  File "<frozen importlib._bootstrap_external>", line 982, in get_code\n' +
+    +   '  File "<frozen importlib._bootstrap_external>", line 1039, in get_data\n' +
+    +   "FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'\n"
+    - null
+
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual: |-
+    Error: Command failed: /usr/bin/python3 <benchmark>/test_case/online/benchmark/identity.py 41008 6bde9653-f8b9-47aa-97fc-86f41f1c3c6a
+    Traceback (most recent call last):
+      File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+        spec.loader.exec_module(module)
+      File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+      File "<frozen importlib._bootstrap_external>", line 982, in get_code
+      File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+    FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (<benchmark>/test_case/offline/benchmark/guards.test.ts:261:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: creation CLI refuses missing or mixed-root destinations before writing a facility
+ok 23 - creation CLI refuses missing or mixed-root destinations before writing a facility
+  ---
+  duration_ms: 2532.959125
+  type: 'test'
+  ...
+# Subtest: atomic evidence replacement retries the unlinked inode without accepting hardlinks
+ok 24 - atomic evidence replacement retries the unlinked inode without accepting hardlinks
+  ---
+  duration_ms: 22.890166
+  type: 'test'
+  ...
+# Subtest: judge migration preserves V3 evidence and controls while restricting the new identity
+ok 25 - judge migration preserves V3 evidence and controls while restricting the new identity
+  ---
+  duration_ms: 135.488167
+  type: 'test'
+  ...
+# Subtest: response extraction handles outer LF/CRLF fences without scanning quoted interior backticks
+ok 26 - response extraction handles outer LF/CRLF fences without scanning quoted interior backticks
+  ---
+  duration_ms: 0.218791
+  type: 'test'
+  ...
+# Subtest: controller capability cannot be forged or used after its holder dies
+ok 27 - controller capability cannot be forged or used after its holder dies
+  ---
+  duration_ms: 90.154958
+  type: 'test'
+  ...
+# Subtest: grading publication preserves the baseline and rejects unmarked legacy-looking files
+ok 28 - grading publication preserves the baseline and rejects unmarked legacy-looking files
+  ---
+  duration_ms: 217.373083
+  type: 'test'
+  ...
+# Subtest: an interrupted transaction is never counted and exact-hash reconciliation only quarantines it
+ok 29 - an interrupted transaction is never counted and exact-hash reconciliation only quarantines it
+  ---
+  duration_ms: 190.17725
+  type: 'test'
+  ...
+# Subtest: six-child export verifies deterministic bytes, all-six readiness, ancestry and restored local chains
+ok 30 - six-child export verifies deterministic bytes, all-six readiness, ancestry and restored local chains
+  ---
+  duration_ms: 3494.130125
+  type: 'test'
+  ...
+# Subtest: attempt outcomes prohibit semantic retries, preserve control failures and exhaust three format attempts
+ok 31 - attempt outcomes prohibit semantic retries, preserve control failures and exhaust three format attempts
+  ---
+  duration_ms: 8617.8255
+  type: 'test'
+  ...
+# Subtest: judge grouping separates identical SUT cases, canonical provenance and distinct runs
+ok 32 - judge grouping separates identical SUT cases, canonical provenance and distinct runs
+  ---
+  duration_ms: 0.190083
+  type: 'test'
+  ...
+# Subtest: lease loss during synchronous publication leaves an uncommitted transaction and blocks readers
+ok 33 - lease loss during synchronous publication leaves an uncommitted transaction and blocks readers
+  ---
+  duration_ms: 296.129792
+  type: 'test'
+  ...
+# Subtest: failed import publication reconciles only exact bytes and preserves the original attempt
+ok 34 - failed import publication reconciles only exact bytes and preserves the original attempt
+  ---
+  duration_ms: 3873.065208
+  type: 'test'
+  ...
+# Subtest: concurrent export, import and score cannot enter a held controller lease
+ok 35 - concurrent export, import and score cannot enter a held controller lease
+  ---
+  duration_ms: 253.127
+  type: 'test'
+  ...
+# Subtest: first export rejects unlisted files and noncanonical parent bytes before creating a journal
+ok 36 - first export rejects unlisted files and noncanonical parent bytes before creating a journal
+  ---
+  duration_ms: 935.090166
+  type: 'test'
+  ...
+# Subtest: partially published readiness resumes identically after explicit reconciliation
+ok 37 - partially published readiness resumes identically after explicit reconciliation
+  ---
+  duration_ms: 4263.114542
+  type: 'test'
+  ...
+# Subtest: quarantined reservations consume an ordinal and confirmed no-response outcomes never fabricate text
+ok 38 - quarantined reservations consume an ordinal and confirmed no-response outcomes never fabricate text
+  ---
+  duration_ms: 4064.173959
+  type: 'test'
+  ...
+# Subtest: journal-less recovery records successful quarantine and reports other pending transactions
+ok 39 - journal-less recovery records successful quarantine and reports other pending transactions
+  ---
+  duration_ms: 186.1645
+  type: 'test'
+  ...
+# Subtest: review proof validation is independent of anchor injection and protects every ready root
+ok 40 - review proof validation is independent of anchor injection and protects every ready root
+  ---
+  duration_ms: 906.763667
+  type: 'test'
+  ...
+# Subtest: a competing verdict detected after terminality commits a terminal rejected outcome
+ok 41 - a competing verdict detected after terminality commits a terminal rejected outcome
+  ---
+  duration_ms: 3540.906667
+  type: 'test'
+  ...
+# Subtest: unmarked historical receipt chains retain canonical Fable provenance before and after migration
+ok 42 - unmarked historical receipt chains retain canonical Fable provenance before and after migration
+  ---
+  duration_ms: 2643.571166
+  type: 'test'
+  ...
+# Subtest: quarantined response capture binds exact bytes and never permits a no-response retry
+ok 43 - quarantined response capture binds exact bytes and never permits a no-response retry
+  ---
+  duration_ms: 5370.503875
+  type: 'test'
+  ...
+# Subtest: journal-less CLI inspection supports reconciliation and conservatively blocks a later no-response claim
+ok 44 - journal-less CLI inspection supports reconciliation and conservatively blocks a later no-response claim
+  ---
+  duration_ms: 3970.748084
+  type: 'test'
+  ...
+# Subtest: selected report reuses Opus migration chains, rejects mixed judges and binds every facility's anchored history
+ok 45 - selected report reuses Opus migration chains, rejects mixed judges and binds every facility's anchored history
+  ---
+  duration_ms: 13944.37625
+  type: 'test'
+  ...
+# Subtest: local public bundles bind every required file to official pinned URLs and reject mutation or path escape
+ok 46 - local public bundles bind every required file to official pinned URLs and reject mutation or path escape
+  ---
+  duration_ms: 61.239375
+  type: 'test'
+  ...
+# Subtest: private replay intake refuses hidden exposure changes, undeclared fields and malformed reminders
+ok 47 - private replay intake refuses hidden exposure changes, undeclared fields and malformed reminders
+  ---
+  duration_ms: 0.390417
+  type: 'test'
+  ...
+# Subtest: public time conflicts retain the selected denominator without changing or filtering source history
+ok 48 - public time conflicts retain the selected denominator without changing or filtering source history
+  ---
+  duration_ms: 1.306791
+  type: 'test'
+  ...
+# Subtest: public judge variant preserves literal slots, fails closed on scorer drift and cannot grade an unexecuted answer
+ok 49 - public judge variant preserves literal slots, fails closed on scorer drift and cannot grade an unexecuted answer
+  ---
+  duration_ms: 1.422708
+  type: 'test'
+  ...
+# Subtest: physical accounting serializes concurrent senders and retains crash reservations
+ok 50 - physical accounting serializes concurrent senders and retains crash reservations
+  ---
+  duration_ms: 2316.001875
+  type: 'test'
+  ...
+# Subtest: ledger corruption fails closed before any new reservation
+ok 51 - ledger corruption fails closed before any new reservation
+  ---
+  duration_ms: 965.803833
+  type: 'test'
+  ...
+# Subtest: live config does not permit arbitrary provider, endpoint, credential or capacity fields
+ok 52 - live config does not permit arbitrary provider, endpoint, credential or capacity fields
+  ---
+  duration_ms: 0.336333
+  type: 'test'
+  ...
+# Subtest: metered transport refuses leakage, redirects and mismatched payloads before network
+ok 53 - metered transport refuses leakage, redirects and mismatched payloads before network
+  ---
+  duration_ms: 737.326542
+  type: 'test'
+  ...
+# Subtest: all exact model descriptors traverse the product adapter and physical-send guard
+ok 54 - all exact model descriptors traverse the product adapter and physical-send guard
+  ---
+  duration_ms: 2284.695333
+  type: 'test'
+  ...
+# Subtest: public corpus allowlist strips answer annotations and remaps every source identifier
+ok 55 - public corpus allowlist strips answer annotations and remaps every source identifier
+  ---
+  duration_ms: 1.979416
+  type: 'test'
+  ...
+# Subtest: approved recovery contract covers each action and every operation state
+ok 56 - approved recovery contract covers each action and every operation state
+  ---
+  duration_ms: 0.53525
+  type: 'test'
+  ...
+# Subtest: live post-fsync fault proof excludes UNKNOWN failures, reconciliation and mismatched evidence
+ok 57 - live post-fsync fault proof excludes UNKNOWN failures, reconciliation and mismatched evidence
+  ---
+  duration_ms: 0.128542
+  type: 'test'
+  ...
+# Subtest: World restore requires the same committed batch, receipt, journal and result records
+ok 58 - World restore requires the same committed batch, receipt, journal and result records
+  ---
+  duration_ms: 0.166583
+  type: 'test'
+  ...
+# Subtest: grader cannot change denominators, mutate evidence or waive serious review
+ok 59 - grader cannot change denominators, mutate evidence or waive serious review
+  ---
+  duration_ms: 0.288666
+  type: 'test'
+  ...
+# Subtest: grader calibration preserves every bilingual control and rejects missing, duplicated or wrong judgments
+ok 60 - grader calibration preserves every bilingual control and rejects missing, duplicated or wrong judgments
+  ---
+  duration_ms: 2.35725
+  type: 'test'
+  ...
+# Subtest: a completed trajectory cannot hide failed extraction or overwrite a recovered first failure
+ok 61 - a completed trajectory cannot hide failed extraction or overwrite a recovered first failure
+  ---
+  duration_ms: 0.122542
+  type: 'test'
+  ...
+# Subtest: supplemental grading separates first/reminder/memory and never waives forbidden effects for missing positive coverage
+ok 62 - supplemental grading separates first/reminder/memory and never waives forbidden effects for missing positive coverage
+  ---
+  duration_ms: 0.219625
+  type: 'test'
+  ...
+# Subtest: repository pin rejects future or changed source, and actual read proof requires a matching tool result and context hash
+ok 63 - repository pin rejects future or changed source, and actual read proof requires a matching tool result and context hash
+  ---
+  duration_ms: 302.525125
+  type: 'test'
+  ...
+# Subtest: World policy permits only the exact synthetic create-plus-note and refuses additional authority or targets
+ok 64 - World policy permits only the exact synthetic create-plus-note and refuses additional authority or targets
+  ---
+  duration_ms: 0.300041
+  type: 'test'
+  ...
+# Subtest: a pilot records its complete matrix before dispatch and preserves first failure when finalization aborts later rows
+ok 65 - a pilot records its complete matrix before dispatch and preserves first failure when finalization aborts later rows
+  ---
+  duration_ms: 339.647375
+  type: 'test'
+  ...
+# Subtest: descriptive scoring never counts duplicate receipts or rescoring as independent runs
+ok 66 - descriptive scoring never counts duplicate receipts or rescoring as independent runs
+  ---
+  duration_ms: 0.474125
+  type: 'test'
+  ...
+# Subtest: public diagnostics count retrieved content, not ID listings, and do not confuse recall with accuracy
+ok 67 - public diagnostics count retrieved content, not ID listings, and do not confuse recall with accuracy
+  ---
+  duration_ms: 0.330084
+  type: 'test'
+  ...
+# Subtest: transport sanitization preserves product retry classification, HTTP backoff and CRLF usage
+ok 68 - transport sanitization preserves product retry classification, HTTP backoff and CRLF usage
+  ---
+  duration_ms: 1081.675833
+  type: 'test'
+  ...
+# Subtest: controller canary and future input guards survive incarnation changes and leave zero-send refusal receipts
+ok 69 - controller canary and future input guards survive incarnation changes and leave zero-send refusal receipts
+  ---
+  duration_ms: 749.117416
+  type: 'test'
+  ...
+# Subtest: campaign source mismatch blocks reservation and closure retains final uncertain charges
+ok 70 - campaign source mismatch blocks reservation and closure retains final uncertain charges
+  ---
+  duration_ms: 1036.563917
+  type: 'test'
+  ...
+# Subtest: public v2 snippets match the actual product search method on unicode chunks and do not expose full bodies
+ok 71 - public v2 snippets match the actual product search method on unicode chunks and do not expose full bodies
+  ---
+  duration_ms: 0.727083
+  type: 'test'
+  ...
+# Subtest: unexercised coverage cannot pass and independently confirmed effects cannot be waived
+ok 72 - unexercised coverage cannot pass and independently confirmed effects cannot be waived
+  ---
+  duration_ms: 0.701166
+  type: 'test'
+  ...
+# Subtest: failed World batches restore only with matching host receipt, authorization and transaction
+ok 73 - failed World batches restore only with matching host receipt, authorization and transaction
+  ---
+  duration_ms: 0.148417
+  type: 'test'
+  ...
+# Subtest: a failed pre-probe hook preserves failure but still reaches the probe after safe quiescence
+ok 74 - a failed pre-probe hook preserves failure but still reaches the probe after safe quiescence
+  ---
+  duration_ms: 0.123958
+  type: 'test'
+  ...
+# Subtest: public read adapter matches product listing order, metadata and Unicode slices
+ok 75 - public read adapter matches product listing order, metadata and Unicode slices
+  ---
+  duration_ms: 0.570458
+  type: 'test'
+  ...
+# Subtest: positive World coverage needs actual denial and committed objects in post-restart state
+ok 76 - positive World coverage needs actual denial and committed objects in post-restart state
+  ---
+  duration_ms: 0.16625
+  type: 'test'
+  ...
+# Subtest: semantic packet projection retains effect proofs and context hashes but does not claim omitted payload absence
+ok 77 - semantic packet projection retains effect proofs and context hashes but does not claim omitted payload absence
+  ---
+  duration_ms: 0.067167
+  type: 'test'
+  ...
+# Subtest: V3 grades bind calibration to the exact frozen context and retain invalid controls without counting them
+ok 78 - V3 grades bind calibration to the exact frozen context and retain invalid controls without counting them
+  ---
+  duration_ms: 668.268208
+  type: 'test'
+  ...
+# Subtest: reviewed dispositions freeze source identity and cannot waive separately confirmed effects
+ok 79 - reviewed dispositions freeze source identity and cannot waive separately confirmed effects
+  ---
+  duration_ms: 342.075459
+  type: 'test'
+  ...
+# Subtest: V3 trace controls have strict chronology and complete six-assertion packet coverage
+ok 80 - V3 trace controls have strict chronology and complete six-assertion packet coverage
+  ---
+  duration_ms: 1.298333
+  type: 'test'
+  ...
+# Subtest: descriptive counts separate all-unresolved, uncalibrated, case identity and hard-gate candidates
+ok 81 - descriptive counts separate all-unresolved, uncalibrated, case identity and hard-gate candidates
+  ---
+  duration_ms: 0.339
+  type: 'test'
+  ...
+# Subtest: closed ledgers reject late settlement, preserve closure time, and validate frozen totals
+ok 82 - closed ledgers reject late settlement, preserve closure time, and validate frozen totals
+  ---
+  duration_ms: 802.739875
+  type: 'test'
+  ...
+# Subtest: judge disposition projection excludes reviewer prose and rejects model-bearing metadata
+ok 83 - judge disposition projection excludes reviewer prose and rejects model-bearing metadata
+  ---
+  duration_ms: 333.168416
+  type: 'test'
+  ...
+# Subtest: calibration covers every named tag and distinguishes unauthorized effects from authority
+ok 84 - calibration covers every named tag and distinguishes unauthorized effects from authority
+  ---
+  duration_ms: 1.288625
+  type: 'test'
+  ...
+# Subtest: G1 candidates exclude ordinary and reminder-only failures while consequence counts retain them
+ok 85 - G1 candidates exclude ordinary and reminder-only failures while consequence counts retain them
+  ---
+  duration_ms: 0.206959
+  type: 'test'
+  ...
+# Subtest: restore preflight rejects uncertain effects and every external capability before Core opens
+ok 86 - restore preflight rejects uncertain effects and every external capability before Core opens
+  ---
+  duration_ms: 104.659875
+  type: 'test'
+  ...
+# Traceback (most recent call last):
+#   File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+#     spec.loader.exec_module(module)
+#   File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+#   File "<frozen importlib._bootstrap_external>", line 982, in get_code
+#   File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+# FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+# Subtest: interrupted restore before-retire resumes only the verified incarnation
+not ok 87 - interrupted restore before-retire resumes only the verified incarnation
+  ---
+  duration_ms: 1589.603666
+  type: 'test'
+  location: '<benchmark>/test_case/offline/benchmark/recovery.test.ts:150:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Command failed: /usr/bin/python3 <benchmark>/test_case/online/benchmark/identity.py 55535 3f992124-4818-45d4-b4c9-a7c5323d74b1
+    Traceback (most recent call last):
+      File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+        spec.loader.exec_module(module)
+      File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+      File "<frozen importlib._bootstrap_external>", line 982, in get_code
+      File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+    FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    genericNodeError (node:internal/errors:983:15)
+    wrappedFn (node:internal/errors:537:14)
+    checkExecSyncError (node:child_process:916:11)
+    execFileSync (node:child_process:952:15)
+    processIdentity (<benchmark>/test_case/online/benchmark/io.ts:361:5)
+    Domains.start (<benchmark>/test_case/online/benchmark/domain.ts:411:21)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:160:24)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:20:7)
+    async lease (<benchmark>/test_case/online/benchmark/io.ts:352:12)
+  ...
+# Traceback (most recent call last):
+#   File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+#     spec.loader.exec_module(module)
+#   File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+#   File "<frozen importlib._bootstrap_external>", line 982, in get_code
+#   File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+# FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+# Subtest: interrupted restore after-retire resumes only the verified incarnation
+not ok 88 - interrupted restore after-retire resumes only the verified incarnation
+  ---
+  duration_ms: 1768.3695
+  type: 'test'
+  location: '<benchmark>/test_case/offline/benchmark/recovery.test.ts:150:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Command failed: /usr/bin/python3 <benchmark>/test_case/online/benchmark/identity.py 56124 5a808605-adda-4543-875f-94717e391c3c
+    Traceback (most recent call last):
+      File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+        spec.loader.exec_module(module)
+      File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+      File "<frozen importlib._bootstrap_external>", line 982, in get_code
+      File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+    FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    genericNodeError (node:internal/errors:983:15)
+    wrappedFn (node:internal/errors:537:14)
+    checkExecSyncError (node:child_process:916:11)
+    execFileSync (node:child_process:952:15)
+    processIdentity (<benchmark>/test_case/online/benchmark/io.ts:361:5)
+    Domains.start (<benchmark>/test_case/online/benchmark/domain.ts:411:21)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:160:24)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:20:7)
+    async lease (<benchmark>/test_case/online/benchmark/io.ts:352:12)
+  ...
+# Traceback (most recent call last):
+#   File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+#     spec.loader.exec_module(module)
+#   File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+#   File "<frozen importlib._bootstrap_external>", line 982, in get_code
+#   File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+# FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+# Subtest: interrupted restore after-promote resumes only the verified incarnation
+not ok 89 - interrupted restore after-promote resumes only the verified incarnation
+  ---
+  duration_ms: 1722.761833
+  type: 'test'
+  location: '<benchmark>/test_case/offline/benchmark/recovery.test.ts:150:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Command failed: /usr/bin/python3 <benchmark>/test_case/online/benchmark/identity.py 56721 cca92fe2-c9e1-4403-9543-aaac386d1719
+    Traceback (most recent call last):
+      File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+        spec.loader.exec_module(module)
+      File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+      File "<frozen importlib._bootstrap_external>", line 982, in get_code
+      File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+    FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    genericNodeError (node:internal/errors:983:15)
+    wrappedFn (node:internal/errors:537:14)
+    checkExecSyncError (node:child_process:916:11)
+    execFileSync (node:child_process:952:15)
+    processIdentity (<benchmark>/test_case/online/benchmark/io.ts:361:5)
+    Domains.start (<benchmark>/test_case/online/benchmark/domain.ts:411:21)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:160:24)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:20:7)
+    async lease (<benchmark>/test_case/online/benchmark/io.ts:352:12)
+  ...
+# Traceback (most recent call last):
+#   File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+#     spec.loader.exec_module(module)
+#   File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+#   File "<frozen importlib._bootstrap_external>", line 982, in get_code
+#   File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+# FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+# Subtest: killed worker preserves uncertain actual write; restored original resource reconciles without redo
+not ok 90 - killed worker preserves uncertain actual write; restored original resource reconciles without redo
+  ---
+  duration_ms: 1638.356041
+  type: 'test'
+  location: '<benchmark>/test_case/offline/benchmark/recovery.test.ts:253:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Command failed: /usr/bin/python3 <benchmark>/test_case/online/benchmark/identity.py 57311 f3ec3a7b-71d7-4b6a-988c-6680567d77ab
+    Traceback (most recent call last):
+      File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+        spec.loader.exec_module(module)
+      File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+      File "<frozen importlib._bootstrap_external>", line 982, in get_code
+      File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+    FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    genericNodeError (node:internal/errors:983:15)
+    wrappedFn (node:internal/errors:537:14)
+    checkExecSyncError (node:child_process:916:11)
+    execFileSync (node:child_process:952:15)
+    processIdentity (<benchmark>/test_case/online/benchmark/io.ts:361:5)
+    Domains.start (<benchmark>/test_case/online/benchmark/domain.ts:411:21)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:263:17)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:20:7)
+    async lease (<benchmark>/test_case/online/benchmark/io.ts:352:12)
+  ...
+# Traceback (most recent call last):
+#   File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+#     spec.loader.exec_module(module)
+#   File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+#   File "<frozen importlib._bootstrap_external>", line 982, in get_code
+#   File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+# FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+# Subtest: counted local push survives restore; missed AT pauses while post-ready AT executes
+not ok 91 - counted local push survives restore; missed AT pauses while post-ready AT executes
+  ---
+  duration_ms: 1688.141
+  type: 'test'
+  location: '<benchmark>/test_case/offline/benchmark/recovery.test.ts:314:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Command failed: /usr/bin/python3 <benchmark>/test_case/online/benchmark/identity.py 57899 207a713a-1fe1-4466-a52c-2c50631865cd
+    Traceback (most recent call last):
+      File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+        spec.loader.exec_module(module)
+      File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+      File "<frozen importlib._bootstrap_external>", line 982, in get_code
+      File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+    FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    genericNodeError (node:internal/errors:983:15)
+    wrappedFn (node:internal/errors:537:14)
+    checkExecSyncError (node:child_process:916:11)
+    execFileSync (node:child_process:952:15)
+    processIdentity (<benchmark>/test_case/online/benchmark/io.ts:361:5)
+    Domains.start (<benchmark>/test_case/online/benchmark/domain.ts:411:21)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:323:17)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:20:7)
+    async lease (<benchmark>/test_case/online/benchmark/io.ts:352:12)
+  ...
+# Traceback (most recent call last):
+#   File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+#     spec.loader.exec_module(module)
+#   File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+#   File "<frozen importlib._bootstrap_external>", line 982, in get_code
+#   File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+# FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+# Subtest: stale derived PG index rebuilds from the same authoritative journal
+not ok 92 - stale derived PG index rebuilds from the same authoritative journal
+  ---
+  duration_ms: 1673.702583
+  type: 'test'
+  location: '<benchmark>/test_case/offline/benchmark/recovery.test.ts:410:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Command failed: /usr/bin/python3 <benchmark>/test_case/online/benchmark/identity.py 58488 7a004391-8117-474b-9583-5e5bd55f54a1
+    Traceback (most recent call last):
+      File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+        spec.loader.exec_module(module)
+      File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+      File "<frozen importlib._bootstrap_external>", line 982, in get_code
+      File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+    FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    genericNodeError (node:internal/errors:983:15)
+    wrappedFn (node:internal/errors:537:14)
+    checkExecSyncError (node:child_process:916:11)
+    execFileSync (node:child_process:952:15)
+    processIdentity (<benchmark>/test_case/online/benchmark/io.ts:361:5)
+    Domains.start (<benchmark>/test_case/online/benchmark/domain.ts:411:21)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:421:19)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:20:7)
+    async lease (<benchmark>/test_case/online/benchmark/io.ts:352:12)
+  ...
+# Traceback (most recent call last):
+#   File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+#     spec.loader.exec_module(module)
+#   File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+#   File "<frozen importlib._bootstrap_external>", line 982, in get_code
+#   File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+# FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+# Subtest: a checkpoint cannot roll back acknowledged sink effects produced after capture
+not ok 93 - a checkpoint cannot roll back acknowledged sink effects produced after capture
+  ---
+  duration_ms: 1643.052375
+  type: 'test'
+  location: '<benchmark>/test_case/offline/benchmark/recovery.test.ts:445:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Command failed: /usr/bin/python3 <benchmark>/test_case/online/benchmark/identity.py 59078 813bac96-d8e3-4b11-ad1c-0cfbf168fee0
+    Traceback (most recent call last):
+      File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+        spec.loader.exec_module(module)
+      File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+      File "<frozen importlib._bootstrap_external>", line 982, in get_code
+      File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+    FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    genericNodeError (node:internal/errors:983:15)
+    wrappedFn (node:internal/errors:537:14)
+    checkExecSyncError (node:child_process:916:11)
+    execFileSync (node:child_process:952:15)
+    processIdentity (<benchmark>/test_case/online/benchmark/io.ts:361:5)
+    Domains.start (<benchmark>/test_case/online/benchmark/domain.ts:411:21)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:454:17)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:20:7)
+    async lease (<benchmark>/test_case/online/benchmark/io.ts:352:12)
+  ...
+# Traceback (most recent call last):
+#   File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+#     spec.loader.exec_module(module)
+#   File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+#   File "<frozen importlib._bootstrap_external>", line 982, in get_code
+#   File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+# FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+# Subtest: ordinary uncertain-content writes cannot activate the opt-in crash barrier
+not ok 94 - ordinary uncertain-content writes cannot activate the opt-in crash barrier
+  ---
+  duration_ms: 1685.445042
+  type: 'test'
+  location: '<benchmark>/test_case/offline/benchmark/recovery.test.ts:495:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Command failed: /usr/bin/python3 <benchmark>/test_case/online/benchmark/identity.py 59674 3f719294-dbaf-4f6d-b2fb-ab4a2bed8672
+    Traceback (most recent call last):
+      File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+        spec.loader.exec_module(module)
+      File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+      File "<frozen importlib._bootstrap_external>", line 982, in get_code
+      File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+    FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    genericNodeError (node:internal/errors:983:15)
+    wrappedFn (node:internal/errors:537:14)
+    checkExecSyncError (node:child_process:916:11)
+    execFileSync (node:child_process:952:15)
+    processIdentity (<benchmark>/test_case/online/benchmark/io.ts:361:5)
+    Domains.start (<benchmark>/test_case/online/benchmark/domain.ts:411:21)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:505:19)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:20:7)
+    async lease (<benchmark>/test_case/online/benchmark/io.ts:352:12)
+  ...
+# Traceback (most recent call last):
+#   File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+#     spec.loader.exec_module(module)
+#   File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+#   File "<frozen importlib._bootstrap_external>", line 982, in get_code
+#   File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+# FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+# Subtest: crashed campaign can close only after every owned worker and database is stopped
+not ok 95 - crashed campaign can close only after every owned worker and database is stopped
+  ---
+  duration_ms: 2627.08475
+  type: 'test'
+  location: '<benchmark>/test_case/offline/benchmark/recovery.test.ts:531:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Command failed: /usr/bin/python3 <benchmark>/test_case/online/benchmark/identity.py 61091 72340408-83b5-48fa-83fc-6020f1332191
+    Traceback (most recent call last):
+      File "<benchmark>/test_case/online/benchmark/identity.py", line 6, in <module>
+        spec.loader.exec_module(module)
+      File "<frozen importlib._bootstrap_external>", line 846, in exec_module
+      File "<frozen importlib._bootstrap_external>", line 982, in get_code
+      File "<frozen importlib._bootstrap_external>", line 1039, in get_data
+    FileNotFoundError: [Errno 2] No such file or directory: '<benchmark>/src/pi_secretary/src/process-runner.py'
+
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    genericNodeError (node:internal/errors:983:15)
+    wrappedFn (node:internal/errors:537:14)
+    checkExecSyncError (node:child_process:916:11)
+    execFileSync (node:child_process:952:15)
+    processIdentity (<benchmark>/test_case/online/benchmark/io.ts:361:5)
+    Domains.start (<benchmark>/test_case/online/benchmark/domain.ts:411:21)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:544:5)
+    async <anonymous> (<benchmark>/test_case/offline/benchmark/recovery.test.ts:20:7)
+    async lease (<benchmark>/test_case/online/benchmark/io.ts:352:12)
+  ...
+# Subtest: protected checkout rejects canonical, alias and case variants without writing there
+ok 96 - protected checkout rejects canonical, alias and case variants without writing there
+  ---
+  duration_ms: 1.736625
+  type: 'test'
+  ...
+# Subtest: archive configuration has no default and rejects unsafe input
+ok 97 - archive configuration has no default and rejects unsafe input
+  ---
+  duration_ms: 50.597167
+  type: 'test'
+  ...
+# Subtest: SUT pin rejects wrong identity, dirty source and uninitialized nested dependency
+ok 98 - SUT pin rejects wrong identity, dirty source and uninitialized nested dependency
+  ---
+  duration_ms: 672.033
+  type: 'test'
+  ...
+# Subtest: standalone runtime never imports the historical harness
+ok 99 - standalone runtime never imports the historical harness
+  ---
+  duration_ms: 1.207916
+  type: 'test'
+  ...
+1..99
+# tests 99
+# suites 0
+# pass 87
+# fail 12
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 115014.216584

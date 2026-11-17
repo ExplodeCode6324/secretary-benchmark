@@ -10,5 +10,6 @@
     "nas_archive_reverification": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK",
     "standalone_validation_facility_archival": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK"
   },
-  "local_facilities": "Retained locally; not archived. Do not delete without verified archive."
+  "local_facilities": "Retained locally; not archived. Do not delete without verified archive.",
+  "retention_scope": "Includes remaining root test facilities, ignored differential fixtures under sut/secretary/.local, and validation clones; fixtures intentionally used for archive/cleanup unit behavior are identified by test logs."
 }

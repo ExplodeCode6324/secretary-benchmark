@@ -7,9 +7,10 @@ files=subprocess.check_output(['git','-C',str(root),'ls-files']).decode().splitl
 rows=[]
 for name in files:
     p=root/name
-    if not p.is_file() or name.startswith('evidence/'):
+    if not p.is_file() or name == 'evidence/extraction-provenance.json':
         continue
-    category=('synthetic development fixture/regression' if name.startswith('test_case/offline/') else
+    category=('derived public evidence (sanitized logs, counts, hashes and explicit deferrals)' if name.startswith('evidence/') else
+              'synthetic development fixture/regression' if name.startswith('test_case/offline/') else
               'synthetic development scenarios/controls' if p.name in ['scenarios.ts','grader-controls.ts'] else
               'harness source/schema (private input readers contain no private input data)' if name.startswith('test_case/') else
               'public documentation/configuration/validation tooling')
@@ -26,6 +27,6 @@ result={'version':1,'status':'ADVISORY','qualification':'NOT_HUMAN_QUALIFIED',
         'merge_benchmark_diff':'EMPTY (verified before extraction)',
         'frozen_grading_source':'BYTE_IDENTICAL',
         'adaptations':['SUT imports and Python/runtime paths','SUT pin, recursive cleanliness and replay binding','home-relative protected checkout guard','explicit private archive configuration','standalone package, scoped CI, docs and differential/guard tests'],
-        'excluded':['private inputs and run-specific controls','private model responses and rationales','private Git history and local settings','evidence files (each has its own provenance)'],
+        'excluded':['private inputs and run-specific controls','private model responses and rationales','private Git history and local settings','this self-referential inventory file; its identity is bound by the Git commit'],
         'files':rows}
 print(json.dumps(result,indent=2))

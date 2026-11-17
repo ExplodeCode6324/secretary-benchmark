@@ -17,7 +17,7 @@
     "private inputs and run-specific controls",
     "private model responses and rationales",
     "private Git history and local settings",
-    "evidence files (each has its own provenance)"
+    "this self-referential inventory file; its identity is bound by the Git commit"
   ],
   "files": [
     {
@@ -43,7 +43,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "1e81c7ef7b7ad3937696b8891e982db4cbdc6af953f1c21ec860f923654249e6",
+      "sha256": "f54a3cfb090a34b6c359f507b36d22eb1a5cd31d037754883110eb1a5c84f61a",
       "classification": "public documentation/configuration/validation tooling",
       "baseline_sha256": "29fba4de2fb84585e0908268846011318ab401f55ac9309af8349ddacf6c72be",
       "change": "ADAPTED_OR_NEW"
@@ -77,6 +77,48 @@
       "change": "ADAPTED_OR_NEW"
     },
     {
+      "path": "evidence/README.md",
+      "sha256": "69d28bf3efa2d2ac5a1205392b35c119f9eb947f9bdf54984229268061432ca7",
+      "classification": "derived public evidence (sanitized logs, counts, hashes and explicit deferrals)",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "evidence/deferred-work.json",
+      "sha256": "cb4ca4e08044a6941bcab8a9903879727a504fa4b48c54161a8b2db6780fea9d",
+      "classification": "derived public evidence (sanitized logs, counts, hashes and explicit deferrals)",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "evidence/historical-delivery.json",
+      "sha256": "dbbad02c5c84bcd4e599e687c67e5afdf01e505eb2ebf279bbbeabff3734b6a6",
+      "classification": "derived public evidence (sanitized logs, counts, hashes and explicit deferrals)",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "evidence/standalone-first-attempt.tap",
+      "sha256": "d4052f1a5dbb0a5ebcbb4dc46bda3d32292e0506be5f70f9971bfebaba28d46c",
+      "classification": "derived public evidence (sanitized logs, counts, hashes and explicit deferrals)",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "evidence/standalone-passing-attempt.tap",
+      "sha256": "f9e0382821ccbec84d95c90ec0bf283575faf0353ccc6b784814a25fd30908b1",
+      "classification": "derived public evidence (sanitized logs, counts, hashes and explicit deferrals)",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "evidence/standalone-validation.json",
+      "sha256": "a473711feb2b8674b735946835b56d96b28e58be9c608222ca1ea02a6ba11a84",
+      "classification": "derived public evidence (sanitized logs, counts, hashes and explicit deferrals)",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
       "path": "package-lock.json",
       "sha256": "5744fe1fdd08bb0ec892f815214561fd52b5d44b33b181b4061c4bf5928406c3",
       "classification": "public documentation/configuration/validation tooling",
@@ -92,14 +134,14 @@
     },
     {
       "path": "scripts/audit-publication.py",
-      "sha256": "da030f8a43702ad3008cf1104ad90e7cabcef3e4559bc91bae39ee5374fc6fcf",
+      "sha256": "8370b8e58300d6b2eb0299f1508761ecddedc7eda808b2b314824ccbf8838424",
       "classification": "public documentation/configuration/validation tooling",
       "baseline_sha256": null,
       "change": "ADAPTED_OR_NEW"
     },
     {
       "path": "scripts/extraction-provenance.py",
-      "sha256": "2ea6d737f23f11b930a24fb7078bd84f34de230dc714db1b5820dc7221675e00",
+      "sha256": "bfe63961328c0e317eb868a140b2aabad5f085139f0b9c880fa0784bcafdfc7c",
       "classification": "public documentation/configuration/validation tooling",
       "baseline_sha256": null,
       "change": "ADAPTED_OR_NEW"
@@ -197,7 +239,7 @@
     },
     {
       "path": "test_case/offline/benchmark/standalone.test.ts",
-      "sha256": "b4ea30ee65716439c15ac9528b485ac69a98812eae910df4734f297a784cb3b9",
+      "sha256": "c8cf6634cb41f2ef5680b93d089de44be79bf8553994cffe22fd373ad8627b9d",
       "classification": "synthetic development fixture/regression",
       "baseline_sha256": null,
       "change": "ADAPTED_OR_NEW"
@@ -372,7 +414,7 @@
     },
     {
       "path": "test_case/online/benchmark/io.ts",
-      "sha256": "048612893198a67590e237cb367e1a9e5fb4978159cf436d6d9b0ca391c7f53e",
+      "sha256": "991f7f46be8a2a94e057b4541e778aeee8e518a27637abf8053091caced4ef7d",
       "classification": "harness source/schema (private input readers contain no private input data)",
       "baseline_sha256": "31ef1dd46709d1a997266d3f5bcaeab1772364da90c8df9cc215b6b5ea97b516",
       "change": "ADAPTED_OR_NEW"

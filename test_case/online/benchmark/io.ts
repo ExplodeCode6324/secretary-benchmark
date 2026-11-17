@@ -35,12 +35,15 @@ export function deploymentGuard(
 ) {
   noLinks(repo);
   noLinks(root);
-  const agile = path.join(os.homedir(), "Desktop/secretary-agile");
-  requireThat(
-    !inside(agile.toLowerCase(), repo.toLowerCase()) &&
-      !inside(repo.toLowerCase(), agile.toLowerCase()),
-    "PROTECTED_AGILE_CHECKOUT",
-  );
+  // userInfo reads the account database; HOME must not weaken this boundary.
+  for (const home of new Set([os.homedir(), os.userInfo().homedir])) {
+    const agile = path.join(home, "Desktop/secretary-agile");
+    requireThat(
+      !inside(agile.toLowerCase(), repo.toLowerCase()) &&
+        !inside(repo.toLowerCase(), agile.toLowerCase()),
+      "PROTECTED_AGILE_CHECKOUT",
+    );
+  }
   requireThat(
     inside(path.join(repo, ".local/benchmark"), root),
     "OUTSIDE_BENCHMARK_ROOT",

@@ -17,7 +17,7 @@ npm run verify
 
 `npm run benchmark -- ...` is the sole harness entry point. See [operations](test_case/online/benchmark/README.md). Use explicit facility roots under this repository's `.local/benchmark/`. Do not run this from a deployment checkout. The protected agile checkout and path aliases are rejected. There are no start/stop deployment scripts in this package.
 
-The SUT dependency must match the Git link and lock, including recursive submodules, and contain no tracked or untracked source changes. Only the differential regression tests import the SUT's historical harness. Production benchmark execution uses this repository's harness. Updating the SUT pin is a separate reviewed change.
+The SUT dependency must match the Git link and lock, including recursive submodules, and contain no tracked or untracked source changes. Only the differential regression tests import the SUT's historical harness. Production benchmark execution uses this repository's harness. Differential tests create ignored runtime fixtures under `sut/secretary/.local/`; Python helpers may create ignored bytecode caches. The source pin stays unchanged. These nested local fixtures are included in the deferred local-retention scope. Updating the SUT pin is a separate reviewed change.
 
 ## Evidence and limits
 

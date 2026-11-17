@@ -54,5 +54,17 @@
     "duration_ms": 211157.370709
   },
   "archival": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK",
-  "historical_first_pilot": "NOT_REPLACED_BY_THIS_CORRECTNESS_RUN"
+  "historical_first_pilot": "NOT_REPLACED_BY_THIS_CORRECTNESS_RUN",
+  "prepublication_guard_amendment": {
+    "basis": "Opus R31: two bounded pre-push fixes",
+    "type_check": "PASS",
+    "focused_tests": 15,
+    "passed": 15,
+    "failed": 0,
+    "skipped": 0,
+    "command": "npx tsx --test --test-concurrency=1 test_case/offline/benchmark/standalone.test.ts test_case/offline/benchmark/guards.test.ts test_case/offline/benchmark/differential.test.ts",
+    "log_sha256": "2e9a00e460b84dcf7442a10dad28ca71256ac66838189de64b7844001b5ed33a",
+    "runtime_delta": "Protected checkout checks both environment-derived and account-database homes; all other runtime/fixture changes versus afaef37 are limited to this guard and its regression",
+    "privacy": "Reachable commit metadata and trees, including public evidence logs, scanned with ignored operator literals and reviewed synthetic-pattern allowances; no unresolved findings"
+  }
 }

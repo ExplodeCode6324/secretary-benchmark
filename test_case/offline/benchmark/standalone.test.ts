@@ -13,6 +13,17 @@ import {
 import { archiveConfiguration } from "../../online/benchmark/archive.ts";
 import { verifySut } from "../../online/benchmark/source.ts";
 
+test("an overridden HOME cannot unprotect the real account checkout", (t) => {
+  const accountHome = os.userInfo().homedir;
+  // Mock the environment-derived API instead of mutating a system environment variable.
+  t.mock.method(os, "homedir", () => path.join(repository, ".local/fake-home"));
+  for (const home of [accountHome, os.homedir()])
+    assert.throws(
+      () => deploymentGuard(path.join(home, "Desktop/secretary-agile")),
+      /PROTECTED_AGILE_CHECKOUT|SYMLINK_PATH/,
+    );
+});
+
 test("protected checkout rejects canonical, alias and case variants without writing there", () => {
   const protectedPath = path.join(os.homedir(), "Desktop/secretary-agile");
   for (const p of [

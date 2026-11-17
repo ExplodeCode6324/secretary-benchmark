@@ -1,0 +1,3 @@
+[submodule "secretary"]
+	path = sut/secretary
+	url = https://github.com/ExplodeCode6324/Secretary.git

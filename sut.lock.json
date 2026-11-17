@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "repository": "https://github.com/ExplodeCode6324/Secretary.git",
+  "commit": "873b66f4b906ff53a62476ff5dd1466649c427f7",
+  "submodules": {
+    "src/pi_resource": "16787ad5b2dc748047f314ca1bfe7708f30f54f3"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "version": "secretary-historical-delivery-evidence-v1",
+  "status": "ADVISORY",
+  "qualification": "NOT_HUMAN_QUALIFIED",
+  "scope": "Historical benchmark delivery evidence retained locally; not a first-pilot performance score.",
+  "source_repository": "https://github.com/ExplodeCode6324/Secretary",
+  "reviewed_head": "50ffe5dd0ec50c89bb9421c38a7827bc75dc799a",
+  "merged_head": "873b66f4b906ff53a62476ff5dd1466649c427f7",
+  "main_ci": "https://github.com/ExplodeCode6324/Secretary/actions/runs/44045002517",
+  "main_ci_status": "SUCCESS",
+  "issue": "https://github.com/ExplodeCode6324/Secretary/issues/121",
+  "issue_state": "CLOSED_COMPLETED",
+  "review_verdict": "PASS_DELIVERY_READY",
+  "verification": {
+    "tests": 1346,
+    "passed": 1319,
+    "skipped": 27,
+    "failed": 0
+  },
+  "coverage_only": {
+    "original": 30,
+    "eligible": 28,
+    "assessed": 28,
+    "host_only": 2,
+    "unassessed": 0
+  },
+  "report_status": "COMPLETE_ADVISORY",
+  "report_sha256": "243f59a9a5c5304159d807f81a7d58453089d70d79a92ce9e356c2ceea5f88e2",
+  "manifest_sha256": "b72044b534a7a5c76254c18c64d33ac6b4870da219f4bebf3a3cc929e5dcf394",
+  "source_file_sha256": {
+    "opus-delivery-summary.json": "7b7223d25c4f7ffce8943daf422ef66b7b70925ac78ec680e3a5b6a7772e0290",
+    "r27-verification-result.json": "72801e844a9a118e24468d48f996eac233de83e99f0987d06adbfe6a575cd48f",
+    "final-delivery-review-receipt.json": "9d5fdd3d3a1fe0b2709ef7b39288d5b532d61d213afb2d8df4d0692bfff1ae14"
+  },
+  "identical_fixed_input_replays": 4,
+  "new_SUT_requests_in_delivery_continuation": 0,
+  "historical_performance_rows": "WITHHELD_PENDING_SAFE_NAS_ACCESS_AND_PROVENANCE_VERIFICATION",
+  "historical_campaign_SUT_commits": "NOT_AVAILABLE_OFFLINE",
+  "first_pilot_full_evidence": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK",
+  "limitations": [
+    "Frozen accepted-input replay is deterministic; new LLM or SUT execution is not guaranteed deterministic.",
+    "One Opus contract does not prove judge stability, independence, or universal semantic correctness. Human S1/S2 qualification remains pending and is not a harness delivery gate.",
+    "No performance pooling across cohorts, families, models, profiles, protocols or provenance. Coverage totals are not accuracy.",
+    "Partial external-effect observability, frozen historical World host-marker gaps, omitted cold-context paths, development exposure, correlated small samples and imperfect blinding remain limits.",
+    "Public Opus QA variant is NOT_EXERCISED and NOT_CALIBRATED; official public accuracy remains NOT_TESTED.",
+    "Independent effect/no-shell receipts remain authoritative evidence; judge rationales cannot override them.",
+    "Replay inputs are local and private and must be retained, or restored and replay-verified before releasing archived originals."
+  ],
+  "public_private_input_replay": "NOT_AVAILABLE: private fixed inputs are withheld; published hashes alone do not reproduce the historical pilot"
+}

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "status": "ADVISORY",
+  "human_qualification": "NOT_HUMAN_QUALIFIED",
+  "reason": "Master is outside the trusted local network; split first, archive after safe network access returns",
+  "items": {
+    "historical_campaign_sut_identities": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK",
+    "historical_first_pilot_full_evidence": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK",
+    "campaign_internals_requiring_nas": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK",
+    "nas_archive_reverification": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK",
+    "standalone_validation_facility_archival": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK"
+  },
+  "local_facilities": "Retained locally; not archived. Do not delete without verified archive."
+}

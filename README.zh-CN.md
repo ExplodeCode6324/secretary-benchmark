@@ -1,0 +1,17 @@
+# Secretary Benchmark
+
+独立的 Secretary benchmark 仓库，负责隔离测试环境、评分记录、固定输入回放与报告。Secretary 是固定提交的只读测试依赖，存放在 `sut/secretary`；具体提交由 `sut.lock.json` 绑定。
+
+交付范围是 **benchmark 可运行、证据可追溯、报告可复现、测量限制明确**。结果为 ADVISORY / NOT_HUMAN_QUALIFIED；本仓库不宣布 Secretary 性能达标，也不设置验收阈值。
+
+安装 Node.js 22.19+、Python 3、Git 和 PostgreSQL 18 服务端工具后，递归克隆仓库，运行 `npm ci` 与 `npm run verify`。测试不需要 API 凭据，也不调用真实模型；PG 集群由测试自行隔离创建。详见 [英文快速开始](README.md) 和 [操作说明](test_case/online/benchmark/README.md)。
+
+代码、当前验证结果与本地私有材料属于本仓库；`.local/` 不提交。禁止使用部署实例或敏捷实例的数据/凭据。SUT 提交、递归子模块与清洁状态必须通过检查。
+
+当前评分口径为 Opus 5.5 Extra，保留原 Fable v3 历史。公开静态控制题属于开发可见的合成样例，不是隐藏校准集。LongMemEval 适配路径不等于官方评分。
+
+[证据索引](evidence/README.md) 区分历史交付摘要与首次独立仓库 correctness 验证。历史首次 pilot 完整证据与实际 SUT 身份需回到安全网络后恢复归档再核验；未知内容保持延期，不用新仓库固定提交填补。当前本地验证数据也尚未归档。
+
+归档需要显式配置忽略文件 `.local/archive.json`，字段为绝对路径 `mount` 和 `destination`，权限 0600。缺失配置、未挂载或不安全目标均拒绝执行。不得用同名本地目录代替外部卷。
+
+本仓库尚未选择或授予额外软件许可；公开可见不代表开放源代码许可。第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

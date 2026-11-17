@@ -21,11 +21,11 @@ The SUT dependency must match the Git link and lock, including recursive submodu
 
 ## Evidence and limits
 
-[Evidence index](evidence/README.md) separates historical delivery facts from the first standalone correctness validation. Historic private inputs are not published; retained hashes are traceability receipts, not a claim that the private pilot can be reproduced from this public tree. Historical campaign SUT identities and full first-pilot evidence require a deferred archive restoration and are not inferred from the current SUT pin.
+[Evidence index](evidence/README.md) separates historical delivery facts from the first standalone correctness validation. Historic private inputs are not published; retained hashes are traceability receipts, not a claim that the private pilot can be reproduced from this public tree. Historical SUT identities and the first-pilot projection were recovered from verified private sources after safe-network access resumed; see `evidence/first-pilot-validation.json`. The initial execution snapshot (31 leaf rows), resource audit (50 rows / 563 physical-send reservations) and final Opus selection (30 original trajectories / 28 eligible) remain separate snapshots. The current SUT pin is never substituted for a historical run identity.
 
 Opus 5.5 Extra is the current judge policy. Frozen Fable v3 history remains immutable and distinct. Static controls are development-visible synthetic fixtures; they are not hidden held-out qualification. The public QA path changes the upstream judge/parser and is not an official LongMemEval score. No live model requests are made by correctness CI.
 
-Archive targets have **no default**. Configure `mount` and `destination` as absolute paths in ignored `.local/archive.json` (owner-only mode 0600). The existing external-mount, ownership, stopped-facility and verified-copy guards still apply. Do not create a local substitute for a missing external mount. Current validation data stays local until safe verified archival; see the deferred-work receipt.
+Archive targets have **no default**. Configure `mount` and `destination` as absolute paths in ignored `.local/archive.json` (owner-only mode 0600). The existing external-mount, ownership, stopped-facility and verified-copy guards still apply. Do not create a local substitute for a missing external mount. Validation data is retained until verified archival; see the archival status in the work receipt.
 
 ## Provenance and licensing
 

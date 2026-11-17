@@ -34,9 +34,9 @@
   },
   "identical_fixed_input_replays": 4,
   "new_SUT_requests_in_delivery_continuation": 0,
-  "historical_performance_rows": "WITHHELD_PENDING_SAFE_NAS_ACCESS_AND_PROVENANCE_VERIFICATION",
-  "historical_campaign_SUT_commits": "NOT_AVAILABLE_OFFLINE",
-  "first_pilot_full_evidence": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK",
+  "historical_performance_rows": "Published as advisory per-assertion labels in first-pilot-validation.json; no performance qualification",
+  "historical_campaign_SUT_commits": "Recovered from byte-verified historical run registries; per-row fingerprints in first-pilot-validation.json",
+  "first_pilot_full_evidence": "Allowlisted public projection published; full private inputs remain in verified private archives",
   "limitations": [
     "Frozen accepted-input replay is deterministic; new LLM or SUT execution is not guaranteed deterministic.",
     "One Opus contract does not prove judge stability, independence, or universal semantic correctness. Human S1/S2 qualification remains pending and is not a harness delivery gate.",
@@ -46,5 +46,11 @@
     "Independent effect/no-shell receipts remain authoritative evidence; judge rationales cannot override them.",
     "Replay inputs are local and private and must be retained, or restored and replay-verified before releasing archived originals."
   ],
-  "public_private_input_replay": "NOT_AVAILABLE: private fixed inputs are withheld; published hashes alone do not reproduce the historical pilot"
+  "public_private_input_replay": "NOT_AVAILABLE: private fixed inputs are withheld; published hashes alone do not reproduce the historical pilot",
+  "nas_reverification": {
+    "review_history_files": 1686,
+    "replay_package_files": 1140,
+    "replay_input_files": 1118,
+    "status": "VERIFIED_AFTER_SAFE_NETWORK_RESUMPTION"
+  }
 }

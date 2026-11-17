@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "status": "ADVISORY",
+  "human_qualification": "NOT_HUMAN_QUALIFIED",
+  "scope": "Storage/evidence verification, not model performance",
+  "historical_packages": [
+    {
+      "status": "VERIFIED_FROM_MOUNTED_NAS",
+      "archive_sha256": "95d1578ced9b99c69c5e9163debc6a0a28872301acc7a794c79d70911106ec51",
+      "files_verified": 1686
+    },
+    {
+      "status": "VERIFIED_FROM_MOUNTED_NAS",
+      "archive_sha256": "96b0516268b697ad2027bbf46a46f33e7c294e8538a418460d2529e3cedc18d0",
+      "files_in_package": 1140,
+      "manifest_input_files_verified": 1118,
+      "input_manifest_sha256": "b72044b534a7a5c76254c18c64d33ac6b4870da219f4bebf3a3cc929e5dcf394",
+      "report_sha256": "243f59a9a5c5304159d807f81a7d58453089d70d79a92ce9e356c2ceea5f88e2",
+      "package_inventory_verified_files": 1139
+    }
+  ],
+  "early_owned_facilities": [
+    {
+      "facility_alias": "early-owned-facility-01",
+      "status": "VERIFIED_ARCHIVE_SOURCE_RELEASED",
+      "files": 1280,
+      "source_bytes": 49090028,
+      "archive_sha256": "5639c23656ac6c578b722541f08aa3fa832bf21afefa3b3abd94380f55593bb4",
+      "manifest_sha256": "e6b2a86b255c54855f7d66fd739201b87713e3550f758ef003343cbf1538ae27",
+      "readback": "CLIENT_READBACK_AFTER_FSYNC_F_NOCACHE"
+    },
+    {
+      "facility_alias": "early-owned-facility-02",
+      "status": "VERIFIED_ARCHIVE_SOURCE_RELEASED",
+      "files": 1485,
+      "source_bytes": 69375829,
+      "archive_sha256": "b6acabfa7ed7f6f76625f2bc58b985202283adc9ecb5fac79670f13d635cd249",
+      "manifest_sha256": "fdc071c1a41728782631f622fa653c52d00fcbe55ca14ff16aeb2949f7a95bba",
+      "readback": "CLIENT_READBACK_AFTER_FSYNC_F_NOCACHE"
+    },
+    {
+      "facility_alias": "early-owned-facility-03",
+      "status": "VERIFIED_ARCHIVE_SOURCE_RELEASED",
+      "files": 1589,
+      "source_bytes": 52720318,
+      "archive_sha256": "957a23d48f4dd3d670422af218e51f88d71e49ae28bf865174362603729fdb72",
+      "manifest_sha256": "4d037c796fa91923e7c960446895d2ce5d0a46b021a64c1a878ef827eb7d272c",
+      "readback": "CLIENT_READBACK_AFTER_FSYNC_F_NOCACHE"
+    },
+    {
+      "facility_alias": "early-owned-facility-04",
+      "status": "VERIFIED_ARCHIVE_SOURCE_RELEASED",
+      "files": 1291,
+      "source_bytes": 49100388,
+      "archive_sha256": "8cdb2d759196557ae2ed7a1223be6c61f26f24b7ad6e20b3cb367ae04077f6e9",
+      "manifest_sha256": "e79bac0f47de96a398fdbd206b503d02b56f1e3e1b8aa0859bac09a6003a44cd",
+      "readback": "CLIENT_READBACK_AFTER_FSYNC_F_NOCACHE"
+    },
+    {
+      "facility_alias": "early-owned-facility-05",
+      "status": "VERIFIED_ARCHIVE_SOURCE_RELEASED",
+      "files": 21188,
+      "source_bytes": 1453179796,
+      "archive_sha256": "106e9bcd8b23446b165ad348151268c0527a194d155c5236d574d9ee09c1e728",
+      "manifest_sha256": "9dbe905cdf51103534a53b8ca0e6df0760356a178efaee8337413d1fbc33466b",
+      "readback": "CLIENT_READBACK_AFTER_FSYNC_F_NOCACHE"
+    },
+    {
+      "facility_alias": "early-owned-facility-06",
+      "status": "VERIFIED_ARCHIVE_SOURCE_RELEASED",
+      "files": 1286,
+      "source_bytes": 341872400,
+      "archive_sha256": "06436f293bf3c9543b1cd5c776252c47e83c55cfae05e8c3fb99de3568ae4f8d",
+      "manifest_sha256": "8423f42571ea8fb226b794297b980eb1bbefebde6f7189cda6085d653f05a805",
+      "readback": "CLIENT_READBACK_AFTER_FSYNC_F_NOCACHE"
+    }
+  ],
+  "extra_historical_registries_bound_to_verified_archives": 21,
+  "standalone_validation_fixtures": {
+    "status": "VERIFIED_NAS_ARCHIVE",
+    "archive_sha256": "d623807de3f7caf4544c0ba19eb8cb11ac4fd67de63c43901f4ec239bc05c661",
+    "manifest_sha256": "fd59b6c8ac4cdf1c2e4ac8e3c5448d5dc58b467739a74ceae5d502533d166df0",
+    "archive_bytes": 554323346,
+    "files": 98500,
+    "entries": 110789,
+    "source_bytes": 3224943604,
+    "source_retained": false,
+    "source_release": "RELEASED_AFTER_FULL_SOURCE_RECHECK_AND_VERIFIED_NAS_COPY",
+    "released_roots": 68
+  },
+  "limitations": [
+    "NAS power-loss durability is NOT_TESTED.",
+    "Original eight pilot facility archives were previously verified; this round reverified the two compact review/replay bundles and archived six additional early facilities.",
+    "Post-publication anonymous-clone checks may create a later fixture set; final completion receipts identify its archival separately."
+  ]
+}

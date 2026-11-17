@@ -2,14 +2,14 @@
   "version": 1,
   "status": "ADVISORY",
   "human_qualification": "NOT_HUMAN_QUALIFIED",
-  "reason": "Master is outside the trusted local network; split first, archive after safe network access returns",
+  "reason": "Master resumed in the safe network; the original offline deferrals below have been resolved within the authorized publication scope",
   "items": {
-    "historical_campaign_sut_identities": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK",
-    "historical_first_pilot_full_evidence": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK",
-    "campaign_internals_requiring_nas": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK",
-    "nas_archive_reverification": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK",
-    "standalone_validation_facility_archival": "DEFERRED_BY_MASTER_UNTIL_SAFE_NETWORK"
+    "historical_campaign_sut_identities": "RECOVERED_FOR_ALL_PUBLISHED_ROWS",
+    "historical_first_pilot_full_evidence": "ALLOWLISTED_PUBLIC_PROJECTION; PRIVATE_CONTENT_RETAINED",
+    "campaign_internals_requiring_nas": "VERIFIED_PRIVATE_REVIEW_AND_REPLAY_PACKAGES",
+    "nas_archive_reverification": "PASS_1686_REVIEW_FILES_AND_1140_REPLAY_PACKAGE_FILES",
+    "standalone_validation_facility_archival": "VERIFIED_NAS_ARCHIVE_AND_SOURCE_RELEASED; later post-publication validation has a separate completion receipt"
   },
-  "local_facilities": "Retained locally; not archived. Do not delete without verified archive.",
-  "retention_scope": "Includes remaining root test facilities, ignored differential fixtures under sut/secretary/.local, and validation clones; fixtures intentionally used for archive/cleanup unit behavior are identified by test logs."
+  "local_facilities": "Existing prepublication test fixtures archived and released after verification; review receipts and recovery indices retained locally",
+  "retention_scope": "Full private historical inputs stay in verified NAS archives; publicly published results are an allowlist projection. New final-verification artifacts are archived separately on completion."
 }

@@ -38,3 +38,6 @@ Current delivery is the standalone extraction and its independently recorded cor
 
 
 R30 PASS: keep the tree local/private until exact-commit final review; run local CI-equivalent checks first, then public CI and anonymous recursive clone on that same commit. Record deferred historical identities/campaign internals/archive re-verification/new facility archival in a machine-readable receipt. Retain stopped validation facilities locally until safe verified archival. Add protected-checkout realpath/symlink/case regressions and fail-closed missing/invalid archive configuration tests.
+
+
+2026-11-17 resumption: Master returned to the safe network and resumed the authorized work. The mounted NAS review archive (1686 files) and replay package (1140 files, including1118manifest inputs) were hash-verified. An allowlist exporter publishes the first pilot snapshots, per-run historical fingerprints, per-assertion Opus labels and independent effect observations, while withholding private free text, credentials and control keys. Six remaining early owned stopped facilities in the original checkout are archived with the existing CLI; new standalone validation fixtures and review evidence use verified local-tar-to-NAS retention. No new live SUT or judge scoring is added.

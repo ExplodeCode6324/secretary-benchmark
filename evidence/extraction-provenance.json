@@ -43,14 +43,14 @@
     },
     {
       "path": "README.md",
-      "sha256": "f54a3cfb090a34b6c359f507b36d22eb1a5cd31d037754883110eb1a5c84f61a",
+      "sha256": "537f56b3e076ff5a4905c7d0d5e29a29c46056c9d82c932fef0bb9c20c466d88",
       "classification": "public documentation/configuration/validation tooling",
       "baseline_sha256": "29fba4de2fb84585e0908268846011318ab401f55ac9309af8349ddacf6c72be",
       "change": "ADAPTED_OR_NEW"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "e9d33177767c787912074f610f89e4110c35bbc7c9edd994bfb65dd18c6a3b66",
+      "sha256": "28ce439e7843c35b8caf0b0516048f5fbad0ad02cf59fdb7555825ef2b980f71",
       "classification": "public documentation/configuration/validation tooling",
       "baseline_sha256": "8e82cf9551d878a5d52b815277e4d94ca2d6d70923bb42f5b54dea8044e4c7e5",
       "change": "ADAPTED_OR_NEW"
@@ -64,35 +64,63 @@
     },
     {
       "path": "docs/fix/standalone-publication.en.md",
-      "sha256": "c1ef2fb3d3d29c289c71fa47f68c70b3b0d6e82c2a5a77c003e573c4b201714e",
+      "sha256": "00979c465f0832cf5ee33dbe8b737be662aa26c114da7589ab60c7da4ea723e6",
       "classification": "public documentation/configuration/validation tooling",
       "baseline_sha256": null,
       "change": "ADAPTED_OR_NEW"
     },
     {
       "path": "docs/fix/standalone-publication.md",
-      "sha256": "68e73239fa0a0e347eb9a286b692c58396319d6a780ec431eb4d2f55f011bf9b",
+      "sha256": "6a84cf94cea0bd0d177bfdb8ce6dbba6e28198cfa90efc52c2b0b3d4fb4f5a73",
       "classification": "public documentation/configuration/validation tooling",
       "baseline_sha256": null,
       "change": "ADAPTED_OR_NEW"
     },
     {
       "path": "evidence/README.md",
-      "sha256": "69d28bf3efa2d2ac5a1205392b35c119f9eb947f9bdf54984229268061432ca7",
+      "sha256": "fbd9f8d1ce77b41a29a9dc4f0a0d452d5482e27863672bf8ec2ccf6954ac6af8",
+      "classification": "derived public evidence (sanitized logs, counts, hashes and explicit deferrals)",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "evidence/archive-verification.json",
+      "sha256": "9bc83221a806f250b32a8429f5dd75b04b8fa84115b1b9dda9f7b5de677ab5f9",
       "classification": "derived public evidence (sanitized logs, counts, hashes and explicit deferrals)",
       "baseline_sha256": null,
       "change": "ADAPTED_OR_NEW"
     },
     {
       "path": "evidence/deferred-work.json",
-      "sha256": "cb4ca4e08044a6941bcab8a9903879727a504fa4b48c54161a8b2db6780fea9d",
+      "sha256": "dc9eb32050a1ad478bd8821124293497dd63d80072fc4244110b6feac3ca5b32",
+      "classification": "derived public evidence (sanitized logs, counts, hashes and explicit deferrals)",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "evidence/first-pilot-validation.json",
+      "sha256": "f5dd901ed6ec085cb6f6313c7d042c3cacf05a5886c09e5dfe353f39af330d5f",
       "classification": "derived public evidence (sanitized logs, counts, hashes and explicit deferrals)",
       "baseline_sha256": null,
       "change": "ADAPTED_OR_NEW"
     },
     {
       "path": "evidence/historical-delivery.json",
-      "sha256": "dbbad02c5c84bcd4e599e687c67e5afdf01e505eb2ebf279bbbeabff3734b6a6",
+      "sha256": "36814c4607ebe23782ca3dc9f6deb0adb33818145b61b1631f31667035fa765a",
+      "classification": "derived public evidence (sanitized logs, counts, hashes and explicit deferrals)",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "evidence/historical-projection-verification.json",
+      "sha256": "7f275b15888bbbb284bde14d9fa6eb5cd482d9c77410865be8d420012fae848d",
+      "classification": "derived public evidence (sanitized logs, counts, hashes and explicit deferrals)",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "evidence/historical-source-index.json",
+      "sha256": "f43e434b57d89e946188de264f27a3ac0dac5a79ba4f6ed784e7adfc2f9086c9",
       "classification": "derived public evidence (sanitized logs, counts, hashes and explicit deferrals)",
       "baseline_sha256": null,
       "change": "ADAPTED_OR_NEW"
@@ -135,6 +163,13 @@
     {
       "path": "scripts/audit-publication.py",
       "sha256": "8370b8e58300d6b2eb0299f1508761ecddedc7eda808b2b314824ccbf8838424",
+      "classification": "public documentation/configuration/validation tooling",
+      "baseline_sha256": null,
+      "change": "ADAPTED_OR_NEW"
+    },
+    {
+      "path": "scripts/export-historical-evidence.py",
+      "sha256": "b9cf5b504a1d26a2f32b7328eb984d61ffd93287d46324136fc36b3e8f1da2b3",
       "classification": "public documentation/configuration/validation tooling",
       "baseline_sha256": null,
       "change": "ADAPTED_OR_NEW"

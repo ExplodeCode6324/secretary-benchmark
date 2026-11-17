@@ -10,6 +10,7 @@ import {
 import {
   maintenanceBoundary,
   assertQuiescent,
+  assertSameMemory,
   interruptionReuse,
   interruptionElements,
   worldBoundary,
@@ -53,6 +54,11 @@ import {
 import { stopDatabase } from "../../online/benchmark/postgres.ts";
 import { snapshot } from "../../online/benchmark/snapshot.ts";
 import { identityHash } from "../../online/benchmark/process-witness.ts";
+import {
+  timeline,
+  visibleInputs,
+  lintTimeline,
+} from "../../online/benchmark/baseline-timeline.ts";
 import { initializeGuard } from "../../online/benchmark/payload-guard.ts";
 
 const bytes = Buffer.from("fixture host evidence");
@@ -82,6 +88,10 @@ test("#122 maintenance excludes context crop, distinguishes four deadline states
     maintenanceBoundary([{ ...job, state: "SUMMARIZING" }], "B", 8, ctx).status,
     "RUNNING_AT_CAP",
   );
+  assert.equal(
+    maintenanceBoundary([{ ...job, state: "STALE" }], "B", 8, ctx).status,
+    "STALE_DISCARDED_AT_CAP",
+  );
   const fail = {
     ...job,
     state: "FAILED",
@@ -103,12 +113,36 @@ test("#122 maintenance excludes context crop, distinguishes four deadline states
 test("#122 due maintenance and in-flight calls prevent a paired probe", () => {
   const q = {
     maintenance_due: false,
+    maintenance_running: false,
+    summary_pending: false,
+    last_handled_sequence: 0,
+    consciousness: [{ revision: 1, covered_event_sequence: 0 }],
     sessions: [{ state: "IDLE" }],
     compactions: [],
     extractions: [],
     calls: [],
   };
   assertQuiescent(q);
+  assert.throws(
+    () => assertQuiescent({ ...q, last_handled_sequence: 8 }),
+    /NOT_QUIESCENT/,
+  );
+  assert.throws(
+    () => assertQuiescent({ ...q, summary_pending: true }),
+    /NOT_QUIESCENT/,
+  );
+  assert.throws(
+    () => assertQuiescent({ ...q, maintenance_running: true }),
+    /NOT_QUIESCENT/,
+  );
+  assert.throws(
+    () =>
+      assertSameMemory(
+        { revision: 1, covered_sequence: 8, last_handled_sequence: 8 },
+        { revision: 2, covered_sequence: 8, last_handled_sequence: 8 },
+      ),
+    /MEMORY_DRIFT/,
+  );
   assert.throws(
     () => assertQuiescent({ ...q, maintenance_due: true }),
     /NOT_QUIESCENT/,
@@ -402,6 +436,23 @@ test("#122 durable campaign counts unknown usage and restart descendants without
 });
 test("#122 pair guard refuses effects, new Tasks, changed sinks and unconfirmed workers", () => {
   pairRestoreGuard([], [], [], [], true);
+  for (const extra of [
+    { effect: "PARTIAL" },
+    { state: "AUTHORIZED" },
+    { state: "DISPATCHED" },
+  ]) {
+    assert.throws(
+      () =>
+        pairRestoreGuard(
+          [],
+          [{ record_type: "Operation", id: "o", ...extra }],
+          [],
+          [],
+          true,
+        ),
+      /UNEXPECTED_EFFECT/,
+    );
+  }
   assert.throws(
     () =>
       pairRestoreGuard(
@@ -438,6 +489,16 @@ test(
     await Domains.use(root, async (d) => {
       const source = await d.start((await d.create()).id);
       initializeGuard(root, source.lineage);
+      const capacity = readJSON(
+        path.join(source.evidence, "issue122-capacity-candidates.json"),
+      );
+      for (const row of capacity.filter(
+        (r: any) => r.profile === "RC98304_CANDIDATE",
+      )) {
+        assert.equal(row.budget.effective_context_window, 98304);
+        assert.equal(row.task_budget.effective_context_window, 98304);
+        assert.deepEqual(row.window, { count: 2, ratio: 0.05 });
+      }
       let receipt: any;
       try {
         receipt = await baselinePair(
@@ -446,6 +507,7 @@ test(
           {
             id: "paired",
             a_effectful: false,
+            a_inputs: ["probe-A"],
             future_a: ["probe-B"],
             future_b: [],
             deadline: Date.now() + 60000,
@@ -565,3 +627,136 @@ test(
     });
   },
 );
+
+test("#122 route-specific timelines keep host mechanisms and oracle verdicts out of SUT inputs", () => {
+  for (const row of baselineCases()) lintTimeline(timeline(row));
+  for (const id of [
+    "C01-direct",
+    "C02-incidental",
+    "C05-current",
+    "C06-stale-cold",
+    "C07-open",
+    "C16-combined",
+  ]) {
+    const row = baselineCases().find((c) => c.id === id)!;
+    const steps = timeline(row);
+    assert(steps.some((s) => s.filler && s.filler.count >= 8));
+    assert(steps.some((s) => s.action === "IDLE_WAIT"));
+    assert(visibleInputs(steps).length > row.setup.length + 1);
+  }
+  const get = (id: string) =>
+    timeline(baselineCases().find((c) => c.id === id)!);
+  assert(get("C13-imported_note").some((s) => s.file));
+  assert(get("C13-task").some((s) => s.action === "MASTER_TASK"));
+  assert(!get("C10-condition").some((s) => s.text?.includes("Complete")));
+  assert(
+    get("C11-cancelled").some((s) => s.route === "task-requests/:id/cancel"),
+  );
+  assert(get("C11-invalidated").some((s) => s.text?.includes("withdraw")));
+  assert.throws(
+    () =>
+      lintTimeline([
+        { action: "MASTER_MESSAGE", text: "Fault barrier after fsync" },
+      ]),
+    /INPUT_LEAK/,
+  );
+});
+
+test("#122 protected multiple lanes, connectivity and wall-time bounds fail closed", () => {
+  const p = limits();
+  p.models["gpt-6.1-sol"].reservations = 10;
+  p.reservations = 18;
+  p.lanes.lane0 = {
+    model: "gpt-6.1-sol",
+    usd: 2,
+    reservations: 3,
+    connectivity: true,
+  };
+  p.lanes.extra = {
+    model: "gpt-6.1-sol",
+    usd: 3,
+    reservations: 7,
+    connectivity: false,
+  };
+  validateBaselineLimits(p, 15);
+  const now = Date.now();
+  const next = {
+    model: "gpt-6.1-sol",
+    lane: "extra",
+    episode: "e2",
+    run: "r",
+    reserved_usd: 0.1,
+  };
+  const entry = (lane: string, episode: string, charge: number, age = 0) => ({
+    attempt: {
+      model: "gpt-6.1-sol",
+      lane,
+      episode,
+      run: "r",
+      at: new Date(now - age).toISOString(),
+    },
+    charged_usd: charge,
+  });
+  assertBaselineReservation(p, [entry("lane0", "e1", 2)], next, now);
+  assert.throws(
+    () => assertBaselineReservation(p, [entry("lane0", "e1", 2.1)], next, now),
+    /FULL_LANE_ADMISSION/,
+  );
+  assert.throws(
+    () =>
+      assertBaselineReservation(
+        p,
+        Array.from({ length: 3 }, () => entry("lane0", "e1", 0.1)),
+        { ...next, lane: "lane0", episode: "e1" },
+        now,
+      ),
+    /RESERVATION_LIMIT/,
+  );
+  assert.throws(
+    () =>
+      assertBaselineReservation(
+        p,
+        [entry("extra", "e2", 0.1, 3600001)],
+        next,
+        now,
+      ),
+    /LANE_TIME_LIMIT/,
+  );
+  assert.throws(
+    () =>
+      assertBaselineReservation(
+        p,
+        [entry("lane0", "e1", 0.1, 43200001)],
+        next,
+        now,
+      ),
+    /CAMPAIGN_TIME_LIMIT/,
+  );
+  p.lanes.lane0.reservations = 4;
+  assert.throws(
+    () => validateBaselineLimits(p, 15),
+    /LANE_ALLOCATION|LANE_INVALID/,
+  );
+});
+
+test("#122 above-reservation settlement is durable and blocks further baseline sends", async () => {
+  const root = path.join(repository, ".local/benchmark/tests", randomUUID());
+  await createCampaign(root, "fixture-bound-" + randomUUID(), 15, limits());
+  const send = {
+    model: "gpt-6.1-sol",
+    lane: "lane0",
+    episode: "lineage",
+    run: "first",
+    request_sha256: sha("request"),
+    reserved_usd: 0.1,
+  };
+  const id = await reserve(root, send);
+  await settle(root, id, "SUCCESS", { fixture: true }, 0.2);
+  assert.deepEqual(ledger(root).entries.get(id)!.bound_violation, {
+    reserved_usd: 0.1,
+    actual_usd: 0.2,
+  });
+  assert.equal(ledger(root).charged_usd, 0.2);
+  await assert.rejects(reserve(root, send), /RESERVATION_BOUND_VIOLATED/);
+  await closeCampaign(root);
+});

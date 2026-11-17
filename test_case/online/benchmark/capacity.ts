@@ -44,6 +44,7 @@ export function capacityForecast(
     for (const profile of profiles) {
       keys.forEach((k) => delete process.env[k]);
       if (profile === "RC98304_CANDIDATE") {
+        configureProfile("RC");
         process.env.SECRETARY_MAIN_CONTEXT_WINDOW = "98304";
         process.env.SECRETARY_TASK_CONTEXT_WINDOW = "98304";
       } else configureProfile(profile);

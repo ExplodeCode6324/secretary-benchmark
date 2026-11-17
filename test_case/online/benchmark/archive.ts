@@ -126,6 +126,7 @@ function ownedStoppedRuns(d: Domains): Run[] {
     "campaign",
     "inputs",
     "oracles",
+    "pairs",
   ]);
   for (const name of fs.readdirSync(d.root))
     requireThat(
@@ -143,6 +144,24 @@ function ownedStoppedRuns(d: Domains): Run[] {
     "ARCHIVE_INVALID_RUN_REGISTRY",
   );
   const runs = names.map((n) => d.load(n.slice(0, -5)));
+  for (const name of childNames(d.root, "pairs")) {
+    requireThat(/^[A-Za-z0-9_-]+\.json$/.test(name), "ARCHIVE_UNKNOWN_PAIR");
+    const pair = readJSON(path.join(d.root, "pairs", name));
+    requireThat(
+      pair.schema === "issue122-pair-v1" &&
+        pair.id + ".json" === name &&
+        runs.some((r) => r.id === pair.source && r.lineage === pair.lineage) &&
+        [pair.a, pair.b].every(
+          (branch) =>
+            branch == null ||
+            runs.some((r) => r.id === branch.run && r.lineage === pair.lineage),
+        ) &&
+        (pair.checkpoint == null ||
+          (uuid.test(pair.checkpoint) &&
+            childNames(d.root, "checkpoints").includes(pair.checkpoint))),
+      "ARCHIVE_UNKNOWN_PAIR",
+    );
+  }
   for (const run of runs) {
     requireThat(
       ["STOPPED", "CLEANED", "RETIRED"].includes(run.state),

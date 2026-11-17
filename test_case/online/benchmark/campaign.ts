@@ -63,6 +63,7 @@ type Event =
       actual_usd: number | null;
       outcome: string;
       usage: unknown;
+      bound_violation?: { reserved_usd: number; actual_usd: number };
     };
 
 async function locked<T>(root: string, fn: () => Promise<T>) {
@@ -109,6 +110,7 @@ export function ledger(root: string) {
       settled: boolean;
       charged_usd: number;
       outcome?: string;
+      bound_violation?: { reserved_usd: number; actual_usd: number };
     }
   >();
   let previous = "0".repeat(64),
@@ -150,6 +152,14 @@ export function ledger(root: string) {
         item.settled = true;
         item.charged_usd = event.actual_usd ?? item.attempt.reserved_usd;
         item.outcome = event.outcome;
+        if (
+          event.actual_usd !== null &&
+          event.actual_usd > item.attempt.reserved_usd
+        )
+          item.bound_violation = {
+            reserved_usd: item.attempt.reserved_usd,
+            actual_usd: event.actual_usd,
+          };
       }
     }
   }
@@ -233,13 +243,18 @@ export async function reserve(
   return locked(directory(root), async () => {
     const campaign = assertCampaignSource(root),
       current = ledger(root);
-    if (campaign.baseline_limits)
+    if (campaign.baseline_limits) {
+      requireThat(
+        ![...current.entries.values()].some((e) => e.bound_violation),
+        "BASELINE_RESERVATION_BOUND_VIOLATED",
+      );
       assertBaselineReservation(
         campaign.baseline_limits,
         [...current.entries.values()],
         details,
         Date.now(),
       );
+    }
     requireThat(campaign.state === "OPEN", "CAMPAIGN_CLOSED");
     if (maxSends !== undefined)
       requireThat(
@@ -291,6 +306,14 @@ export async function settle(
       actual_usd: actualUSD,
       outcome,
       usage,
+      ...(actualUSD !== null && actualUSD > item.attempt.reserved_usd
+        ? {
+            bound_violation: {
+              reserved_usd: item.attempt.reserved_usd,
+              actual_usd: actualUSD,
+            },
+          }
+        : {}),
     });
   });
 }

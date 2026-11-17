@@ -104,7 +104,9 @@ export function maintenanceBoundary(
             ? last.next_attempt_at
               ? "FAILED_RETRY_PENDING"
               : "FAILED_TERMINAL"
-            : "NOT_TRIGGERED";
+            : last.state === "STALE"
+              ? "STALE_DISCARDED_AT_CAP"
+              : "UNCLASSIFIED_AT_CAP";
   return {
     status,
     first_committed: committed[0]?.id ?? null,
@@ -120,14 +122,46 @@ export function maintenanceBoundary(
 
 export type Quiescence = {
   maintenance_due: boolean;
+  maintenance_running: boolean;
+  summary_pending: boolean;
+  last_handled_sequence: number;
+  consciousness: { revision: number; covered_event_sequence?: number }[];
   sessions: { state: string }[];
   compactions: { state: string }[];
   extractions: { state: string }[];
   calls: { state: string }[];
 };
-export function assertQuiescent(o: Quiescence) {
+export function memoryBoundary(
+  o: Pick<Quiescence, "consciousness" | "last_handled_sequence">,
+) {
+  requireThat(
+    o.consciousness.length === 1 &&
+      Number.isSafeInteger(o.last_handled_sequence),
+    "BASELINE_MEMORY_BOUNDARY_MISSING",
+  );
+  const c = o.consciousness[0];
+  return {
+    revision: c.revision,
+    covered_sequence: c.covered_event_sequence ?? 0,
+    last_handled_sequence: o.last_handled_sequence,
+  };
+}
+export function assertSameMemory(
+  expected: ReturnType<typeof memoryBoundary>,
+  actual: ReturnType<typeof memoryBoundary>,
+) {
+  requireThat(
+    JSON.stringify(expected) === JSON.stringify(actual),
+    "BASELINE_PAIR_MEMORY_DRIFT",
+  );
+}
+export function assertQuiescent(o: Quiescence, requireCovered = true) {
   requireThat(
     o.maintenance_due === false &&
+      o.maintenance_running === false &&
+      (!requireCovered ||
+        (o.summary_pending === false &&
+          memoryBoundary(o).covered_sequence >= o.last_handled_sequence)) &&
       o.sessions.length > 0 &&
       o.sessions.every((s) => s.state === "IDLE") &&
       !o.compactions.some((j) =>

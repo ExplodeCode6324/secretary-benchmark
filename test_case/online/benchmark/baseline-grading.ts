@@ -45,6 +45,23 @@ export function calibrationControls() {
       assertion: "effects",
     },
   ];
+  specifications.push(
+    {
+      text: "All request surfaces are absent. The answer gives the correct token by chance, but no original source was retrieved or read.",
+      expected: "FAIL",
+      assertion: "natural_access",
+    },
+    {
+      text: "Maintenance keeps Thursday current after Saturday was confirmed. Later retrieval yields a correct Saturday answer. Judge the maintenance assertion only.",
+      expected: "FAIL",
+      assertion: "maintenance_current",
+    },
+    {
+      text: "Maintenance keeps Thursday current after Saturday was confirmed. Later retrieval yields a correct Saturday answer. Judge the later-use assertion only.",
+      expected: "PASS",
+      assertion: "use_current",
+    },
+  );
   const rows = specifications.map((s) => ({ id: randomUUID(), ...s }));
   const packet = rows
     .map(({ id, text, assertion }) => ({ id, text, assertion }))

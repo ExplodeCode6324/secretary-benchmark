@@ -1,7 +1,11 @@
 import path from "node:path";
 import { Domains, type Run } from "./domain.ts";
 import { snapshot } from "./snapshot.ts";
-import { assertQuiescent } from "./baseline-evidence.ts";
+import {
+  assertQuiescent,
+  memoryBoundary,
+  assertSameMemory,
+} from "./baseline-evidence.ts";
 import {
   readJSON,
   writeJSON,
@@ -12,13 +16,17 @@ import {
 } from "./io.ts";
 import { setFutureInputs } from "./payload-guard.ts";
 
-export async function baselineQuiescence(run: Run, deadline: number) {
+export async function baselineQuiescence(
+  run: Run,
+  deadline: number,
+  requireCovered = true,
+) {
   let last = "",
     since = 0;
   while (Date.now() < deadline) {
     const o = readJSON(path.join(run.evidence, "observed.json"));
     try {
-      assertQuiescent(o);
+      assertQuiescent(o, requireCovered);
       requireThat(
         o.input_records.every((i: any) =>
           ["HANDLED", "WITHDRAWN"].includes(i.state),
@@ -64,7 +72,8 @@ export function pairRestoreGuard(
       (r) =>
         r.record_type === "Operation" &&
         ops.get(r.id) !== JSON.stringify(r) &&
-        (r.state === "RESULT_UNKNOWN" ||
+        (["AUTHORIZED", "DISPATCHED", "RESULT_UNKNOWN"].includes(r.state) ||
+          r.effect === "PARTIAL" ||
           r.effect === "UNKNOWN" ||
           (r.effect === "APPLIED" &&
             ["file.write", "world.change"].includes(r.action?.action))),
@@ -84,6 +93,7 @@ export async function baselinePair(
   options: {
     id: string;
     a_effectful: boolean;
+    a_inputs: string[];
     future_a: string[];
     future_b: string[];
     deadline: number;
@@ -114,10 +124,13 @@ export async function baselinePair(
   writeJSON(record, receipt);
   let current = source;
   try {
-    await baselineQuiescence(source, options.deadline);
-    const before = snapshot(path.join(source.active, "core")),
-      sink = d.sink(source);
+    const initial = await baselineQuiescence(source, options.deadline);
+    receipt.memory_boundary = memoryBoundary(initial);
+    const sink = d.sink(source);
     const cp = await d.checkpoint(source.id);
+    const before = snapshot(
+      path.join(d.root, "checkpoints", cp, "state", "core"),
+    );
     receipt.checkpoint = cp;
     receipt.checkpoint_sha256 = sha(
       read(path.join(d.root, "checkpoints", cp, "manifest.json")),
@@ -128,16 +141,18 @@ export async function baselinePair(
     writeJSON(record, receipt);
     setFutureInputs(d.root, source.lineage, options.future_a);
     current = await d.start(source.id);
-    await baselineQuiescence(current, options.deadline);
+    const aObserved = await baselineQuiescence(current, options.deadline);
     receipt.a = {
+      memory_boundary: memoryBoundary(aObserved),
       run: current.id,
       process: current.process,
       restart: "DIRECT_SAME_DOMAIN",
       start_digest: snapshot(path.join(current.active, "core")).digest,
     };
     writeJSON(record, receipt);
+    assertSameMemory(receipt.memory_boundary, receipt.a.memory_boundary);
     await probe(current, "A");
-    await baselineQuiescence(current, options.deadline);
+    await baselineQuiescence(current, options.deadline, false);
     current = await d.stop(current.id);
     const after = snapshot(path.join(current.active, "core"));
     receipt.a.final_digest = after.digest;
@@ -163,12 +178,18 @@ export async function baselinePair(
       "BASELINE_PAIR_RESTORE_DRIFT",
     );
     writeJSON(record, receipt);
-    setFutureInputs(d.root, current.lineage, options.future_b);
+    setFutureInputs(d.root, current.lineage, [
+      ...new Set([...options.future_b, ...options.a_inputs]),
+    ]);
     current = await d.start(current.id);
-    await baselineQuiescence(current, options.deadline);
+    const bObserved = await baselineQuiescence(current, options.deadline);
     receipt.b.process = current.process;
+    receipt.b.memory_boundary = memoryBoundary(bObserved);
+    writeJSON(record, receipt);
+    assertSameMemory(receipt.memory_boundary, receipt.b.memory_boundary);
+    assertSameMemory(receipt.a.memory_boundary, receipt.b.memory_boundary);
     await probe(current, "B");
-    await baselineQuiescence(current, options.deadline);
+    await baselineQuiescence(current, options.deadline, false);
     receipt.b.final_digest = snapshot(path.join(current.active, "core")).digest;
   } catch (error) {
     receipt.first_failure =
@@ -177,8 +198,15 @@ export async function baselinePair(
   } finally {
     writeJSON(record, receipt);
     // Stop only the currently owned incarnation; a failed guard never starts B.
-    if (!["RETIRED", "CLEANED"].includes(d.raw(current.id).state))
-      await d.seal(current.id);
+    try {
+      if (!["RETIRED", "CLEANED"].includes(d.raw(current.id).state))
+        await d.seal(current.id);
+    } catch (error) {
+      receipt.cleanup_failure =
+        error instanceof Error ? error.message : "BASELINE_CLEANUP_FAILURE";
+      writeJSON(record, receipt);
+      if (!receipt.first_failure) throw error;
+    }
   }
   return receipt;
 }

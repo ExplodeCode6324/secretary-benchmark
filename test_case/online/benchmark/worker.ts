@@ -308,6 +308,17 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         maintenance_due: (
           app.host as unknown as { context: HostContext }
         ).context.memoryDue(),
+        maintenance_running: !!(app.host as unknown as { context: HostContext })
+          .context.maintenance,
+        summary_pending: !!(
+          app.host as unknown as { context: HostContext }
+        ).context.pendingSummary(),
+        last_handled_sequence:
+          app.store
+            .events("input.handled")
+            .filter((e) => e.scope.session_id === app.host.sessionID)
+            .at(-1)?.sequence ?? 0,
+        consciousness: app.store.all("Consciousness"),
         sessions: app.store.all("Session"),
         input_records: app.store.all("Input"),
         calls: app.store.all("ModelCall"),

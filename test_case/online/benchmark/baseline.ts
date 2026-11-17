@@ -1,5 +1,6 @@
 import path from "node:path";
 import { Domains, configuration } from "./domain.ts";
+import { visibleInputs } from "./baseline-timeline.ts";
 import { baselineManifest } from "./baseline-scenarios.ts";
 import { baselineVersion, routes } from "./baseline-evidence.ts";
 import { readJSON, writeJSON, requireThat, sha } from "./io.ts";
@@ -74,7 +75,7 @@ export function baselineForecast(initial: any[]) {
   return initial.flatMap((row) =>
     cases.map((c) => {
       const input_bytes = Buffer.byteLength(
-        JSON.stringify([...c.setup, c.probe]),
+        JSON.stringify(visibleInputs(c.timeline)),
       );
       const base = row.budget.estimated_tokens;
       const threshold =
@@ -90,6 +91,17 @@ export function baselineForecast(initial: any[]) {
         deployment_capacity_verified: false,
         initial: row,
         scenario_input_bytes: input_bytes,
+        timeline_sha256: c.timeline_sha256,
+        timeline_steps: c.timeline.length,
+        sut_visible_inputs: visibleInputs(c.timeline).length,
+        filler_bytes: c.timeline.reduce(
+          (sum, s) =>
+            sum + (s.filler ? s.filler.count * s.filler.bytes_each : 0),
+          0,
+        ),
+        idle_wait_seconds: c.timeline
+          .filter((s) => s.action === "IDLE_WAIT")
+          .map((s) => s.seconds),
         raw_input_projection_exit: {
           status: c.requires_cold ? "REQUIRES_MEASURED_EXIT" : "NOT_REQUIRED",
           recent_count: row.window.count,

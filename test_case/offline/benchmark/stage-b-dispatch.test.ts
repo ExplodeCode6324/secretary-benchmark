@@ -44,6 +44,39 @@ import {
 } from "../../online/benchmark/io.ts";
 const clock = Date.now(),
   hash = sha("fixture-policy");
+test("An explicit frozen C16 deferral retains all twelve slots and dispatches only the first nine workloads", async () => {
+  assert.throws(
+    () => initialState(hash, undefined as never),
+    /C16_DECISION_REQUIRED/,
+  );
+  const state = initialState(hash, "DEFERRED_BY_DECISION");
+  const saved = structuredClone(state.terminals);
+  const dispatched: string[] = [];
+  await driveWorklist(
+    state,
+    () => [],
+    async (slot) => {
+      dispatched.push(slot.lane);
+      (slot.scenario === "probe" ? state.probes : state.terminals)[slot.lane] =
+        {
+          status: "COMPLETED",
+          reason: "FIXTURE",
+          at: new Date().toISOString(),
+        };
+    },
+    () => assert.fail("no physical refusal expected"),
+    false,
+  );
+  assert.deepEqual(
+    dispatched.filter((lane) => !lane.startsWith("probe--")),
+    stageSlots.slice(0, 9).map((s) => s.lane),
+  );
+  assert.equal(Object.keys(state.terminals).length, 12);
+  for (const slot of stageSlots.slice(9)) {
+    assert.equal(saved[slot.lane].status, "DEFERRED_BY_DECISION");
+    assert.deepEqual(state.terminals[slot.lane], saved[slot.lane]);
+  }
+});
 test("Closed probe-only Stage B facility archives exact frozen files and refuses changed or unclaimed data", async () => {
   const root = path.join(repository, ".local/benchmark/tests", randomUUID());
   const destination = fs.realpathSync(
@@ -63,7 +96,7 @@ test("Closed probe-only Stage B facility archives exact frozen files and refuses
       });
       const bound = { ...policy(), freeze_sha256: sha(read(frozen)) };
       await createCampaign(root, randomUUID(), undefined, undefined, bound);
-      const state = initialState(bound.freeze_sha256);
+      const state = initialState(bound.freeze_sha256, "DISPATCH");
       const terminal = {
         status: "HALTED" as const,
         reason: "OPERATOR",
@@ -105,7 +138,7 @@ function policy(): PhysicalPolicy {
       {
         checked_at: new Date(clock - 1000).toISOString(),
         published_version: "offline version",
-        allowed_returned_model: model,
+        allowed_returned_models: [model],
         provenance_sha256: sha("test pages"),
         publication_url:
           model === "deepseek-flash"
@@ -209,6 +242,37 @@ test("Stage B binds all grants, physical components and first-send calendar inde
   );
 });
 test("Only attributable provider account errors authorize comparator exclusion", () => {
+  const model = "deepseek-flash";
+  const lane = "probe--" + model;
+  const attempted: Parameters<typeof beforeLane>[1] = [
+    {
+      settled: true,
+      charged_usd: 1,
+      outcome: "IDENTITY_MISMATCH_FIRST_CONTACT",
+      attempt: {
+        id: "fixture",
+        run: "fixture",
+        lane,
+        model,
+        episode: "fixture",
+        at: new Date(clock).toISOString(),
+        reserved_usd: 1,
+        pid: 1,
+        request_sha256: hash,
+      },
+    },
+  ];
+  assert.equal(
+    firstLaneFailure(attempted, lane)?.reason,
+    "IDENTITY_MISMATCH_FIRST_CONTACT",
+  );
+  const later = beforeLane(
+    initialState(hash, "DISPATCH"),
+    attempted,
+    model,
+    clock,
+  );
+  assert.equal(typeof later === "object" && later.reason, "IDENTITY_HOLD");
   const failure = (
     model: (typeof stageModels)[number],
     status: number,
@@ -241,7 +305,7 @@ test("Sender fsyncs physical reservations and enforces cross-model stop even whe
   const evidence = path.join(root, "evidence", episode);
   mkdir(evidence);
   await createCampaign(root, randomUUID(), undefined, undefined, p);
-  const state = initialState(hash);
+  const state = initialState(hash, "DISPATCH");
   writeJSON(path.join(root, "campaign/stage-b-dispatch.json"), state);
   const activate = (id: string, subject: string, lineage: string) =>
     writeJSON(path.join(root, "campaign/active-stage-b.json"), {
@@ -330,7 +394,7 @@ test("Sender fsyncs physical reservations and enforces cross-model stop even whe
 test("Unknown costs retain full reservation, primary repair preserves counters and comparator identity holds are scoped", async () => {
   const root = path.join(repository, ".local/benchmark/tests", randomUUID()),
     p = policy(),
-    state = initialState(hash);
+    state = initialState(hash, "DISPATCH");
   await createCampaign(root, randomUUID(), undefined, undefined, p);
   writeJSON(path.join(root, "campaign/stage-b-dispatch.json"), state);
   try {
@@ -433,7 +497,7 @@ test("Freeze publication change and full-workload time risk are detectable witho
   assert(forecast.over_lane_limits);
 });
 test("Twelve ordered trial dispositions survive a primary pause and repair without reroll; control quota and identity use separate denominators", async () => {
-  const state = initialState(hash),
+  const state = initialState(hash, "DISPATCH"),
     records: Parameters<typeof beforeLane>[1] = [];
   const attempted: string[] = [];
   const record = (lane: string, decision: (typeof state.terminals)[string]) => {

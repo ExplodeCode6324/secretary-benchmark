@@ -57,7 +57,7 @@ function rule(model: string): ProviderRule {
   return {
     checked_at: date(0),
     published_version: model,
-    allowed_returned_model: model,
+    allowed_returned_models: [model, model + "-fixture"],
     publication_url: url,
     tier: "default",
     cache_retention: "default",
@@ -80,6 +80,7 @@ function dossier(root: string, b: CalibrationBinding) {
     expected_usd: 3,
     worst_usd: 9,
     inputs: {
+      c16_decision: "DEFERRED_BY_DECISION",
       providers,
       calibration_packet_sha256: b.packet_sha256,
       calibration_key_sha256: b.private_key_sha256,
@@ -101,6 +102,13 @@ function dossier(root: string, b: CalibrationBinding) {
         worst_usd: 0.75,
         expected_seconds: 900,
         expected_sends: 11,
+        range: {
+          sends: { min: 10, max: 13 },
+          seconds: { min: 800, max: 1100 },
+          ordinary_jobs: { min: 1, max: 2 },
+          context_compactions: { min: 0, max: 1 },
+          forced_band_compactions: { min: 0, max: 0 },
+        },
         over_lane_limits: false,
       },
     })),
@@ -221,7 +229,12 @@ test("three identical mechanical attempts exhaust the only calibration batch", a
   );
 });
 
-function trialFixture(root: string, freeze: string, text: string) {
+function trialFixture(
+  root: string,
+  freeze: string,
+  text: string,
+  missingProbeUsage = false,
+) {
   const slot = stageSlots[6],
     episode = randomUUID(),
     run = randomUUID(),
@@ -323,22 +336,25 @@ function trialFixture(root: string, freeze: string, text: string) {
         },
       },
     });
+    const missingUsage = missingProbeUsage && role === "probe";
     frame({
       type: "SETTLE",
       id,
       at: date(3),
       outcome: response ? "RESPONSE_COMPLETE" : "RATE_LIMITED",
-      actual_usd: response ? 0.000055 : null,
+      actual_usd: response && !missingUsage ? 0.000055 : null,
       usage: response
         ? {
             returned_model: model,
-            provider: {
-              input_tokens: 20,
-              output_tokens: 5,
-              input_tokens_details: { cached_tokens: 10 },
-              output_tokens_details: { reasoning_tokens: 2 },
-              raw: "a private host string",
-            },
+            provider: missingUsage
+              ? null
+              : {
+                  input_tokens: 20,
+                  output_tokens: 5,
+                  input_tokens_details: { cached_tokens: 10 },
+                  output_tokens_details: { reasoning_tokens: 2 },
+                  raw: "a private host string",
+                },
           }
         : {
             status: 429,
@@ -370,6 +386,10 @@ test("offline dispatcher, ledger, sealed excerpts, price provenance and one-shot
     "The checklist was written exactly once.",
   );
   const before = buildStageBReport(root);
+  assert.deepEqual(before.slots[6].forecast?.range?.sends, {
+    min: 10,
+    max: 13,
+  });
   assert.equal(before.terminal_slots, 2);
   assert.equal(before.slots[6].status, "COMPLETED");
   assert.equal(before.slots[6].semantic.exercised, 0);
@@ -388,6 +408,7 @@ test("offline dispatcher, ledger, sealed excerpts, price provenance and one-shot
     1,
   );
   assert.equal(before.overall.invoice_usd, null);
+  assert.equal(before.c16_decision, "DEFERRED_BY_DECISION");
   assert.doesNotMatch(
     JSON.stringify(before),
     /a private host string|checklist was written|private\/key/,
@@ -505,4 +526,44 @@ test("alias window requires attributable start, end and campaign-end receipts", 
     "SEGREGATED_PUBLICATION_UNCERTAIN",
   );
   assert.equal(check([start, end]), "HELD_CAMPAIGN_END_PUBLICATION");
+});
+
+test("R7 completed-send coverage excludes HTTP failures, retains unknown usage, and exports all identity/decision reasons", async (t) => {
+  const root = facility(t),
+    b = await prepareStageBCalibration(root),
+    hash = dossier(root, b);
+  const { model, state } = trialFixture(root, hash, "Synthetic reply.", true);
+  const rows = [
+    ["INCOMPLETE", "IDENTITY_MISMATCH_FIRST_CONTACT"],
+    ["NOT_DISPATCHED_PREFLIGHT", "IDENTITY_HOLD"],
+    ["DEFERRED_BY_DECISION", "FROZEN_C16_DEFERRAL"],
+  ];
+  for (const [i, [status, reason]] of rows.entries())
+    state.terminals[stageSlots[[1, 2, 9][i]].lane] = {
+      status,
+      reason,
+      at: date(6),
+    };
+  writeJSON(path.join(root, "campaign/stage-b-dispatch.json"), state);
+  const r = buildStageBReport(root),
+    m = r.models.find((m) => m.model === model)!;
+  assert.deepEqual(m.completed_usage_coverage, {
+    completed_responses: 2,
+    validated_components: 1,
+    unchecked_or_ambiguous: 1,
+    component_violations: 0,
+    percent: 50,
+  });
+  assert.equal(r.overall.completed_usage_coverage.percent, 50);
+  assert.equal(m.physical_reservations, 3);
+  assert.equal(m.unknown_full_reservation_usd, 0.02);
+  assert.equal(
+    r.models.find((m) => m.model !== model)!.completed_usage_coverage.percent,
+    null,
+  );
+  assert.deepEqual(
+    [1, 2, 9].map((i) => r.slots[i].terminal?.reason),
+    rows.map(([, reason]) => reason),
+  );
+  assert.equal(r.c16_decision, "DEFERRED_BY_DECISION");
 });

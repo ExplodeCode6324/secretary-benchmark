@@ -41,7 +41,7 @@ export function stageLane(id: string) {
 export type ProviderRule = {
   checked_at: string;
   published_version: string;
-  allowed_returned_model: string;
+  allowed_returned_models: string[];
   publication_url: string;
   tier: "default";
   cache_retention: "default";
@@ -95,7 +95,7 @@ export function validatePhysical(policy: PhysicalPolicy) {
       keys(rule, [
         "checked_at",
         "published_version",
-        "allowed_returned_model",
+        "allowed_returned_models",
         "publication_url",
         "tier",
         "cache_retention",
@@ -114,7 +114,17 @@ export function validatePhysical(policy: PhysicalPolicy) {
         rule.context_band === "all-admitted-input" &&
         Number.isFinite(Date.parse(rule.checked_at)) &&
         !!rule.published_version &&
-        !!rule.allowed_returned_model &&
+        Array.isArray(rule.allowed_returned_models) &&
+        rule.allowed_returned_models.length <= 4 &&
+        rule.allowed_returned_models.includes(model) &&
+        new Set(rule.allowed_returned_models).size ===
+          rule.allowed_returned_models.length &&
+        rule.allowed_returned_models.every(
+          (id) =>
+            typeof id === "string" &&
+            !stageModels.some((other) => other !== model && other === id) &&
+            /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id),
+        ) &&
         digest(rule.provenance_sha256) &&
         [rule.input_rate, rule.output_rate].every(
           (rate) => Number.isFinite(rate) && rate > 0,
@@ -166,6 +176,43 @@ export function physicalBound(
     freeze_sha256: policy.freeze_sha256,
   };
 }
+/** Exact provider identifiers in wire order. A stream may carry more than one identifier;
+ * the first distinct pair is sufficient to decide a change. */
+export function returnedIdentity(
+  allowed: readonly string[],
+  previous: string | undefined,
+  observed: readonly string[],
+) {
+  let matched = previous;
+  for (const id of observed) {
+    if (matched !== undefined && matched !== id) return "VERSION_TRANSITION";
+    if (!allowed.includes(id)) return "IDENTITY_MISMATCH_FIRST_CONTACT";
+    matched = id;
+  }
+  return observed.length ? "MATCH" : "IDENTITY_UNKNOWN";
+}
+export function chatUsageRequest(
+  api: string,
+  payload: { stream_options?: { include_usage?: unknown } },
+) {
+  if (api !== "openai-completions") return null;
+  requireThat(
+    payload.stream_options?.include_usage === true,
+    "STAGE_B_STREAM_USAGE_REQUIRED",
+  );
+  return true;
+}
+export function ambiguousReasoning(usage: any) {
+  const output = usage?.output_tokens ?? usage?.completion_tokens;
+  const reasoning =
+    usage?.output_tokens_details?.reasoning_tokens ??
+    usage?.completion_tokens_details?.reasoning_tokens;
+  return (
+    Number.isSafeInteger(reasoning) &&
+    Number.isSafeInteger(output) &&
+    reasoning > output
+  );
+}
 export function physicalViolation(bound: PhysicalBound, usage: any) {
   const input = usage?.input_tokens ?? usage?.prompt_tokens;
   const output = usage?.output_tokens ?? usage?.completion_tokens;
@@ -175,7 +222,8 @@ export function physicalViolation(bound: PhysicalBound, usage: any) {
   return (
     input > bound.input_bytes ||
     output > bound.output_tokens ||
-    reasoning > bound.output_tokens
+    reasoning > bound.output_tokens ||
+    ambiguousReasoning(usage)
   );
 }
 export function physicalUsageKnown(usage: any) {

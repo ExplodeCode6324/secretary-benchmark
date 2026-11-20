@@ -1,3 +1,4 @@
+import { chatUsageRequest } from "./stage-b-policy.ts";
 import path from "node:path";
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -122,7 +123,7 @@ export function b0Matrix(rows: Capacity[]) {
   );
 }
 
-async function captureBodies(context: Parameters<StreamFn>[1]) {
+export async function captureBodies(context: Parameters<StreamFn>[1]) {
   const original = globalThis.fetch;
   const samples = [];
   try {
@@ -133,6 +134,7 @@ async function captureBodies(context: Parameters<StreamFn>[1]) {
         sha256: string;
         output_cap: number;
         endpoint: string;
+        chat_stream_usage_requested: true | null;
       }[] = [];
       globalThis.fetch = async (input, init) => {
         const request = new Request(input, init);
@@ -151,6 +153,7 @@ async function captureBodies(context: Parameters<StreamFn>[1]) {
           "B0_SERIALIZATION_INVALID",
         );
         captured.push({
+          chat_stream_usage_requested: chatUsageRequest(model.api, payload),
           bytes: bytes.length,
           sha256: sha(bytes),
           output_cap: cap,

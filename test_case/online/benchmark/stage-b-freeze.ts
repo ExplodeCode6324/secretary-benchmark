@@ -12,7 +12,8 @@ import {
   type ProviderRule,
 } from "./stage-b-policy.ts";
 import { fingerprint } from "./source.ts";
-import type { TimelineStep } from "./baseline-timeline.ts";
+import { fillerTexts, type TimelineStep } from "./baseline-timeline.ts";
+import { maintenancePolicy } from "./baseline.ts";
 import { calibrationReceipt } from "./stage-b-report-calibration.ts";
 
 type SourcePage = { url: string; sha256: string };
@@ -27,6 +28,11 @@ type Forecast = {
   expected_output_tokens: number;
 };
 type Inputs = {
+  c16_decision: "DISPATCH" | "DEFERRED_BY_DECISION";
+  descriptors: Record<
+    StageModel,
+    { context_window: number; max_output_tokens: number; source_sha256: string }
+  >;
   providers: Record<StageModel, ProviderRule>;
   sources: Record<StageModel, SourcePage[]>;
   forecast: Record<StageModel, Forecast>;
@@ -37,11 +43,148 @@ const digest = (value: unknown) =>
   typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 export const freezeFile = (root: string) =>
   path.join(root, "configs", "stage-b-freeze.json");
+type ForecastCapacity = {
+  budget: {
+    estimated_tokens: number;
+    usable_input_tokens: number;
+    occupancy: number;
+  };
+  effective_policy: { target: number; normal: number; forced: number };
+};
+type Retention = "BRIEF_INDEXED" | "ECHO_INDEXED" | "ECHO_ANCHORED";
+
+/** Conditional workload through the last step, even when admission would stop it earlier.
+ * 873b66f memory-maintenance.ts:memoryDue uses the last job UPDATE (completion on this
+ * successful path). A job cannot generate new handled turns while it runs.
+ * main-loop.ts:prepare and maintainIfNeeded also check pressure independently of that
+ * interval. context-assembly.ts:crop itself commits a local projection without a send. */
+function forecastPath(
+  steps: TimelineStep[],
+  factors: Forecast,
+  capacity: ForecastCapacity | undefined,
+  retention: Retention,
+) {
+  const { turn_trigger, oldest_uncovered_seconds, min_interval_seconds } =
+    maintenancePolicy;
+  const base = capacity?.budget.estimated_tokens ?? 0,
+    usable = capacity?.budget.usable_input_tokens ?? Infinity;
+  let resident = base,
+    anchors = base,
+    peak = base;
+  let seconds = 0,
+    turns = 0,
+    pending = 0,
+    oldest = 0,
+    lastCommit = -Infinity;
+  let scheduled = 0,
+    pressureJobs = 0,
+    crops = 0,
+    forcedCrops = 0,
+    pressureChecks = 0;
+  let boundaryWait = 0;
+  function summarize(pressure: boolean) {
+    if (!pending) return;
+    if (pressure) pressureJobs++;
+    else scheduled++;
+    seconds += factors.sends_per_maintenance * factors.seconds_per_send;
+    lastCommit = seconds;
+    pending = 0;
+  }
+  function pressure() {
+    peak = Math.max(peak, resident);
+    if (!capacity || resident < usable * capacity.effective_policy.normal)
+      return;
+    pressureChecks++;
+    summarize(true);
+    // Indexed replay can drop covered inputs. When search is behind, mandatory
+    // original inputs without an earlier projection receipt remain resident.
+    const after = Math.max(usable * capacity.effective_policy.target, anchors);
+    if (after >= resident) return;
+    if (resident >= usable * capacity.effective_policy.forced) forcedCrops++;
+    crops++;
+    resident = after;
+    seconds += factors.observation_seconds; // local work latency proxy only
+  }
+  function dueAt() {
+    return Math.max(
+      lastCommit + min_interval_seconds,
+      pending >= turn_trigger ? seconds : oldest + oldest_uncovered_seconds,
+    );
+  }
+  function turn(text: string) {
+    const bytes = Buffer.byteLength(JSON.stringify(text));
+    // budget.ts:requestBudget counts serialized UTF-8 plus 32 per message.
+    // Shapes, tool messages and generated content are unknown at freeze.
+    const userBytes = bytes + 32;
+    resident += userBytes;
+    if (retention === "ECHO_ANCHORED") anchors += userBytes;
+    pressure(); // before request: only earlier HANDLED inputs can be covered
+    const sends =
+      Math.ceil((turns + 1) * factors.ordinary_sends_per_turn) -
+      Math.ceil(turns * factors.ordinary_sends_per_turn);
+    turns++;
+    seconds += sends * factors.seconds_per_send;
+    resident +=
+      32 * sends +
+      (retention === "BRIEF_INDEXED" ? Buffer.byteLength("Received.") : bytes);
+    if (!pending) oldest = seconds;
+    pending++;
+    // At an idle opportunity pressure and the ordinary predicate coalesce into
+    // one covering job. A later poll with no new work cannot create another.
+    if (seconds >= dueAt()) summarize(false);
+    pressure();
+  }
+  for (const [index, step] of steps.entries()) {
+    if (step.filler) for (const text of fillerTexts(step.filler)) turn(text);
+    else if (step.action === "MASTER_MESSAGE") turn(step.text ?? "");
+    else if (step.action === "MASTER_TASK")
+      seconds += factors.extra_task_sends * factors.seconds_per_send;
+    else if (step.action === "DIRECT_RESTART")
+      seconds += factors.restart_seconds;
+    else if (step.action === "OBSERVE") seconds += factors.observation_seconds;
+    else if (step.action === "IDLE_WAIT") {
+      const end = seconds + (step.seconds ?? 0);
+      // The following OBSERVE waits for coverage of the last filler. A commit
+      // already covering it satisfies the boundary without a second job.
+      const needed = steps[index + 1]?.action === "OBSERVE";
+      if (pending && (dueAt() <= end || needed)) {
+        seconds = Math.max(seconds, dueAt());
+        summarize(false);
+        boundaryWait += Math.max(0, seconds - end);
+      }
+      seconds = Math.max(seconds, end);
+    }
+  }
+  const jobs = scheduled + pressureJobs;
+  const tasks = steps.filter((s) => s.action === "MASTER_TASK").length;
+  return {
+    retention,
+    turns,
+    tasks,
+    ordinary_jobs: jobs,
+    cadence_jobs: scheduled,
+    pressure_jobs: pressureJobs,
+    context_compactions: crops,
+    forced_band_compactions: forcedCrops,
+    pressure_checks: pressureChecks,
+    context_crop_sends: 0,
+    peak_occupancy: capacity ? peak / usable : null,
+    capacity_risk: capacity ? peak >= usable : null,
+    boundary_wait_beyond_idle_seconds: Math.ceil(boundaryWait),
+    sends: Math.ceil(
+      turns * factors.ordinary_sends_per_turn +
+        tasks * factors.extra_task_sends +
+        jobs * factors.sends_per_maintenance,
+    ),
+    seconds: Math.ceil(seconds),
+  };
+}
 export function forecastLane(
   steps: TimelineStep[],
   rule: ProviderRule,
   factors: Forecast,
   cap: number,
+  capacity?: ForecastCapacity,
 ) {
   requireThat(
     Object.keys(factors).sort().join(",") ===
@@ -59,28 +202,64 @@ export function forecastLane(
           : rule.billed_output),
     "STAGE_B_FORECAST_INVALID",
   );
-  const turns = steps.reduce(
-    (n, s) => n + (s.filler?.count ?? (s.action === "MASTER_MESSAGE" ? 1 : 0)),
-    0,
+  requireThat(
+    !steps.some((s) => s.filler) || capacity,
+    "STAGE_B_FORECAST_B0_REQUIRED",
   );
-  const cycles = steps.filter((s) => s.action === "IDLE_WAIT").length;
-  const tasks = steps.filter((s) => s.action === "MASTER_TASK").length;
-  const expected_sends = Math.ceil(
-    turns * factors.ordinary_sends_per_turn +
-      tasks * factors.extra_task_sends +
-      cycles * factors.sends_per_maintenance,
-  );
-  const expected_seconds = Math.ceil(
-    expected_sends * factors.seconds_per_send +
-      steps.filter((s) => s.action === "DIRECT_RESTART").length *
-        factors.restart_seconds +
-      steps.filter((s) => s.action === "OBSERVE").length *
-        factors.observation_seconds +
-      steps.reduce(
-        (n, s) => n + (s.action === "IDLE_WAIT" ? (s.seconds ?? 0) : 0),
-        0,
-      ),
-  );
+  if (capacity) {
+    const { budget, effective_policy: p } = capacity;
+    requireThat(
+      Number.isSafeInteger(budget.estimated_tokens) &&
+        budget.estimated_tokens > 0 &&
+        Number.isSafeInteger(budget.usable_input_tokens) &&
+        budget.usable_input_tokens > 0 &&
+        Math.abs(
+          budget.estimated_tokens / budget.usable_input_tokens -
+            budget.occupancy,
+        ) < 1e-8 &&
+        p.target > 0 &&
+        p.target < p.normal &&
+        p.normal < p.forced &&
+        p.forced <= 1,
+      "STAGE_B_FORECAST_CAPACITY_INVALID",
+    );
+  }
+  const paths = (
+    ["BRIEF_INDEXED", "ECHO_INDEXED", "ECHO_ANCHORED"] as const
+  ).map((retention) => forecastPath(steps, factors, capacity, retention));
+  const interval = (
+    key:
+      | "sends"
+      | "seconds"
+      | "ordinary_jobs"
+      | "context_compactions"
+      | "forced_band_compactions",
+  ) => {
+    const values = paths.map((p) => p[key]);
+    return { min: Math.min(...values), max: Math.max(...values) };
+  };
+  const limit = (r: { min: number; max: number }, cap: number) =>
+    r.min > cap ? "ABOVE" : r.max > cap ? "STRADDLES" : "WITHIN";
+  const sends = interval("sends"),
+    seconds = interval("seconds");
+  const range = {
+    sends,
+    seconds,
+    ordinary_jobs: interval("ordinary_jobs"),
+    context_compactions: interval("context_compactions"),
+    forced_band_compactions: interval("forced_band_compactions"),
+    send_cap: cap,
+    seconds_cap: 3600,
+    send_limit: limit(sends, cap),
+    time_limit: limit(seconds, 3600),
+  };
+  const {
+    turns,
+    tasks,
+    ordinary_jobs: cycles,
+    sends: expected_sends,
+    seconds: expected_seconds,
+  } = paths[1];
   const boundOutput =
     rule.billed_output === "REQUEST_CAP"
       ? rule.max_requested_output
@@ -91,7 +270,24 @@ export function forecastLane(
     tasks,
     expected_sends,
     expected_seconds,
-    over_lane_limits: expected_sends > cap || expected_seconds > 3600,
+    paths,
+    range,
+    basis: {
+      source:
+        "873b66f memory-maintenance.ts:memoryDue/maintainIfNeeded; main-loop.ts:prepare; context-projection.ts:buildCompaction; input-projection.ts:selectInputProjection",
+      turn_trigger: maintenancePolicy.turn_trigger,
+      oldest_seconds: maintenancePolicy.oldest_uncovered_seconds,
+      interval_after_commit_seconds: maintenancePolicy.min_interval_seconds,
+      b0_initial_occupancy: capacity?.budget.occupancy ?? null,
+      projection:
+        "One handled input per ordinary turn. Indexed cases assume a successful crop to target and either a brief acknowledgement or one input-sized reply. Anchored stress keeps original inputs when search lags. Peak demand can exceed capacity.",
+      timing:
+        "Serial send latency, one observation-latency allowance per local crop, overlap during explicit idle waits. The per-job send factor includes summary segments and extraction. Task traffic uses the task allowance.",
+      limitation:
+        "Illustrative paths, not probability or completion bounds. Tool traffic, critical feedback, retries, coverage/search readiness, protected tails, stalls and provider latency can change counts or prevent completion.",
+    },
+    over_lane_limits:
+      range.send_limit !== "WITHIN" || range.time_limit !== "WITHIN",
     expected_usd:
       ((factors.expected_input_tokens * rule.input_rate +
         factors.expected_output_tokens * rule.output_rate) *
@@ -109,8 +305,9 @@ export function buildFreeze(root: string) {
   const inputs: Inputs = readJSON(path.join(config, "stage-b-inputs.json"));
   requireThat(
     Object.keys(inputs).sort().join(",") ===
-      "calibration_key_sha256,calibration_packet_sha256,forecast,providers,sources" &&
-      [inputs.forecast, inputs.sources].every(
+      "c16_decision,calibration_key_sha256,calibration_packet_sha256,descriptors,forecast,providers,sources" &&
+      ["DISPATCH", "DEFERRED_BY_DECISION"].includes(inputs.c16_decision) &&
+      [inputs.descriptors, inputs.forecast, inputs.sources].every(
         (group) =>
           Object.keys(group).sort().join(",") ===
           [...stageModels].sort().join(","),
@@ -139,6 +336,15 @@ export function buildFreeze(root: string) {
   });
   for (const model of stageModels) {
     const pages = inputs.sources[model];
+    const limits = inputs.descriptors[model],
+      actual = descriptor(model);
+    requireThat(
+      limits.context_window === actual.contextWindow &&
+        limits.max_output_tokens === actual.maxTokens &&
+        digest(limits.source_sha256) &&
+        pages.some((page) => page.sha256 === limits.source_sha256),
+      "STAGE_B_DESCRIPTOR_DRIFT",
+    );
     requireThat(
       Array.isArray(pages) &&
         pages.length >= 2 &&
@@ -231,6 +437,7 @@ export function buildFreeze(root: string) {
         providers[slot.model],
         inputs.forecast[slot.model],
         slot.cap,
+        profile.capacity,
       ),
     };
   });

@@ -6,6 +6,8 @@ import { execFileSync } from "node:child_process";
 import {
   stageModels,
   physicalBound,
+  physicalViolation,
+  chatUsageRequest,
   measuredEstimate,
   providerFailure,
   type StageModel,
@@ -307,6 +309,9 @@ export function meteredFetch(
             payload.prompt_cache_retention === undefined,
           "STAGE_B_PRICING_TIER",
         );
+      const requestedUsage = policy
+        ? chatUsageRequest(model.api, payload)
+        : null;
       const role =
         attribution.getStore()?.role ??
         (options.lane?.startsWith("probe--") ? "probe" : "");
@@ -341,6 +346,9 @@ export function meteredFetch(
           episode: options.episode ?? options.run,
           ...(options.lane ? { lane: options.lane } : {}),
           ...(physical ? { physical } : {}),
+          ...(requestedUsage
+            ? { chat_stream_usage_requested: requestedUsage }
+            : {}),
           request_sha256: bodyHash,
           reserved_usd: worst,
         },
@@ -421,11 +429,12 @@ export function meteredFetch(
       }
       const reader = response.body.getReader(),
         decoder = new TextDecoder();
+      const observedModels: string[] = [];
       let pending = "",
         usage: unknown = null,
         returnedModel: string | null = null,
         done = false,
-        transition = false,
+        firstUsageViolation: unknown = null,
         completed = false,
         tierChanged = false;
       const observe = (chunk: Uint8Array) => {
@@ -447,15 +456,18 @@ export function meteredFetch(
             if (policy && tier && tier !== "default") tierChanged = true;
             if (data.type === "response.completed") completed = true;
             usage = data.usage ?? data.response?.usage ?? usage;
-            returnedModel = data.model ?? data.response?.model ?? returnedModel;
-            if (
-              policy &&
-              returnedModel &&
-              returnedModel !==
-                policy.providers[options.model as StageModel]
-                  .allowed_returned_model
-            )
-              transition = true;
+            if (physical && physicalViolation(physical, usage))
+              firstUsageViolation ??= usage;
+            const id = data.model ?? data.response?.model;
+            if (typeof id === "string" && id.length) {
+              returnedModel = id;
+              if (
+                policy &&
+                observedModels.length < 2 &&
+                !observedModels.includes(id)
+              )
+                observedModels.push(id);
+            }
           }
         }
       };
@@ -469,19 +481,25 @@ export function meteredFetch(
             ? outcome
             : tierChanged
               ? "PROVENANCE_CHANGE"
-              : transition
-                ? "VERSION_TRANSITION"
-                : outcome === "RESPONSE_COMPLETE" && !returnedModel
-                  ? "IDENTITY_UNKNOWN"
-                  : outcome === "RESPONSE_COMPLETE" && !completed
-                    ? "STREAM_UNCERTAIN"
-                    : outcome,
-          { provider: usage, returned_model: returnedModel },
+              : outcome === "RESPONSE_COMPLETE" && !completed
+                ? "STREAM_UNCERTAIN"
+                : outcome,
+          {
+            provider: firstUsageViolation ?? usage,
+            returned_model: returnedModel,
+            ...(policy
+              ? {
+                  response_complete:
+                    completed && outcome === "RESPONSE_COMPLETE",
+                  observed_models: observedModels,
+                }
+              : {}),
+          },
           policy
             ? completed && !tierChanged && outcome === "RESPONSE_COMPLETE"
               ? measuredEstimate(
                   policy.providers[options.model as StageModel],
-                  usage,
+                  firstUsageViolation ?? usage,
                 )
               : null
             : usageCost(

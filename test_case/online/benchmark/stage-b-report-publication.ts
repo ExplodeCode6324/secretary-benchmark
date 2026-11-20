@@ -20,6 +20,42 @@ export function publicationLog(root: string): Observation[] {
     .split("\n")
     .map((line) => JSON.parse(line));
 }
+type IdentityAttempt = {
+  outcome: string;
+  returned_model_sha256: string | null;
+  settled_sequence?: number | null;
+};
+/** Physical settlements carry model-wide transitions, including those first observed in a probe. */
+export function projectedIdentity(
+  rule: ProviderRule,
+  model: StageModel,
+  attempts: IdentityAttempt[],
+) {
+  const allowed = rule.allowed_returned_models.map((id) => sha(id));
+  let matched: string | null = null;
+  for (const row of [...attempts].sort(
+    (a, b) =>
+      (a.settled_sequence ?? Infinity) - (b.settled_sequence ?? Infinity),
+  )) {
+    if (row.outcome === "IDENTITY_MISMATCH_FIRST_CONTACT")
+      return "SEGREGATED_IDENTITY_MISMATCH_FIRST_CONTACT";
+    if (row.outcome === "VERSION_TRANSITION")
+      return "SEGREGATED_VERSION_TRANSITION";
+    if (row.outcome === "IDENTITY_UNKNOWN")
+      return "SEGREGATED_IDENTITY_UNKNOWN";
+    const id = row.returned_model_sha256;
+    if (!id) continue;
+    if (matched && matched !== id) return "SEGREGATED_VERSION_TRANSITION";
+    if (!allowed.includes(id))
+      return "SEGREGATED_IDENTITY_MISMATCH_FIRST_CONTACT";
+    matched = id;
+  }
+  return !matched
+    ? "NO_RETURNED_IDENTIFIER"
+    : matched === sha(model)
+      ? "SEE_PER_LANE_PUBLICATION_WINDOW"
+      : "FROZEN_RETURNED_IDENTIFIER";
+}
 export function attributeLane(
   log: Observation[],
   lane: string,
@@ -35,15 +71,12 @@ export function attributeLane(
 ) {
   if (!rule || !attempts.length) return "UNEXERCISED";
   const entries = log.filter((e) => e.model === model);
+  const identity = projectedIdentity(rule, model, attempts);
   if (
-    attempts.some(
-      (a) =>
-        a.outcome === "VERSION_TRANSITION" ||
-        (a.returned_model_sha256 &&
-          a.returned_model_sha256 !== sha(rule.allowed_returned_model)),
-    )
+    identity === "SEGREGATED_VERSION_TRANSITION" ||
+    identity === "SEGREGATED_IDENTITY_MISMATCH_FIRST_CONTACT"
   )
-    return "SEGREGATED_VERSION_TRANSITION";
+    return identity;
   if (
     !attempts.some((a) => a.outcome === "RESPONSE_COMPLETE") ||
     attempts.some(
@@ -74,7 +107,7 @@ export function attributeLane(
   )
     return "SEGREGATED_PUBLICATION_TRANSITION";
   if (
-    rule.allowed_returned_model !== model &&
+    identity === "FROZEN_RETURNED_IDENTIFIER" &&
     !entries.some((e) => e.status !== "MATCH")
   )
     return "FROZEN_RETURNED_IDENTIFIER";

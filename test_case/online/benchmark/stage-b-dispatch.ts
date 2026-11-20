@@ -93,14 +93,33 @@ const allLanes = [
 const table = (state: State, lane: string) =>
   lane.startsWith("probe--") ? state.probes : state.terminals;
 const entries = (root: string) => [...ledger(root).entries.values()];
-export const initialState = (hash: string): State => ({
-  schema: "issue122-dispatch-v2",
-  freeze_sha256: hash,
-  terminals: {},
-  probes: {},
-  repairs: {},
-  ended: false,
-});
+export const initialState = (
+  hash: string,
+  c16: StageFreeze["inputs"]["c16_decision"],
+): State => {
+  requireThat(
+    c16 === "DISPATCH" || c16 === "DEFERRED_BY_DECISION",
+    "STAGE_B_C16_DECISION_REQUIRED",
+  );
+  return {
+    schema: "issue122-dispatch-v2",
+    freeze_sha256: hash,
+    terminals:
+      c16 === "DISPATCH"
+        ? {}
+        : Object.fromEntries(
+            stageSlots
+              .filter((s) => s.scenario === "C16-combined")
+              .map((s) => [
+                s.lane,
+                result("DEFERRED_BY_DECISION", "FROZEN_C16_DEFERRAL"),
+              ]),
+          ),
+    probes: {},
+    repairs: {},
+    ended: false,
+  };
+};
 export function stageState(root: string) {
   const campaign = loadCampaign(root);
   const state = readJSON<State>(stateFile(root));
@@ -124,7 +143,11 @@ export function firstLaneFailure(records: Entry[], lane: string) {
       return result("VERSION_TRANSITION", "RETURNED_MODEL_CHANGED");
     if (record.outcome === "EXHAUSTED_QUOTA")
       return result("INCOMPLETE", "INCOMPLETE_QUOTA");
-    if (record.outcome === "AUTH" || record.outcome === "IDENTITY_UNKNOWN")
+    if (
+      record.outcome === "AUTH" ||
+      record.outcome === "IDENTITY_UNKNOWN" ||
+      record.outcome === "IDENTITY_MISMATCH_FIRST_CONTACT"
+    )
       return result("INCOMPLETE", record.outcome);
   }
 }
@@ -155,6 +178,16 @@ export function beforeLane(
       });
     else if (record.outcome === "PROVENANCE_CHANGE")
       decisions.push({ at, status: "HALTED", reason: "PROVENANCE_CHANGE" });
+    else if (
+      record.attempt.model === model &&
+      (record.outcome === "IDENTITY_MISMATCH_FIRST_CONTACT" ||
+        record.outcome === "IDENTITY_UNKNOWN")
+    )
+      decisions.push({
+        at,
+        status: "NOT_DISPATCHED_PREFLIGHT",
+        reason: "IDENTITY_HOLD",
+      });
     else if (
       record.attempt.model === model &&
       record.outcome === "VERSION_TRANSITION"
@@ -229,7 +262,7 @@ export async function driveWorklist(
   }
 }
 export async function startStage(root: string, approval: string, hash: string) {
-  const { policy } = loadFreeze(root, hash);
+  const { policy, freeze } = loadFreeze(root, hash);
   for (const model of stageModels)
     checkAdmission(
       policy,
@@ -240,7 +273,7 @@ export async function startStage(root: string, approval: string, hash: string) {
       Date.now(),
     );
   await createCampaign(root, approval, undefined, undefined, policy);
-  writeJSON(stateFile(root), initialState(hash));
+  writeJSON(stateFile(root), initialState(hash, freeze.inputs.c16_decision));
 }
 async function publication(
   root: string,
@@ -492,6 +525,14 @@ export async function dispatchStage(
   }
   assertCampaignSource(root);
   const { freeze, policy } = loadFreeze(root, hash);
+  for (const slot of stageSlots.filter(
+    (slot) => slot.scenario === "C16-combined",
+  ))
+    requireThat(
+      (state.terminals[slot.lane]?.status === "DEFERRED_BY_DECISION") ===
+        (freeze.inputs.c16_decision === "DEFERRED_BY_DECISION"),
+      "STAGE_B_C16_DECISION_DRIFT",
+    );
   if (fs.existsSync(activeFile(root))) {
     const previous = readJSON<Active>(activeFile(root));
     if (!table(state, previous.lane)[previous.lane]) {

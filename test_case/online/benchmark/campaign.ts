@@ -3,6 +3,7 @@ import {
   validatePhysical,
   physicalBound,
   physicalViolation,
+  returnedIdentity,
   checkAdmission,
   type PhysicalBound,
   type PhysicalPolicy,
@@ -62,6 +63,7 @@ export type Attempt = {
   request_sha256: string;
   reserved_usd: number;
   physical?: PhysicalBound;
+  chat_stream_usage_requested?: true;
   at: string;
   pid: number;
 };
@@ -364,6 +366,16 @@ export async function reserve(
         ),
         "STAGE_B_VERSION_HOLD",
       );
+      requireThat(
+        !entries.some(
+          (entry) =>
+            entry.attempt.model === model &&
+            ["IDENTITY_MISMATCH_FIRST_CONTACT", "IDENTITY_UNKNOWN"].includes(
+              entry.outcome ?? "",
+            ),
+        ),
+        "STAGE_B_IDENTITY_HOLD",
+      );
       const dispatch = readJSON(
         path.join(directory(root), "stage-b-dispatch.json"),
       );
@@ -396,9 +408,7 @@ export async function reserve(
         !entries.some(
           (entry) =>
             entry.attempt.lane === details.lane &&
-            ["IDENTITY_UNKNOWN", "EXHAUSTED_QUOTA", "AUTH"].includes(
-              entry.outcome ?? "",
-            ),
+            ["EXHAUSTED_QUOTA", "AUTH"].includes(entry.outcome ?? ""),
         ),
         "STAGE_B_LANE_FAILED",
       );
@@ -461,13 +471,57 @@ export async function settle(
   actualUSD: number | null,
 ) {
   return locked(directory(root), async () => {
-    requireThat(loadCampaign(root).state === "OPEN", "CAMPAIGN_CLOSED");
-    const item = ledger(root).entries.get(id);
+    const campaign = loadCampaign(root);
+    requireThat(campaign.state === "OPEN", "CAMPAIGN_CLOSED");
+    const { entries } = ledger(root);
+    const item = entries.get(id);
     requireThat(item && !item.settled, "CAMPAIGN_INVALID_SETTLEMENT");
     requireThat(
       actualUSD === null || (Number.isFinite(actualUSD) && actualUSD >= 0),
       "CAMPAIGN_INVALID_COST",
     );
+    // Compare under the same lease that commits SETTLE. Workers can finish in a
+    // different order than they reserved, including Main/Task on the same lane.
+    if (
+      item.attempt.physical &&
+      (outcome === "RESPONSE_COMPLETE" ||
+        (usage && typeof usage === "object" && "returned_model" in usage))
+    ) {
+      const details = usage as {
+        observed_models?: string[];
+        returned_model?: string;
+      } | null;
+      const observedModels =
+        details?.observed_models ??
+        (details?.returned_model ? [details.returned_model] : []);
+      const allow =
+        campaign.physical_policy!.providers[item.attempt.model as StageModel]
+          .allowed_returned_models;
+      const prior = [...entries.values()]
+        .filter(
+          (e) =>
+            e.attempt.model === item.attempt.model &&
+            e.settled &&
+            e.returned_model &&
+            allow.includes(e.returned_model) &&
+            e.outcome !== "IDENTITY_MISMATCH_FIRST_CONTACT" &&
+            e.outcome !== "VERSION_TRANSITION",
+        )
+        .sort((a, b) => a.settled_sequence! - b.settled_sequence!)[0];
+      const identity = returnedIdentity(
+        allow,
+        prior?.returned_model,
+        observedModels,
+      );
+      usage = { ...(usage as object), identity_status: identity };
+      if (
+        outcome !== "PROVENANCE_CHANGE" &&
+        (identity === "VERSION_TRANSITION" ||
+          identity === "IDENTITY_MISMATCH_FIRST_CONTACT" ||
+          (outcome === "RESPONSE_COMPLETE" && identity === "IDENTITY_UNKNOWN"))
+      )
+        outcome = identity;
+    }
     append(root, {
       type: "SETTLE",
       id,

@@ -2,6 +2,7 @@ import { trialArtifact, hostEvidence } from "./stage-b-report-evidence.ts";
 import {
   publicationLog,
   attributeLane,
+  projectedIdentity,
   gradableIdentity,
 } from "./stage-b-report-publication.ts";
 import fs from "node:fs";
@@ -22,6 +23,7 @@ import {
   stageSlots,
   stageLane,
   physicalUsageKnown,
+  ambiguousReasoning,
   validatePhysical,
 } from "./stage-b-policy.ts";
 import { freezeFile, type StageFreeze } from "./stage-b-freeze.ts";
@@ -64,6 +66,7 @@ const outcomes = [
   "CANCELLED_UNCERTAIN",
   "BOUND_VIOLATION",
   "IDENTITY_UNKNOWN",
+  "IDENTITY_MISMATCH_FIRST_CONTACT",
   "PROVENANCE_CHANGE",
 ];
 const reasons = [
@@ -73,6 +76,8 @@ const reasons = [
   "INFRASTRUCTURE",
   "MISSING_CONFIGURATION",
   "VERSION_HOLD",
+  "IDENTITY_HOLD",
+  "FROZEN_C16_DEFERRAL",
   "INCOMPLETE_QUOTA",
   "LANE_CAP",
   "LANE_TIME",
@@ -162,7 +167,15 @@ function safeTerminal(
 
 type LedgerEntry =
   ReturnType<typeof ledger>["entries"] extends Map<string, infer V> ? V : never;
-function projectAttempt(entry: LedgerEntry, freeze: string, ordinal: number) {
+function publicModelId(id: string) {
+  return /^(?:deepseek-|gpt-|fp_)[A-Za-z0-9._:-]{1,100}$/i.test(id) ? id : null;
+}
+function projectAttempt(
+  entry: LedgerEntry,
+  freeze: string,
+  ordinal: number,
+  allowed: readonly string[],
+) {
   const { attempt } = entry,
     physical = attempt.physical;
   const lane = stageLane(attempt.lane ?? "");
@@ -178,7 +191,14 @@ function projectAttempt(entry: LedgerEntry, freeze: string, ordinal: number) {
     "STAGE_B_REPORT_LEDGER_BINDING",
   );
   const details = entry.usage as
-    { provider?: any; status?: number; error_sha256?: string } | undefined;
+    | {
+        provider?: any;
+        status?: number;
+        error_sha256?: string;
+        response_complete?: boolean;
+        observed_models?: string[];
+      }
+    | undefined;
   const provider = details?.provider,
     known = physicalUsageKnown(provider);
   const outcome = entry.settled
@@ -200,8 +220,24 @@ function projectAttempt(entry: LedgerEntry, freeze: string, ordinal: number) {
     settled_at: entry.settled_at ? stamp(entry.settled_at) : null,
     settled_sequence: entry.settled_sequence ?? null,
     outcome,
+    response_complete:
+      details?.response_complete ?? outcome === "RESPONSE_COMPLETE",
+    chat_stream_usage_requested:
+      attempt.chat_stream_usage_requested === true ? true : null,
+    components_validated: known,
+    ambiguous_reasoning: ambiguousReasoning(provider),
+    observed_model_sha256: Array.isArray(details?.observed_models)
+      ? details.observed_models
+          .slice(0, 2)
+          .filter((id) => typeof id === "string")
+          .map((id) => sha(id))
+      : [],
     component_violation: entry.component_violation === true,
     monetary_overrun: !!entry.bound_violation,
+    matched_returned_model:
+      entry.returned_model && allowed.includes(entry.returned_model)
+        ? publicModelId(entry.returned_model)
+        : null,
     returned_model_sha256: entry.returned_model
       ? sha(entry.returned_model)
       : null,
@@ -237,8 +273,21 @@ function projectAttempt(entry: LedgerEntry, freeze: string, ordinal: number) {
   };
 }
 function cost(rows: ReturnType<typeof projectAttempt>[]) {
+  const completed = rows.filter((r) => r.response_complete);
+  const checked = completed.filter((r) => r.components_validated).length;
   return {
     physical_reservations: rows.length,
+    completed_usage_coverage: {
+      completed_responses: completed.length,
+      validated_components: checked,
+      unchecked_or_ambiguous: completed.length - checked,
+      component_violations: completed.filter((r) => r.component_violation)
+        .length,
+      percent: completed.length ? (100 * checked) / completed.length : null,
+    },
+    chat_stream_usage_requests: rows.filter(
+      (r) => r.chat_stream_usage_requested,
+    ).length,
     unknown_usage_or_price: rows.filter(
       (r) => r.unknown_reservation_usd !== null,
     ).length,
@@ -256,6 +305,13 @@ function cost(rows: ReturnType<typeof projectAttempt>[]) {
 function forecast(row: StageFreeze["worklist"][number] | undefined) {
   if (!row) return null;
   const f = row.forecast;
+  const interval = (r: { min: number; max: number }) => {
+    requireThat(
+      count(r.min) && count(r.max) && r.max >= r.min,
+      "STAGE_B_REPORT_FORECAST_INVALID",
+    );
+    return { min: r.min, max: r.max };
+  };
   requireThat(
     [f.expected_usd, f.worst_usd].every(amount) &&
       [f.expected_sends, f.expected_seconds].every(count),
@@ -267,6 +323,17 @@ function forecast(row: StageFreeze["worklist"][number] | undefined) {
     expected_usd: f.expected_usd,
     worst_usd: f.worst_usd,
     over_lane_limits: f.over_lane_limits === true,
+    range: f.range
+      ? {
+          sends: interval(f.range.sends),
+          seconds: interval(f.range.seconds),
+          ordinary_jobs: interval(f.range.ordinary_jobs),
+          context_compactions: interval(f.range.context_compactions),
+          forced_band_compactions: interval(f.range.forced_band_compactions),
+          send_cap: row.cap,
+          seconds_cap: 3600,
+        }
+      : null,
     capacity_profile:
       row.profile === "DEP" ? "DEP_DEFAULT_UNVERIFIED" : "RC98304",
     input_sha256: row.input_sha256,
@@ -296,6 +363,10 @@ export function buildStageBReport(root: string) {
     "STAGE_B_REPORT_FREEZE_BINDING",
   );
   if (freeze) {
+    requireThat(
+      ["DISPATCH", "DEFERRED_BY_DECISION"].includes(freeze.inputs.c16_decision),
+      "STAGE_B_REPORT_C16_DECISION",
+    );
     validatePhysical({
       schema: "issue122-physical-v2",
       freeze_sha256: freezeHash!,
@@ -311,7 +382,13 @@ export function buildStageBReport(root: string) {
     );
   }
   const attempts = [...log.entries.values()].map((e, i) =>
-    projectAttempt(e, freezeHash!, i + 1),
+    projectAttempt(
+      e,
+      freezeHash!,
+      i + 1,
+      freeze!.inputs.providers[e.attempt.model as (typeof stageModels)[number]]
+        ?.allowed_returned_models ?? [],
+    ),
   );
   const publications = publicationLog(root);
   const calibration = stageBCalibrationStatus(root);
@@ -412,9 +489,7 @@ export function buildStageBReport(root: string) {
           amount(estimate?.worst_usd)),
       "STAGE_B_REPORT_PRICE_INVALID",
     );
-    const returned = [...log.entries.values()].filter(
-      (e) => e.attempt.model === model && e.returned_model,
-    );
+    const modelAttempts = attempts.filter((a) => a.model === model);
     return {
       model,
       ...cost(attempts.filter((a) => a.model === model)),
@@ -440,21 +515,20 @@ export function buildStageBReport(root: string) {
           ? rule.published_version
           : null,
       published_version_sha256: rule ? sha(rule.published_version) : null,
-      identity:
-        returned.length === 0
-          ? "NO_RETURNED_IDENTIFIER"
-          : returned.some(
-                (e) => e.returned_model !== rule?.allowed_returned_model,
-              )
-            ? "SEGREGATED_VERSION_TRANSITION"
-            : rule?.allowed_returned_model === model
-              ? "SEE_PER_LANE_PUBLICATION_WINDOW"
-              : "FROZEN_RETURNED_IDENTIFIER",
+      frozen_returned_models:
+        rule?.allowed_returned_models.map((id) => ({
+          identifier: publicModelId(id),
+          sha256: sha(id),
+        })) ?? null,
+      identity: rule
+        ? projectedIdentity(rule, model, modelAttempts)
+        : "NO_RETURNED_IDENTIFIER",
     };
   });
   const report = {
     schema: "issue122-stage-b-report-v2",
     generation: "OFFLINE_LEDGER_REPLAY",
+    c16_decision: freeze?.inputs.c16_decision ?? null,
     freeze_sha256: freezeHash,
     ledger_sha256: log.previous,
     ledger_sequence: log.sequence,

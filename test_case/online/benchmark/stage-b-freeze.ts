@@ -322,6 +322,19 @@ export function validateDescriptor(
     "STAGE_B_DESCRIPTOR_DRIFT",
   );
 }
+/** The approved B0 archive is private. Authenticate its bytes before parsing them. */
+export const reviewedB0Receipt = {
+  read(root: string) {
+    const bytes = read(path.join(root, "configs", "issue122-b0.json"));
+    const b0_sha256 = sha(bytes);
+    requireThat(
+      b0_sha256 ===
+        "0a8b6acf24b449a5961987e3b82af17d0f5716edeff3639a0e651a2336af26a1",
+      "STAGE_B_B0_RECEIPT_CHANGED",
+    );
+    return { b0: JSON.parse(bytes.toString("utf8")), b0_sha256 };
+  },
+};
 export function buildFreeze(root: string) {
   const config = path.join(root, "configs");
   const inputs: Inputs = readJSON(path.join(config, "stage-b-inputs.json"));
@@ -336,13 +349,7 @@ export function buildFreeze(root: string) {
       ),
     "STAGE_B_DOSSIER_KEYS",
   );
-  const b0 = readJSON(path.join(config, "issue122-b0.json"));
-  const b0_sha256 = sha(read(path.join(config, "issue122-b0.json")));
-  requireThat(
-    b0_sha256 ===
-      "0a8b6acf24b449a5961987e3b82af17d0f5716edeff3639a0e651a2336af26a1",
-    "STAGE_B_B0_RECEIPT_CHANGED",
-  );
+  const { b0, b0_sha256 } = reviewedB0Receipt.read(root);
   const source = fingerprint();
   requireThat(
     b0.schema === "issue122-b0-v1" &&

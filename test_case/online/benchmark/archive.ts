@@ -110,6 +110,41 @@ function childNames(root: string, name: string) {
   requireThat(fs.statSync(dir).isDirectory(), "ARCHIVE_EXPECTED_DIRECTORY");
   return fs.readdirSync(dir).sort();
 }
+/** V3 binds the pricing facts to private content-addressed originals in the frozen dossier. */
+function verifyPricingOriginals(
+  root: string,
+  dossier: {
+    verified_facts: Record<
+      string,
+      Record<string, { url: string; sha256: string }>
+    >;
+  },
+) {
+  const digests = new Set<string>();
+  for (const model of stageModels) {
+    if (model === "deepseek-flash") continue;
+    const records = dossier.verified_facts?.[model];
+    requireThat(records, "ARCHIVE_STAGE_B_SOURCE_MISSING");
+    for (const role of ["model", "usage_split", "output_cap"])
+      requireThat(records[role], "ARCHIVE_STAGE_B_SOURCE_MISSING");
+    for (const fact of Object.values(records)) {
+      requireThat(
+        fact &&
+          typeof fact.sha256 === "string" &&
+          /^[a-f0-9]{64}$/.test(fact.sha256),
+        "ARCHIVE_STAGE_B_SOURCE_INVALID",
+      );
+      digests.add(fact.sha256);
+    }
+  }
+  for (const digest of digests) {
+    const filename = path.join(root, "inputs", "official", digest + ".source");
+    requireThat(
+      fs.existsSync(filename) && sha(read(filename)) === digest,
+      "ARCHIVE_STAGE_B_SOURCE_CHANGED",
+    );
+  }
+}
 function ownedStoppedRuns(d: Domains): Run[] {
   assertCampaignClosed(d.root);
   let dossier;
@@ -149,6 +184,8 @@ function ownedStoppedRuns(d: Domains): Run[] {
           ) === JSON.stringify(dossier.inputs),
         "ARCHIVE_STAGE_B_INPUT_CHANGED",
       );
+      if (campaign.physical_policy.schema === "issue122-physical-v3")
+        verifyPricingOriginals(d.root, dossier);
     }
   }
   const allowed = new Set([

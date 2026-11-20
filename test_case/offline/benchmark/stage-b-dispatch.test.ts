@@ -4,7 +4,13 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { Domains } from "../../online/benchmark/domain.ts";
-import { archiveFacility } from "../../online/benchmark/archive.ts";
+import {
+  archiveFacility,
+  verifyArchive,
+  type ArchiveManifest,
+} from "../../online/benchmark/archive.ts";
+import { buildStageBReport } from "../../online/benchmark/stage-b-report.ts";
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   stageModels,
@@ -134,19 +140,72 @@ test("Closed probe-only Stage B facility archives exact frozen files and refuses
   const destination = fs.realpathSync(
     fs.mkdtempSync(path.join(os.tmpdir(), "stage-b-archive-")),
   );
+  const originals = new Map<string, Buffer>();
   try {
     await Domains.use(root, async (domains) => {
       const b0 = path.join(root, "configs/issue122-b0.json"),
         inputs = path.join(root, "configs/stage-b-inputs.json"),
         frozen = path.join(root, "configs/stage-b-freeze.json");
       writeJSON(b0, { fixture: "B0" });
-      writeJSON(inputs, { fixture: "price and calibration hashes" });
+      const bound = policy();
+      const official = path.join(root, "inputs", "official");
+      mkdir(official);
+      const verifiedFacts: Record<
+        string,
+        Record<string, { url: string; sha256: string; quote: string }>
+      > = {};
+      const sources: Record<string, { url: string; sha256: string }[]> = {};
+      for (const model of ["gpt-6-luna", "gpt-6.2-sol"] as const) {
+        const roles = {
+          model: "models/" + model,
+          usage_split: "guides/prompt-caching",
+          output_cap: "guides/reasoning",
+        };
+        const facts = Object.entries(roles).map(([role, route]) => {
+          const url = "https://developers.openai.com/api/docs/" + route + ".md";
+          const quote = "Private source sentinel " + route;
+          const raw = Buffer.from("\uFEFF" + quote + "\r\n");
+          const digest = sha(raw);
+          originals.set(digest, raw);
+          fs.writeFileSync(path.join(official, digest + ".source"), raw);
+          return [role, { url, sha256: digest, quote }] as const;
+        });
+        verifiedFacts[model] = Object.fromEntries(facts);
+        sources[model] = facts.map(([, { url, sha256 }]) => ({ url, sha256 }));
+        bound.providers[model].publication_url = verifiedFacts[model].model.url;
+        bound.providers[model].provenance_sha256 = sha(
+          JSON.stringify(sources[model]),
+        );
+      }
+      writeJSON(inputs, {
+        c16_decision: "DISPATCH",
+        providers: bound.providers,
+        sources,
+      });
       writeJSON(frozen, {
         schema: "issue122-stage-b-freeze-v3",
         inputs: readJSON(inputs),
         b0_sha256: sha(read(b0)),
+        verified_facts: verifiedFacts,
+        expected_usd: 0,
+        worst_usd: 0,
+        estimates: stageModels.map((model) => ({
+          model,
+          expected_usd: 0,
+          worst_usd: 0,
+        })),
+        worklist: stageSlots.map((slot) => ({
+          ...slot,
+          input_sha256: sha(slot.lane),
+          forecast: {
+            expected_sends: 0,
+            expected_seconds: 0,
+            expected_usd: 0,
+            worst_usd: 0,
+          },
+        })),
       });
-      const bound = { ...policy(), freeze_sha256: sha(read(frozen)) };
+      bound.freeze_sha256 = sha(read(frozen));
       await createCampaign(root, randomUUID(), undefined, undefined, bound);
       const state = initialState(bound.freeze_sha256, "DISPATCH");
       const terminal = {
@@ -179,6 +238,50 @@ test("Closed probe-only Stage B facility archives exact frozen files and refuses
       /CONFIG_UNSUPPORTED/,
     );
     fs.unlinkSync(path.join(root, "configs/unknown.json"));
+    const [digest, raw] = [...originals][0];
+    const originalFile = path.join(
+      root,
+      "inputs",
+      "official",
+      digest + ".source",
+    );
+    fs.appendFileSync(originalFile, "\n");
+    await assert.rejects(
+      archiveFacility(root, destination, true),
+      /ARCHIVE_STAGE_B_SOURCE_CHANGED/,
+    );
+    assert.ok(fs.existsSync(root));
+    fs.unlinkSync(originalFile);
+    await assert.rejects(
+      archiveFacility(root, destination),
+      /ARCHIVE_STAGE_B_SOURCE_CHANGED/,
+    );
+    fs.writeFileSync(originalFile, raw);
+    const projected = JSON.stringify(buildStageBReport(root));
+    assert.doesNotMatch(
+      projected,
+      /Private source sentinel|inputs\/official|verified_facts|[a-f0-9]{64}\.source/,
+    );
+    const archived = await archiveFacility(root, destination, true);
+    assert.equal(archived.status, "ARCHIVED");
+    assert.equal(archived.source_removed, true);
+    assert.ok(archived.archive_directory);
+    assert.equal(verifyArchive(archived.archive_directory), true);
+    const manifest = readJSON<ArchiveManifest>(
+      path.join(archived.archive_directory, "manifest.json"),
+    );
+    for (const [digest, raw] of originals) {
+      const relative = "inputs/official/" + digest + ".source";
+      const entry = manifest.entries.find((e) => e.path === relative);
+      assert.equal(entry?.sha256, digest);
+      assert.equal(entry.bytes, raw.byteLength);
+      const member: Buffer = execFileSync("tar", [
+        "-xOzf",
+        path.join(archived.archive_directory, "facility.tar.gz"),
+        "facility/" + relative,
+      ]);
+      assert.deepEqual(member, raw);
+    }
   } finally {
     fs.rmSync(destination, { recursive: true });
   }

@@ -33,6 +33,7 @@ import {
 import {
   checkPublication,
   forecastLane,
+  validateDescriptor,
 } from "../../online/benchmark/stage-b-freeze.ts";
 import {
   repository,
@@ -44,6 +45,56 @@ import {
 } from "../../online/benchmark/io.ts";
 const clock = Date.now(),
   hash = sha("fixture-policy");
+test("Flash keeps the smaller SDK request limit and reserves the provider's full billed-output maximum", () => {
+  const model = "deepseek-flash",
+    pages = [
+      {
+        url: "https://api-docs.deepseek.com/api/create-chat-completion.md",
+        sha256: hash,
+      },
+    ];
+  const limits = {
+    context_window: 1000000,
+    max_output_tokens: 393216,
+    source_sha256: hash,
+  };
+  const rule = {
+    ...policy().providers[model],
+    max_requested_output: 32768,
+    billed_output: 393216,
+  };
+  validateDescriptor(model, limits, rule, pages);
+  assert.throws(
+    () =>
+      validateDescriptor(
+        model,
+        limits,
+        { ...rule, billed_output: 384000 },
+        pages,
+      ),
+    /DESCRIPTOR_DRIFT/,
+  );
+  assert.throws(
+    () =>
+      validateDescriptor(
+        model,
+        limits,
+        { ...rule, max_requested_output: 393216 },
+        pages,
+      ),
+    /DESCRIPTOR_DRIFT/,
+  );
+  assert.throws(
+    () =>
+      validateDescriptor(
+        "gpt-6.2-sol",
+        { ...limits, context_window: 1050000, max_output_tokens: 100000 },
+        policy().providers["gpt-6.2-sol"],
+        pages,
+      ),
+    /DESCRIPTOR_DRIFT/,
+  );
+});
 test("An explicit frozen C16 deferral retains all twelve slots and dispatches only the first nine workloads", async () => {
   assert.throws(
     () => initialState(hash, undefined as never),

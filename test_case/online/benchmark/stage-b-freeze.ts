@@ -300,6 +300,27 @@ export function forecastLane(
       1e6,
   };
 }
+export function validateDescriptor(
+  model: StageModel,
+  limits: Inputs["descriptors"][StageModel],
+  rule: ProviderRule,
+  pages: SourcePage[],
+) {
+  const actual = descriptor(model);
+  requireThat(
+    limits.context_window === actual.contextWindow &&
+      Number.isSafeInteger(limits.max_output_tokens) &&
+      actual.maxTokens <= limits.max_output_tokens &&
+      rule.max_requested_output <= actual.maxTokens &&
+      rule.context_upper_tokens <= limits.context_window &&
+      (model !== "deepseek-flash" ||
+        (typeof rule.billed_output === "number" &&
+          rule.billed_output >= limits.max_output_tokens)) &&
+      digest(limits.source_sha256) &&
+      pages.some((page) => page.sha256 === limits.source_sha256),
+    "STAGE_B_DESCRIPTOR_DRIFT",
+  );
+}
 export function buildFreeze(root: string) {
   const config = path.join(root, "configs");
   const inputs: Inputs = readJSON(path.join(config, "stage-b-inputs.json"));
@@ -336,14 +357,11 @@ export function buildFreeze(root: string) {
   });
   for (const model of stageModels) {
     const pages = inputs.sources[model];
-    const limits = inputs.descriptors[model],
-      actual = descriptor(model);
-    requireThat(
-      limits.context_window === actual.contextWindow &&
-        limits.max_output_tokens === actual.maxTokens &&
-        digest(limits.source_sha256) &&
-        pages.some((page) => page.sha256 === limits.source_sha256),
-      "STAGE_B_DESCRIPTOR_DRIFT",
+    validateDescriptor(
+      model,
+      inputs.descriptors[model],
+      inputs.providers[model],
+      pages,
     );
     requireThat(
       Array.isArray(pages) &&
@@ -418,6 +436,7 @@ export function buildFreeze(root: string) {
       );
     const model = descriptor(slot.model);
     const role = {
+      adapter_output_cap: model.maxTokens,
       provider: model.provider,
       endpoint:
         model.baseUrl +

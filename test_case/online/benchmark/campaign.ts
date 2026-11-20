@@ -69,6 +69,7 @@ export type Attempt = {
 };
 type Event =
   | { type: "RESERVE"; attempt: Attempt }
+  | { type: "PRICING_DRIFT"; id: string; reason: string; at: string }
   | {
       type: "SETTLE";
       id: string;
@@ -106,7 +107,7 @@ export function loadCampaign(root: string): Campaign {
     "CAMPAIGN_INVALID",
   );
   if (c.physical_policy) {
-    validatePhysical(c.physical_policy);
+    validatePhysical(c.physical_policy, true);
     requireThat(
       !("ceiling_usd" in c) && !("baseline_limits" in c),
       "STAGE_B_MIXED_POLICY",
@@ -132,6 +133,7 @@ export function ledger(root: string) {
       settled: boolean;
       charged_usd: number;
       outcome?: string;
+      pricing_drift?: { reason: string; at: string };
       component_violation?: boolean;
       returned_model?: string;
       actual_usd?: number | null;
@@ -168,6 +170,19 @@ export function ledger(root: string) {
           settled: false,
           charged_usd: event.attempt.reserved_usd,
         });
+      } else if (event.type === "PRICING_DRIFT") {
+        const item = entries.get(event.id);
+        requireThat(
+          item?.attempt.physical &&
+            !item.settled &&
+            !item.pricing_drift &&
+            ["SERVICE_TIER", "CACHE_RETENTION", "CACHE_WRITE_12H"].includes(
+              event.reason,
+            ),
+          "STAGE_B_DRIFT_EVENT_INVALID",
+        );
+        item.pricing_drift = { reason: event.reason, at: event.at };
+        item.outcome = "PROVENANCE_CHANGE";
       } else {
         requireThat(event.type === "SETTLE", "CAMPAIGN_UNKNOWN_EVENT");
         const item = entries.get(event.id);
@@ -463,6 +478,26 @@ export async function reserve(
     return attempt.id;
   });
 }
+export async function recordPricingDrift(
+  root: string,
+  id: string,
+  reason: string,
+) {
+  await locked(directory(root), async () => {
+    const item = ledger(root).entries.get(id);
+    requireThat(
+      item?.attempt.physical && !item.settled,
+      "STAGE_B_DRIFT_EVENT_INVALID",
+    );
+    if (!item.pricing_drift)
+      append(root, {
+        type: "PRICING_DRIFT",
+        id,
+        reason,
+        at: new Date().toISOString(),
+      });
+  });
+}
 export async function settle(
   root: string,
   id: string,
@@ -480,6 +515,10 @@ export async function settle(
       actualUSD === null || (Number.isFinite(actualUSD) && actualUSD >= 0),
       "CAMPAIGN_INVALID_COST",
     );
+    if (item.pricing_drift) {
+      outcome = "PROVENANCE_CHANGE";
+      actualUSD = null;
+    }
     // Compare under the same lease that commits SETTLE. Workers can finish in a
     // different order than they reserved, including Main/Task on the same lane.
     if (

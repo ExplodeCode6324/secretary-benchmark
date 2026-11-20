@@ -9,6 +9,8 @@ import {
   physicalViolation,
   chatUsageRequest,
   measuredEstimate,
+  pricingDrift,
+  reservationUSD,
   providerFailure,
   type StageModel,
 } from "./stage-b-policy.ts";
@@ -27,7 +29,13 @@ import {
   sha,
   writeJSON,
 } from "./io.ts";
-import { reserve, settle, loadCampaign, ledger } from "./campaign.ts";
+import {
+  reserve,
+  settle,
+  recordPricingDrift,
+  loadCampaign,
+  ledger,
+} from "./campaign.ts";
 import { baselineReservation } from "./baseline-budget.ts";
 import { transportFailure } from "../../../sut/secretary/src/pi_secretary/src/model-retry.ts";
 
@@ -306,7 +314,22 @@ export function meteredFetch(
         requireThat(
           (payload.service_tier === undefined ||
             payload.service_tier === "default") &&
-            payload.prompt_cache_retention === undefined,
+            payload.prompt_cache_retention === undefined &&
+            (options.model === "deepseek-flash" ||
+              (!Object.hasOwn(payload, "prompt_cache_options") &&
+                !(
+                  Array.isArray(payload.input) &&
+                  payload.input.some(
+                    (item: any) =>
+                      Array.isArray(item?.content) &&
+                      item.content.some(
+                        (part: any) =>
+                          part &&
+                          typeof part === "object" &&
+                          Object.hasOwn(part, "prompt_cache_breakpoint"),
+                      ),
+                  )
+                ))),
           "STAGE_B_PRICING_TIER",
         );
       const requestedUsage = policy
@@ -328,10 +351,12 @@ export function meteredFetch(
         policy?.providers[options.model as StageModel] ??
         limits?.models[options.model];
       const worst =
-        physical && rates
-          ? (physical.input_bytes * rates.input_rate +
-              physical.output_tokens * rates.output_rate) /
-            1e6
+        physical && policy
+          ? reservationUSD(
+              policy.providers[options.model as StageModel],
+              physical.input_bytes,
+              physical.output_tokens,
+            )
           : limits
             ? baselineReservation(body, maxOutput, limits.models[options.model])
             : (Buffer.byteLength(body) * model.cost.input +
@@ -437,7 +462,7 @@ export function meteredFetch(
         firstUsageViolation: unknown = null,
         completed = false,
         tierChanged = false;
-      const observe = (chunk: Uint8Array) => {
+      const observe = async (chunk: Uint8Array) => {
         const text = decoder.decode(chunk, { stream: true });
         requireThat(!text.includes(options.key), "CREDENTIAL_RESPONSE_LEAK");
         pending += text;
@@ -452,21 +477,25 @@ export function meteredFetch(
           if (line === "data: [DONE]") completed = true;
           else if (line.startsWith("data: ")) {
             const data = JSON.parse(line.slice(6));
-            const tier = data.service_tier ?? data.response?.service_tier;
-            if (policy && tier && tier !== "default") tierChanged = true;
+            const drift =
+              policy && pricingDrift(data, options.model as StageModel);
+            if (drift && !tierChanged) {
+              tierChanged = true;
+              await recordPricingDrift(options.root, id, drift);
+            }
             if (data.type === "response.completed") completed = true;
             usage = data.usage ?? data.response?.usage ?? usage;
             if (physical && physicalViolation(physical, usage))
               firstUsageViolation ??= usage;
-            const id = data.model ?? data.response?.model;
-            if (typeof id === "string" && id.length) {
-              returnedModel = id;
+            const modelID = data.model ?? data.response?.model;
+            if (typeof modelID === "string" && modelID.length) {
+              returnedModel = modelID;
               if (
                 policy &&
                 observedModels.length < 2 &&
-                !observedModels.includes(id)
+                !observedModels.includes(modelID)
               )
-                observedModels.push(id);
+                observedModels.push(modelID);
             }
           }
         }
@@ -500,6 +529,7 @@ export function meteredFetch(
               ? measuredEstimate(
                   policy.providers[options.model as StageModel],
                   firstUsageViolation ?? usage,
+                  options.model as StageModel,
                 )
               : null
             : usageCost(
@@ -526,7 +556,7 @@ export function meteredFetch(
                 await finish("RESPONSE_COMPLETE");
                 controller.close();
               } else {
-                observe(chunk.value);
+                await observe(chunk.value);
                 controller.enqueue(chunk.value);
               }
             } catch (error) {

@@ -4,9 +4,10 @@ import { forecastLane } from "../../online/benchmark/stage-b-freeze.ts";
 import type { TimelineStep } from "../../online/benchmark/baseline-timeline.ts";
 import type { ProviderRule } from "../../online/benchmark/stage-b-policy.ts";
 
-// Only the four pricing/bound fields read by the estimate. No provider or campaign.
+// Pricing and physical limits consumed by the forecast.
 const rule = {
   input_rate: 1,
+  cache_write_rate: 1.25,
   output_rate: 2,
   max_input_bytes: 200000,
   billed_output: 4096,
@@ -165,4 +166,11 @@ test("B0 occupancy distinguishes normal from forced local crops and charges phys
       }),
     /CAPACITY_INVALID/,
   );
+});
+
+test("Expected cost assumes ordinary input while the worst case admits all cache writes", () => {
+  const forecast = forecastLane(messages(1), rule, factors, 3, capacity());
+  assert.equal(forecast.expected_sends, 1);
+  assert.equal(forecast.expected_usd, (12000 + 256 * 2) / 1e6);
+  assert.equal(forecast.worst_usd, ((200000 * 1.25 + 4096 * 2) * 3) / 1e6);
 });

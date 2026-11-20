@@ -48,6 +48,7 @@ export type ProviderRule = {
   context_band: "all-admitted-input";
   context_upper_tokens: number;
   cache_input_rate: number;
+  cache_write_rate?: number; // v2 records predate write pricing.
   provenance_sha256: string;
   input_rate: number;
   output_rate: number;
@@ -56,7 +57,7 @@ export type ProviderRule = {
   billed_output: "REQUEST_CAP" | number;
 };
 export type PhysicalPolicy = {
-  schema: "issue122-physical-v2";
+  schema: "issue122-physical-v2" | "issue122-physical-v3";
   freeze_sha256: string;
   providers: Record<StageModel, ProviderRule>;
 };
@@ -64,9 +65,10 @@ const keys = (value: object, names: string[]) =>
   Object.keys(value).sort().join(",") === [...names].sort().join(",");
 const digest = (value: string) => /^[a-f0-9]{64}$/.test(value);
 const count = (value: number) => Number.isSafeInteger(value) && value > 0;
-export function validatePhysical(policy: PhysicalPolicy) {
+export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
+  const legacy = policy?.schema === "issue122-physical-v2";
   requireThat(
-    policy?.schema === "issue122-physical-v2" &&
+    (policy?.schema === "issue122-physical-v3" || (allowLegacy && legacy)) &&
       keys(policy, ["schema", "freeze_sha256", "providers"]) &&
       digest(policy.freeze_sha256) &&
       keys(policy.providers, [...stageModels]),
@@ -102,6 +104,7 @@ export function validatePhysical(policy: PhysicalPolicy) {
         "context_band",
         "context_upper_tokens",
         "cache_input_rate",
+        ...(legacy ? [] : ["cache_write_rate"]),
         "provenance_sha256",
         "input_rate",
         "output_rate",
@@ -129,6 +132,16 @@ export function validatePhysical(policy: PhysicalPolicy) {
         [rule.input_rate, rule.output_rate].every(
           (rate) => Number.isFinite(rate) && rate > 0,
         ) &&
+        (legacy ||
+          ([
+            rule.input_rate,
+            rule.cache_input_rate,
+            rule.cache_write_rate!,
+            rule.output_rate,
+          ].every(validRate) &&
+            rule.cache_write_rate ===
+              rule.input_rate * (model === flash ? 1 : 1.25) &&
+            (model === flash || rule.context_upper_tokens <= 272000))) &&
         count(rule.context_upper_tokens) &&
         rule.context_upper_tokens >= rule.max_input_bytes &&
         Number.isFinite(rule.cache_input_rate) &&
@@ -157,6 +170,10 @@ export function physicalBound(
   requested: number,
   role: string,
 ) {
+  requireThat(
+    policy.schema === "issue122-physical-v3",
+    "STAGE_B_POLICY_INVALID",
+  );
   const rule = policy.providers[model];
   requireThat(
     rule &&
@@ -239,23 +256,121 @@ export function physicalUsageKnown(usage: any) {
     ) && reasoning <= output
   );
 }
-export function measuredEstimate(rule: ProviderRule, usage: any) {
-  if (!physicalUsageKnown(usage)) return null;
-  const input = usage.input_tokens ?? usage.prompt_tokens;
-  const output = usage.output_tokens ?? usage.completion_tokens;
-  const cached =
-    usage.input_tokens_details?.cached_tokens ??
-    usage.prompt_cache_hit_tokens ??
-    usage.prompt_tokens_details?.cached_tokens ??
-    (rule.input_rate === rule.cache_input_rate ? 0 : undefined);
-  if (!Number.isSafeInteger(cached) || cached < 0 || cached > input)
-    return null;
-  return (
-    ((input - cached) * rule.input_rate +
-      cached * rule.cache_input_rate +
-      output * rule.output_rate) /
-    1e6
+const tokens = (n: unknown): n is number =>
+  typeof n === "number" && Number.isSafeInteger(n) && n >= 0;
+const validRate = (n: number) =>
+  Number.isFinite(n) &&
+  n >= 0 &&
+  Number.isSafeInteger(Math.round(n * 1e6)) &&
+  Math.round(n * 1e6) / 1e6 === n;
+
+function dollars(parts: [number, number][], attempts = 1) {
+  const weighted = parts.reduce(
+    (sum, [n, rate]) => sum + BigInt(n) * BigInt(Math.round(rate * 1e6)),
+    0n,
   );
+  return Number(weighted * BigInt(attempts)) / 1e12;
+}
+
+export function reservationUSD(
+  rule: ProviderRule,
+  bytes: number,
+  output: number,
+  attempts = 1,
+) {
+  return dollars(
+    [
+      [bytes, Math.max(rule.input_rate, rule.cache_write_rate!)],
+      [output, rule.output_rate],
+    ],
+    attempts,
+  );
+}
+
+export function pricingDrift(frame: any, model: StageModel) {
+  for (const response of [frame, frame?.response]) {
+    if (!response) continue;
+    if (
+      typeof response.service_tier === "string" &&
+      response.service_tier !== "default"
+    )
+      return "SERVICE_TIER";
+    if (model === flash) continue;
+    const ttl =
+      response.usage?.input_tokens_details?.cache_write_tokens_details
+        ?.ttl_12h_tokens;
+    if (tokens(ttl) && ttl > 0) return "CACHE_WRITE_12H";
+    for (const retention of [
+      response.prompt_cache_options?.ttl,
+      response.prompt_cache_retention,
+    ]) {
+      if (typeof retention === "string" && retention !== "30m")
+        return "CACHE_RETENTION";
+    }
+  }
+  return null;
+}
+
+export function measuredEstimate(
+  rule: ProviderRule,
+  usage: any,
+  model: StageModel,
+) {
+  if (!physicalUsageKnown(usage)) return null;
+  if (model === flash) {
+    const {
+      prompt_tokens: input,
+      completion_tokens: output,
+      prompt_cache_hit_tokens: hits,
+      prompt_cache_miss_tokens: miss,
+    } = usage;
+    if (
+      !tokens(input) ||
+      !tokens(output) ||
+      !tokens(hits) ||
+      hits > input ||
+      (miss !== undefined && miss !== input - hits)
+    )
+      return null;
+    return dollars([
+      [input - hits, rule.input_rate],
+      [hits, rule.cache_input_rate],
+      [output, rule.output_rate],
+    ]);
+  }
+  const {
+    input_tokens: input,
+    output_tokens: output,
+    input_tokens_details: details,
+  } = usage;
+  const reads = details?.cached_tokens,
+    writes = details?.cache_write_tokens;
+  if (
+    !tokens(input) ||
+    !tokens(output) ||
+    !tokens(reads) ||
+    !tokens(writes) ||
+    reads > input ||
+    writes > input - reads ||
+    input > 272000 ||
+    input > rule.context_upper_tokens ||
+    rule.cache_write_rate === undefined
+  )
+    return null;
+  const ttl = details.cache_write_tokens_details;
+  if (
+    ttl !== undefined &&
+    (!tokens(ttl?.ttl_30m_tokens) ||
+      ttl.ttl_30m_tokens !== writes ||
+      ttl.ttl_12h_tokens !== 0)
+  )
+    return null;
+  return dollars([
+    [input - reads - writes, rule.input_rate],
+    [reads, rule.cache_input_rate],
+    [writes, rule.cache_write_rate],
+    [output, rule.output_rate],
+  ]);
 }
 export function providerFailure(
   model: StageModel,

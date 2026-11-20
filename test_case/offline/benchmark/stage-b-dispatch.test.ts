@@ -14,6 +14,7 @@ import {
   providerFailure,
   validatePhysical,
   physicalUsageKnown,
+  measuredEstimate,
   type PhysicalPolicy,
 } from "../../online/benchmark/stage-b-policy.ts";
 import {
@@ -141,7 +142,7 @@ test("Closed probe-only Stage B facility archives exact frozen files and refuses
       writeJSON(b0, { fixture: "B0" });
       writeJSON(inputs, { fixture: "price and calibration hashes" });
       writeJSON(frozen, {
-        schema: "issue122-stage-b-freeze-v2",
+        schema: "issue122-stage-b-freeze-v3",
         inputs: readJSON(inputs),
         b0_sha256: sha(read(b0)),
       });
@@ -198,6 +199,7 @@ function policy(): PhysicalPolicy {
         input_rate: 1,
         output_rate: 1,
         cache_input_rate: 1,
+        cache_write_rate: model === "deepseek-flash" ? 1 : 1.25,
         tier: "default",
         cache_retention: "default",
         context_band: "all-admitted-input",
@@ -208,8 +210,197 @@ function policy(): PhysicalPolicy {
       },
     ]),
   ) as PhysicalPolicy["providers"];
-  return { schema: "issue122-physical-v2", freeze_sha256: hash, providers };
+  return { schema: "issue122-physical-v3", freeze_sha256: hash, providers };
 }
+test("Physical v2 is available for historical validation only; the v3 schedule admits only the published short-context band", () => {
+  const legacy = policy();
+  legacy.schema = "issue122-physical-v2";
+  for (const rule of Object.values(legacy.providers))
+    delete rule.cache_write_rate;
+  assert.doesNotThrow(() => validatePhysical(legacy, true));
+  assert.throws(() => validatePhysical(legacy));
+  for (const model of ["gpt-6.2-sol", "gpt-6-luna"] as const) {
+    const p = policy(),
+      rule = p.providers[model];
+    rule.context_upper_tokens = 272000;
+    rule.max_input_bytes = 272000;
+    validatePhysical(p);
+    assert.equal(
+      physicalBound(p, model, 272000, 1, "main").input_bytes,
+      272000,
+    );
+    assert.throws(
+      () => physicalBound(p, model, 272001, 1, "main"),
+      /BODY_BOUND/,
+    );
+    rule.context_upper_tokens++;
+    assert.throws(() => validatePhysical(p));
+    rule.context_upper_tokens--;
+    rule.cache_write_rate = rule.input_rate;
+    assert.throws(() => validatePhysical(p));
+    delete rule.cache_write_rate;
+    assert.throws(() => validatePhysical(p));
+    rule.input_rate = 0.0000001;
+    rule.cache_write_rate = rule.input_rate * 1.25;
+    rule.cache_input_rate = 0;
+    assert.throws(() => validatePhysical(p));
+  }
+});
+
+test("A new campaign cannot register a legacy policy", async () => {
+  const p = policy(),
+    approval = randomUUID();
+  const root = path.join(repository, ".local/benchmark/tests", approval);
+  p.schema = "issue122-physical-v2";
+  for (const rule of Object.values(p.providers)) delete rule.cache_write_rate;
+  await assert.rejects(
+    () => createCampaign(root, approval, undefined, undefined, p),
+    /STAGE_B_POLICY_INVALID/,
+  );
+  assert.equal(fs.existsSync(path.join(root, "campaign/manifest.json")), false);
+  assert.equal(
+    fs.existsSync(
+      path.join(
+        repository,
+        ".local/benchmark/.campaign-registry",
+        approval + ".json",
+      ),
+    ),
+    false,
+  );
+});
+
+test("OpenAI estimates partition cached reads and writes once, count reasoning once, and preserve unknown usage", () => {
+  for (const [model, ordinary, read, write, output, expected, mixed] of [
+    ["gpt-6.2-sol", 2, 0.1, 2.5, 10, 0.034, 0.0277],
+    ["gpt-6-luna", 0.1, 0.01, 0.125, 0.5, 0.0017, 0.001395],
+  ] as const) {
+    const rule = {
+      ...policy().providers[model],
+      input_rate: ordinary,
+      cache_input_rate: read,
+      cache_write_rate: write,
+      output_rate: output,
+      context_upper_tokens: 272000,
+      max_input_bytes: 272000,
+    };
+    const usage = {
+      input_tokens: 10000,
+      output_tokens: 1000,
+      input_tokens_details: { cached_tokens: 0, cache_write_tokens: 8000 },
+      output_tokens_details: { reasoning_tokens: 400 },
+    };
+    const price = (reported: unknown) =>
+      measuredEstimate(rule, reported, model);
+    assert.equal(price(usage), expected);
+    const details = { cached_tokens: 2000, cache_write_tokens: 3000 };
+    assert.equal(
+      price({
+        ...usage,
+        input_tokens_details: {
+          ...details,
+          cache_write_tokens_details: {
+            ttl_30m_tokens: 3000,
+            ttl_12h_tokens: 0,
+          },
+        },
+      }),
+      mixed,
+    );
+    const zeros = { cached_tokens: 0, cache_write_tokens: 0 };
+    assert.equal(
+      price({ input_tokens: 0, output_tokens: 0, input_tokens_details: zeros }),
+      0,
+    );
+    assert.equal(
+      price({
+        input_tokens: 272000,
+        output_tokens: 0,
+        input_tokens_details: zeros,
+      }),
+      (272000 * ordinary) / 1e6,
+    );
+    assert.equal(
+      price({
+        input_tokens: 272001,
+        output_tokens: 0,
+        input_tokens_details: zeros,
+      }),
+      null,
+    );
+    for (const invalid of [
+      undefined,
+      { cached_tokens: 0 },
+      { cache_write_tokens: 0 },
+      { ...details, cached_tokens: -1 },
+      { ...details, cache_write_tokens: 0.5 },
+      { ...details, cached_tokens: null },
+      { ...details, cached_tokens: 9000 },
+      { ...details, cache_write_tokens: Number.MAX_SAFE_INTEGER + 1 },
+      { ...details, cache_write_tokens_details: null },
+      { ...details, cache_write_tokens_details: { ttl_30m_tokens: 3000 } },
+      { ...details, cache_write_tokens_details: { ttl_12h_tokens: 0 } },
+      {
+        ...details,
+        cache_write_tokens_details: { ttl_30m_tokens: 2999, ttl_12h_tokens: 0 },
+      },
+      {
+        ...details,
+        cache_write_tokens_details: { ttl_30m_tokens: 2999, ttl_12h_tokens: 1 },
+      },
+    ]) {
+      assert.equal(
+        price({ ...usage, input_tokens_details: invalid }),
+        null,
+        JSON.stringify(invalid),
+      );
+    }
+    assert.equal(
+      price({
+        prompt_tokens: 10000,
+        completion_tokens: 1000,
+        prompt_cache_hit_tokens: 0,
+      }),
+      null,
+    );
+    assert.equal(price({ ...usage, input_tokens: "10000" }), null);
+    assert.equal(price({ ...usage, output_tokens: -1 }), null);
+    assert.equal(
+      price({ ...usage, output_tokens_details: { reasoning_tokens: 1001 } }),
+      null,
+    );
+  }
+});
+test("DeepSeek requires its own hit counters and checks an explicitly reported miss count", () => {
+  const model = "deepseek-flash",
+    rule = { ...policy().providers[model], cache_input_rate: 0.25 };
+  const price = (usage: unknown) => measuredEstimate(rule, usage, model);
+  const usage = {
+    prompt_tokens: 70,
+    completion_tokens: 5,
+    prompt_cache_hit_tokens: 20,
+  };
+  assert.equal(price(usage), 60 / 1e6);
+  assert.equal(price({ ...usage, prompt_cache_miss_tokens: 50 }), 60 / 1e6);
+  for (const bad of [
+    { ...usage, prompt_cache_miss_tokens: 49 },
+    { ...usage, prompt_cache_miss_tokens: null },
+    { ...usage, prompt_cache_hit_tokens: 71 },
+    { ...usage, prompt_cache_hit_tokens: -1 },
+    {
+      prompt_tokens: 70,
+      completion_tokens: 5,
+      input_tokens_details: { cached_tokens: 20 },
+    },
+    {
+      input_tokens: 70,
+      output_tokens: 5,
+      input_tokens_details: { cached_tokens: 20, cache_write_tokens: 0 },
+    },
+  ])
+    assert.equal(price(bad), null);
+});
+
 test("Stage B binds all grants, physical components and first-send calendar independently of USD", () => {
   const p = policy();
   validatePhysical(p);
@@ -387,6 +578,7 @@ test("Sender fsyncs physical reservations and enforces cross-model stop even whe
         model,
         usage: {
           input_tokens: 1,
+          input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
           output_tokens: 21,
           output_tokens_details: { reasoning_tokens: 20 },
         },

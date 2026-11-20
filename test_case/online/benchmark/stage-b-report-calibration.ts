@@ -283,7 +283,7 @@ export type CalibrationBinding = {
 function checkBinding(root: string, binding: CalibrationBinding) {
   const frozen = readJSON(path.join(root, "configs", "stage-b-freeze.json"));
   requireThat(
-    frozen.schema === "issue122-stage-b-freeze-v2" &&
+    frozen.schema === "issue122-stage-b-freeze-v3" &&
       frozen.inputs.calibration_packet_sha256 === binding.packet_sha256 &&
       frozen.inputs.calibration_key_sha256 === binding.private_key_sha256,
     "STAGE_B_CALIBRATION_FREEZE_MISMATCH",

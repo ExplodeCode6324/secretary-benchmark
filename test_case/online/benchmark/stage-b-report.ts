@@ -93,6 +93,7 @@ const reasons = [
   "PARTIAL_TRIAL",
   "CONTROLLER_INTERRUPTED",
   "PREFLIGHT",
+  "STAGE_B_BODY_BOUND",
   "PRIMARY_ACCOUNT",
   "ACCOUNT_EXHAUSTED",
 ];
@@ -175,6 +176,7 @@ function projectAttempt(
   freeze: string,
   ordinal: number,
   allowed: readonly string[],
+  legacy: boolean,
 ) {
   const { attempt } = entry,
     physical = attempt.physical;
@@ -201,11 +203,24 @@ function projectAttempt(
     | undefined;
   const provider = details?.provider,
     known = physicalUsageKnown(provider);
-  const outcome = entry.settled
-    ? outcomes.includes(entry.outcome ?? "")
-      ? entry.outcome!
-      : "OTHER_RETAINED_PRIVATELY"
-    : "RESERVED_UNSETTLED";
+  const isFlash = lane.model === "deepseek-flash";
+  const cached = legacy
+    ? (provider?.input_tokens_details?.cached_tokens ??
+      provider?.prompt_cache_hit_tokens ??
+      provider?.prompt_tokens_details?.cached_tokens)
+    : isFlash
+      ? provider?.prompt_cache_hit_tokens
+      : provider?.input_tokens_details?.cached_tokens;
+  const written = isFlash
+    ? undefined
+    : provider?.input_tokens_details?.cache_write_tokens;
+  const scheduleChanged = entry.outcome === "PROVENANCE_CHANGE";
+  const outcome =
+    entry.settled || scheduleChanged
+      ? outcomes.includes(entry.outcome ?? "")
+        ? entry.outcome!
+        : "OTHER_RETAINED_PRIVATELY"
+      : "RESERVED_UNSETTLED";
   return {
     ordinal,
     lane: lane.lane,
@@ -245,15 +260,8 @@ function projectAttempt(
       ? {
           input_tokens: provider.input_tokens ?? provider.prompt_tokens,
           output_tokens: provider.output_tokens ?? provider.completion_tokens,
-          cached_input_tokens: count(
-            provider.input_tokens_details?.cached_tokens ??
-              provider.prompt_cache_hit_tokens ??
-              provider.prompt_tokens_details?.cached_tokens,
-          )
-            ? (provider.input_tokens_details?.cached_tokens ??
-              provider.prompt_cache_hit_tokens ??
-              provider.prompt_tokens_details?.cached_tokens)
-            : null,
+          cached_input_tokens: count(cached) ? cached : null,
+          cache_write_tokens: count(written) ? written : null,
           reasoning_tokens:
             provider.output_tokens_details?.reasoning_tokens ??
             provider.completion_tokens_details?.reasoning_tokens ??
@@ -266,6 +274,9 @@ function projectAttempt(
         : null,
     error_sha256: digest(details?.error_sha256) ? details.error_sha256 : null,
     reserved_usd: attempt.reserved_usd,
+    reservation_basis: scheduleChanged
+      ? "FROZEN_SCHEDULE_ONLY_AFTER_PROVENANCE_CHANGE"
+      : "FROZEN_SCHEDULE",
     usage_rate_estimate_usd:
       known && amount(entry.actual_usd) ? entry.actual_usd : null,
     unknown_reservation_usd:
@@ -275,8 +286,25 @@ function projectAttempt(
 function cost(rows: ReturnType<typeof projectAttempt>[]) {
   const completed = rows.filter((r) => r.response_complete);
   const checked = completed.filter((r) => r.components_validated).length;
+  const priced = completed.filter(
+    (r) => r.usage_rate_estimate_usd !== null,
+  ).length;
+  const drifted = rows.filter(
+    (r) =>
+      r.reservation_basis === "FROZEN_SCHEDULE_ONLY_AFTER_PROVENANCE_CHANGE",
+  );
   return {
     physical_reservations: rows.length,
+    completed_price_coverage: {
+      completed_responses: completed.length,
+      with_recorded_estimate: priced,
+      unknown: completed.length - priced,
+      percent: completed.length ? (100 * priced) / completed.length : null,
+    },
+    provenance_change_reservations: {
+      attempts: drifted.length,
+      frozen_schedule_only_usd: drifted.reduce((s, r) => s + r.reserved_usd, 0),
+    },
     completed_usage_coverage: {
       completed_responses: completed.length,
       validated_components: checked,
@@ -355,10 +383,14 @@ export function buildStageBReport(root: string) {
   const dossier = freezeFile(root);
   const freezeHash = fs.existsSync(dossier) ? sha(read(dossier)) : null;
   const freeze: StageFreeze | null = freezeHash ? readJSON(dossier) : null;
+  const legacy = freeze?.schema === "issue122-stage-b-freeze-v2";
+  const policySchema = legacy ? "issue122-physical-v2" : "issue122-physical-v3";
   requireThat(
-    (!freeze || freeze.schema === "issue122-stage-b-freeze-v2") &&
+    (!freeze || legacy || freeze.schema === "issue122-stage-b-freeze-v3") &&
       (!state || state.freeze_sha256 === freezeHash) &&
-      (!campaign || campaign.physical_policy?.freeze_sha256 === freezeHash) &&
+      (!campaign ||
+        (campaign.physical_policy?.freeze_sha256 === freezeHash &&
+          campaign.physical_policy.schema === policySchema)) &&
       (!log.sequence || campaign),
     "STAGE_B_REPORT_FREEZE_BINDING",
   );
@@ -367,11 +399,14 @@ export function buildStageBReport(root: string) {
       ["DISPATCH", "DEFERRED_BY_DECISION"].includes(freeze.inputs.c16_decision),
       "STAGE_B_REPORT_C16_DECISION",
     );
-    validatePhysical({
-      schema: "issue122-physical-v2",
-      freeze_sha256: freezeHash!,
-      providers: freeze.inputs.providers,
-    });
+    validatePhysical(
+      {
+        schema: policySchema,
+        freeze_sha256: freezeHash!,
+        providers: freeze.inputs.providers,
+      },
+      true,
+    );
     requireThat(
       amount(freeze.expected_usd) &&
         amount(freeze.worst_usd) &&
@@ -388,6 +423,7 @@ export function buildStageBReport(root: string) {
       i + 1,
       freeze!.inputs.providers[e.attempt.model as (typeof stageModels)[number]]
         ?.allowed_returned_models ?? [],
+      legacy,
     ),
   );
   const publications = publicationLog(root);
@@ -471,6 +507,7 @@ export function buildStageBReport(root: string) {
       forecast: forecast(frozen),
       first_reservation_at: sends[0]?.at ?? null,
       attempts: sends,
+      cost: cost(sends),
       first_failed_attempt: predecessor ?? null,
       host,
       identity,
@@ -492,11 +529,12 @@ export function buildStageBReport(root: string) {
     const modelAttempts = attempts.filter((a) => a.model === model);
     return {
       model,
-      ...cost(attempts.filter((a) => a.model === model)),
+      ...cost(modelAttempts),
       expected_usd: estimate?.expected_usd ?? null,
       worst_usd: estimate?.worst_usd ?? null,
       price_provenance: rule
         ? {
+            schedule: legacy ? "LEGACY_PHYSICAL_V2" : "PHYSICAL_V3",
             verified_at: stamp(rule.checked_at),
             source_sha256: rule.provenance_sha256,
             official_origin: new URL(rule.publication_url).origin,
@@ -507,6 +545,11 @@ export function buildStageBReport(root: string) {
             context_band: rule.context_band,
             context_upper_tokens: rule.context_upper_tokens,
             cached_input_usd_per_million: rule.cache_input_rate,
+            cache_write_usd_per_million: rule.cache_write_rate ?? null,
+            missing_ttl_breakdown_basis:
+              !legacy && model !== "deepseek-flash"
+                ? "SERIALIZED_REQUEST_DEFAULT_RETENTION_GUARD"
+                : null,
           }
         : null,
       published_version:
@@ -526,7 +569,10 @@ export function buildStageBReport(root: string) {
     };
   });
   const report = {
-    schema: "issue122-stage-b-report-v2",
+    schema: "issue122-stage-b-report-v3",
+    physical_policy_schema: freeze ? policySchema : null,
+    expected_input_pricing_assumption:
+      freeze && !legacy ? "ALL_ORDINARY_ZERO_CACHE_READS_OR_WRITES" : null,
     generation: "OFFLINE_LEDGER_REPLAY",
     c16_decision: freeze?.inputs.c16_decision ?? null,
     freeze_sha256: freezeHash,
@@ -550,6 +596,7 @@ export function buildStageBReport(root: string) {
     probes: attempts.filter((a) => a.lane.startsWith("probe--")),
     probe_dispositions: stageModels.map((model) => ({
       model,
+      cost: cost(attempts.filter((a) => a.lane === "probe--" + model)),
       terminal: state?.probes?.["probe--" + model]
         ? safeTerminal(state.probes["probe--" + model])
         : null,

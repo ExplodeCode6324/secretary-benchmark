@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
+import { roleModel } from "../../../sut/secretary/src/pi_secretary/src/model.ts";
 import { createCampaign, ledger } from "../../online/benchmark/campaign.ts";
 import { captureBodies } from "../../online/benchmark/baseline-b0.ts";
 import {
@@ -21,6 +22,10 @@ import {
   type PhysicalPolicy,
   type ProviderRule,
 } from "../../online/benchmark/stage-b-policy.ts";
+import {
+  beforeLane,
+  stageState,
+} from "../../online/benchmark/stage-b-dispatch.ts";
 import { attributeLane } from "../../online/benchmark/stage-b-report-publication.ts";
 
 function rule(model: StageModel): ProviderRule {
@@ -38,7 +43,8 @@ function rule(model: StageModel): ProviderRule {
         ? "https://api-docs.deepseek.com/fixture"
         : "https://openai.com/fixture",
     input_rate: 1,
-    cache_input_rate: 1,
+    cache_input_rate: 0.1,
+    cache_write_rate: model === "deepseek-flash" ? 1 : 1.25,
     output_rate: 1,
     tier: "default",
     cache_retention: "default",
@@ -51,7 +57,7 @@ function rule(model: StageModel): ProviderRule {
 }
 function policy(): PhysicalPolicy {
   return {
-    schema: "issue122-physical-v2",
+    schema: "issue122-physical-v3",
     freeze_sha256: sha("offline fixture"),
     providers: Object.fromEntries(
       stageModels.map((model) => [model, rule(model)]),
@@ -83,19 +89,16 @@ async function fixture(t: TestContext) {
     );
   });
   writeJSON(path.join(root, "campaign/stage-b-dispatch.json"), {
+    schema: "issue122-dispatch-v2",
+    ended: false,
     freeze_sha256: p.freeze_sha256,
     terminals: {},
     probes: {},
     repairs: {},
   });
   let calls = 0;
-  async function send(
-    model: StageModel,
-    response: Response,
-    usageRequest = true,
-  ) {
-    const lane = "probe--" + model,
-      api = descriptor(model);
+  function bind(model: StageModel, response: Response) {
+    const lane = "probe--" + model;
     writeJSON(path.join(root, "campaign/active-stage-b.json"), {
       state: "OPEN",
       lane,
@@ -114,10 +117,19 @@ async function fixture(t: TestContext) {
       maxSends: 3,
       stageFreeze: p.freeze_sha256,
     };
-    const fetch = meteredFetch(args, async () => {
+    return meteredFetch(args, async () => {
       calls++;
       return response;
     });
+  }
+  async function open(
+    model: StageModel,
+    response: Response,
+    usageRequest = true,
+    extra: Record<string, unknown> = {},
+  ) {
+    const api = descriptor(model),
+      fetch = bind(model, response);
     const chat = api.api === "openai-completions";
     const body = JSON.stringify({
       model,
@@ -130,16 +142,18 @@ async function fixture(t: TestContext) {
               : {}),
           }
         : { max_output_tokens: 200 }),
+      ...extra,
     });
-    await (
-      await fetch(api.baseUrl + (chat ? "/chat/completions" : "/responses"), {
-        method: "POST",
-        body,
-      })
-    ).text();
+    return fetch(api.baseUrl + (chat ? "/chat/completions" : "/responses"), {
+      method: "POST",
+      body,
+    });
+  }
+  async function send(...args: Parameters<typeof open>) {
+    await (await open(...args)).text();
     return [...ledger(root).entries.values()].at(-1)!;
   }
-  return { send, calls: () => calls, root };
+  return { bind, open, send, calls: () => calls, root };
 }
 test("R7 freeze accepts only small, unique exact identifier lists containing the requested alias", () => {
   const p = policy();
@@ -307,4 +321,279 @@ test("ambiguous reasoning below each individual limit retains the reservation an
     () => f.send("gpt-6-luna", stream([frame("gpt-6-luna")])),
     /STAGE_B_BOUND_VIOLATION/,
   );
+});
+
+test("Real SDK probe payloads pass each provider's frozen pricing guard before offline transport", async (t) => {
+  const f = await fixture(t),
+    originalFetch = globalThis.fetch;
+  const context = normalizeContext({
+    messages: [{ role: "user", content: "Reply with READY.", timestamp: 0 }],
+  });
+  try {
+    for (const id of stageModels) {
+      const model = descriptor(id);
+      // An offline HTTP 400 ends the SDK request without synthesizing a completion.
+      globalThis.fetch = f.bind(id, new Response("{}", { status: 400 }));
+      const result = await (
+        await roleModel(model, "offline-identity-key").stream(model, context, {
+          maxTokens: 128,
+          signal: AbortSignal.timeout(10000),
+        })
+      ).result();
+      assert.equal(result.stopReason, "error");
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(f.calls(), stageModels.length);
+  assert.deepEqual(
+    [...ledger(f.root).entries.values()].map(({ attempt }) => [
+      attempt.model,
+      attempt.physical?.requested_output,
+    ]),
+    stageModels.map((id) => [id, 128]),
+  );
+});
+
+test("OpenAI pricing overrides are refused before reservation while a routing key preserves the write-price bound", async (t) => {
+  const f = await fixture(t),
+    model = "gpt-6.2-sol";
+  for (const overrides of [
+    { prompt_cache_options: null },
+    { prompt_cache_options: { ttl: "12h" } },
+    { prompt_cache_retention: null },
+    { prompt_cache_retention: "24h" },
+    {
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: "cacheable",
+              prompt_cache_breakpoint: { mode: "explicit", ttl: "12h" },
+            },
+          ],
+        },
+      ],
+    },
+  ]) {
+    await assert.rejects(
+      () => f.send(model, stream([]), true, overrides),
+      /STAGE_B_/,
+    );
+    assert.equal(ledger(f.root).entries.size, 0);
+    assert.equal(f.calls(), 0);
+  }
+  const usage = {
+    input_tokens: 60,
+    output_tokens: 10,
+    input_tokens_details: { cached_tokens: 10, cache_write_tokens: 40 },
+  };
+  const entry = await f.send(
+    model,
+    stream([
+      {
+        type: "response.completed",
+        response: {
+          model,
+          prompt_cache_options: { ttl: "30m" },
+          usage,
+        },
+      },
+    ]),
+    true,
+    { prompt_cache_key: "routing", input: "Explain prompt_cache_breakpoint." },
+  );
+  const bound = entry.attempt.physical!;
+  assert.equal(entry.outcome, "RESPONSE_COMPLETE");
+  assert.equal(entry.actual_usd, (10 + 10 * 0.1 + 40 * 1.25 + 10) / 1e6);
+  assert.equal(
+    entry.attempt.reserved_usd,
+    (bound.input_bytes * 1.25 + bound.output_tokens) / 1e6,
+  );
+  assert.equal(f.calls(), 1);
+});
+
+test("Over-limit serialized bodies only refuse that lane before transport and the exact limit is admitted", async (t) => {
+  const f = await fixture(t);
+  function padded(model: StageModel, bytes: number) {
+    const base = { model, stream: true, max_output_tokens: 200, input: "" };
+    return {
+      input: "a".repeat(bytes - Buffer.byteLength(JSON.stringify(base))),
+    };
+  }
+  const tooBig = "gpt-6-luna",
+    exact = "gpt-6.2-sol";
+  await assert.rejects(
+    () => f.send(tooBig, stream([]), true, padded(tooBig, 4097)),
+    /BODY_BOUND/,
+  );
+  assert.equal(f.calls(), 0);
+  assert.equal(ledger(f.root).entries.size, 0);
+  const refusal = JSON.parse(
+    fs
+      .readFileSync(
+        path.join(f.root, "campaign/physical-refusals.jsonl"),
+        "utf8",
+      )
+      .trim(),
+  );
+  assert.equal(refusal.lane, "probe--" + tooBig);
+  assert.equal(refusal.reason, "STAGE_B_BODY_BOUND");
+  const entry = await f.send(
+    exact,
+    stream([frame(exact)]),
+    true,
+    padded(exact, 4096),
+  );
+  assert.equal(entry.attempt.physical?.input_bytes, 4096);
+  assert.equal(entry.outcome, "RESPONSE_COMPLETE");
+});
+
+test("Missing price details retain the reservation without holding the next model", async (t) => {
+  const f = await fixture(t),
+    model = "gpt-6-luna";
+  const first = await f.send(
+    model,
+    stream([
+      frame(model, {
+        input_tokens: 20,
+        output_tokens: 10,
+        input_tokens_details: { cached_tokens: 0 },
+      }),
+    ]),
+  );
+  assert.equal(first.component_violation, false);
+  assert.equal(first.actual_usd, null);
+  assert.equal(first.charged_usd, first.attempt.reserved_usd);
+  const other = "deepseek-flash";
+  const next = await f.send(
+    other,
+    stream([
+      frame(other, {
+        prompt_tokens: 5,
+        completion_tokens: 1,
+        prompt_cache_hit_tokens: 0,
+      }),
+    ]),
+  );
+  assert.equal(next.actual_usd, 6 / 1e6);
+});
+
+test("Non-default TTL is durable before settlement and a later frame cannot erase it", async (t) => {
+  const model = "gpt-6-luna";
+  const usage = {
+    input_tokens: 20,
+    output_tokens: 5,
+    input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+  };
+  for (const [label, early] of [
+    [
+      "positive 12h write in a usage frame",
+      {
+        model,
+        usage: {
+          ...usage,
+          input_tokens_details: {
+            cache_write_tokens: 1,
+            cache_write_tokens_details: {
+              ttl_30m_tokens: 0,
+              ttl_12h_tokens: 1,
+            },
+          },
+        },
+      },
+    ],
+    [
+      "echoed response option",
+      {
+        type: "response.in_progress",
+        response: { model, prompt_cache_options: { ttl: "12h" } },
+      },
+    ],
+  ] as const) {
+    await t.test(label, async (t) => {
+      const f = await fixture(t),
+        encoder = new TextEncoder();
+      let source!: ReadableStreamDefaultController<Uint8Array>;
+      const incoming = new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            source = controller;
+          },
+        }),
+      );
+      const response = await f.open(model, incoming);
+      const reader = response.body!.getReader();
+      source.enqueue(encoder.encode("data: " + JSON.stringify(early) + "\n\n"));
+      await reader.read();
+      try {
+        // A fresh metered sender rereads the on-disk campaign before the first
+        // response finishes. It must see the price change on another model too.
+        const recorded = [...ledger(f.root).entries.values()];
+        assert.equal(recorded[0].settled, false);
+        assert.deepEqual(
+          beforeLane(
+            stageState(f.root),
+            recorded,
+            "deepseek-flash",
+            Date.now(),
+          ),
+          {
+            at: recorded[0].pricing_drift!.at,
+            status: "HALTED",
+            reason: "PROVENANCE_CHANGE",
+          },
+        );
+        await assert.rejects(
+          () => f.send("deepseek-flash", stream([frame("deepseek-flash")])),
+          /PROVENANCE_CHANGE/,
+        );
+        assert.equal(f.calls(), 1);
+      } finally {
+        source.enqueue(
+          encoder.encode(
+            "data: " +
+              JSON.stringify(frame(model, usage)) +
+              "\n\ndata: [DONE]\n\n",
+          ),
+        );
+        source.close();
+        while (!(await reader.read()).done) {}
+      }
+      const entry = [...ledger(f.root).entries.values()][0];
+      assert.equal(entry.outcome, "PROVENANCE_CHANGE");
+      assert.equal(entry.actual_usd, null);
+      assert.equal(entry.charged_usd, entry.attempt.reserved_usd);
+    });
+  }
+});
+
+test("Provider input beyond the frozen short-context band keeps unknown cost and stops other models", async (t) => {
+  for (const model of ["gpt-6.2-sol", "gpt-6-luna"] as const) {
+    await t.test(model, async (t) => {
+      const f = await fixture(t);
+      const valid = {
+        input_tokens: 1,
+        output_tokens: 0,
+        input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+      };
+      const entry = await f.send(
+        model,
+        stream([
+          frame(model, { ...valid, input_tokens: 272001 }),
+          frame(model, valid),
+        ]),
+      );
+      assert.equal(entry.component_violation, true);
+      assert.equal(entry.actual_usd, null);
+      assert.equal(entry.charged_usd, entry.attempt.reserved_usd);
+      await assert.rejects(
+        () => f.send("deepseek-flash", stream([frame("deepseek-flash")])),
+        /BOUND_VIOLATION/,
+      );
+      assert.equal(f.calls(), 1);
+    });
+  }
 });

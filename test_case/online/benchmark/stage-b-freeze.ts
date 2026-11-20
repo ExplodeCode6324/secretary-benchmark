@@ -1,12 +1,15 @@
 import path from "node:path";
 import fs from "node:fs";
 import { read, readJSON, writeJSON, requireThat, sha } from "./io.ts";
+import { pricingEvidence } from "./stage-b-pricing-source.ts";
 import { b0Matrix } from "./baseline-b0.ts";
 import { descriptor } from "./live-model.ts";
 import {
   stageModels,
   stageSlots,
   validatePhysical,
+  physicalBound,
+  reservationUSD,
   type StageModel,
   type PhysicalPolicy,
   type ProviderRule,
@@ -273,6 +276,8 @@ export function forecastLane(
     paths,
     range,
     basis: {
+      pricing:
+        "Expected cost assumes ordinary input with zero cache reads or writes.",
       source:
         "873b66f memory-maintenance.ts:memoryDue/maintainIfNeeded; main-loop.ts:prepare; context-projection.ts:buildCompaction; input-projection.ts:selectInputProjection",
       turn_trigger: maintenancePolicy.turn_trigger,
@@ -293,11 +298,7 @@ export function forecastLane(
         factors.expected_output_tokens * rule.output_rate) *
         Math.min(expected_sends, cap)) /
       1e6,
-    worst_usd:
-      ((rule.max_input_bytes * rule.input_rate +
-        boundOutput * rule.output_rate) *
-        cap) /
-      1e6,
+    worst_usd: reservationUSD(rule, rule.max_input_bytes, boundOutput, cap),
   };
 }
 export function validateDescriptor(
@@ -350,11 +351,15 @@ export function buildFreeze(root: string) {
     "STAGE_B_B0_INVALID",
   );
   const providers = inputs.providers;
-  validatePhysical({
-    schema: "issue122-physical-v2",
+  const policy: PhysicalPolicy = {
+    schema: "issue122-physical-v3",
     freeze_sha256: "f".repeat(64),
     providers,
-  });
+  };
+  validatePhysical(policy);
+  const verifiedFacts: Partial<
+    Record<StageModel, ReturnType<typeof pricingEvidence>>
+  > = {};
   for (const model of stageModels) {
     const pages = inputs.sources[model];
     validateDescriptor(
@@ -386,7 +391,15 @@ export function buildFreeze(root: string) {
         sha(JSON.stringify(pages)) === providers[model].provenance_sha256,
       "STAGE_B_SOURCE_DOSSIER",
     );
-    if (model === "deepseek-flash")
+    if (model !== "deepseek-flash")
+      verifiedFacts[model] = pricingEvidence(
+        root,
+        model,
+        providers[model],
+        inputs.descriptors[model],
+        pages,
+      );
+    else
       requireThat(
         typeof providers[model].billed_output === "number",
         "STAGE_B_REASONING_BOUND_REQUIRED",
@@ -443,8 +456,22 @@ export function buildFreeze(root: string) {
         (model.api === "openai-responses" ? "/responses" : "/chat/completions"),
       model: model.id,
     };
+    const sample = b0.serialized_samples.requests.find(
+      (r: { model: string }) => r.model === slot.model,
+    );
+    requireThat(
+      sample && sample.endpoint === role.endpoint && digest(sample.sha256),
+      "STAGE_B_B0_BODY_SAMPLE",
+    );
+    physicalBound(policy, slot.model, sample.bytes, sample.output_cap, "main");
     return {
       ...slot,
+      representative_body: {
+        source: "B0 C05-W Main",
+        ...sample,
+        max_input_bytes: providers[slot.model].max_input_bytes,
+        future_body_sizes: "UNKNOWN",
+      },
       input_sha256: profile.input_sha256,
       oracle_sha256: row.oracle_sha256,
       timeline: profile.timeline,
@@ -479,7 +506,8 @@ export function buildFreeze(root: string) {
     };
   });
   return {
-    schema: "issue122-stage-b-freeze-v2",
+    schema: "issue122-stage-b-freeze-v3",
+    verified_facts: verifiedFacts,
     source,
     worklist,
     inputs,
@@ -499,9 +527,15 @@ export function buildFreeze(root: string) {
   };
 }
 export type StageFreeze = ReturnType<typeof buildFreeze>;
-export function prepareFreeze(root: string) {
+export async function prepareFreeze(root: string) {
   const freeze = buildFreeze(root),
     file = freezeFile(root);
+  for (const model of stageModels) {
+    const age =
+      Date.now() - Date.parse(freeze.inputs.providers[model].checked_at);
+    requireThat(age >= 0 && age <= 86400000, "STAGE_B_STALE_PROVENANCE");
+    await checkPublication(freeze.inputs.sources[model]);
+  }
   if (fs.existsSync(file))
     requireThat(
       JSON.stringify(readJSON(file)) === JSON.stringify(freeze),
@@ -527,7 +561,7 @@ export function loadFreeze(root: string, hash: string) {
     "STAGE_B_FROZEN_INPUT_DRIFT",
   );
   const policy: PhysicalPolicy = {
-    schema: "issue122-physical-v2",
+    schema: "issue122-physical-v3",
     freeze_sha256: hash,
     providers: freeze.inputs.providers,
   };

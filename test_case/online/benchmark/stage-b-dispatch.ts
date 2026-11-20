@@ -166,6 +166,14 @@ export function beforeLane(
   clock: number,
 ): Result | "PAUSE" | undefined {
   const decisions: Result[] = [];
+  for (const record of records) {
+    if (record.pricing_drift)
+      decisions.push({
+        at: record.pricing_drift.at,
+        status: "HALTED",
+        reason: "PROVENANCE_CHANGE",
+      });
+  }
   for (const record of records
     .filter((row) => row.settled)
     .sort((a, b) => a.settled_sequence! - b.settled_sequence!)) {

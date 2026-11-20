@@ -72,11 +72,21 @@ function rule(model: string): ProviderRule {
     billed_output: 64,
   };
 }
-function dossier(root: string, b: CalibrationBinding) {
-  const providers = Object.fromEntries(stageModels.map((m) => [m, rule(m)]));
+function dossier(root: string, b: CalibrationBinding, legacy = false) {
+  const providers = Object.fromEntries(
+    stageModels.map((model) => {
+      const rates = rule(model);
+      if (!legacy) {
+        rates.cache_write_rate = model === "deepseek-flash" ? 2 : 2.5;
+      }
+      return [model, rates];
+    }),
+  );
   const cases = baselineCases(true);
   const freeze = {
-    schema: "issue122-stage-b-freeze-v2",
+    schema: legacy
+      ? "issue122-stage-b-freeze-v2"
+      : "issue122-stage-b-freeze-v3",
     expected_usd: 3,
     worst_usd: 9,
     inputs: {
@@ -122,7 +132,7 @@ function dossier(root: string, b: CalibrationBinding) {
     facility: root,
     state: "CLOSED",
     physical_policy: {
-      schema: "issue122-physical-v2",
+      schema: legacy ? "issue122-physical-v2" : "issue122-physical-v3",
       freeze_sha256: hash,
       providers,
     },
@@ -233,7 +243,8 @@ function trialFixture(
   root: string,
   freeze: string,
   text: string,
-  missingProbeUsage = false,
+  probe: "complete" | "missingUsage" | "missingPrice" | "drift" = "complete",
+  legacy = false,
 ) {
   const slot = stageSlots[6],
     episode = randomUUID(),
@@ -336,22 +347,32 @@ function trialFixture(
         },
       },
     });
-    const missingUsage = missingProbeUsage && role === "probe";
+    const missingUsage = probe === "missingUsage" && role === "probe";
+    const missingPrice = probe === "missingPrice" && role === "probe";
+    const drift = probe === "drift" && role === "probe";
+    const writeFields = missingPrice || legacy ? {} : { cache_write_tokens: 2 };
+    const estimated = legacy ? 0.000055 : 0.000056;
     frame({
       type: "SETTLE",
       id,
       at: date(3),
-      outcome: response ? "RESPONSE_COMPLETE" : "RATE_LIMITED",
-      actual_usd: response && !missingUsage ? 0.000055 : null,
+      outcome: drift
+        ? "PROVENANCE_CHANGE"
+        : response
+          ? "RESPONSE_COMPLETE"
+          : "RATE_LIMITED",
+      actual_usd:
+        response && !missingUsage && !missingPrice && !drift ? estimated : null,
       usage: response
         ? {
+            response_complete: true,
             returned_model: model,
             provider: missingUsage
               ? null
               : {
                   input_tokens: 20,
                   output_tokens: 5,
-                  input_tokens_details: { cached_tokens: 10 },
+                  input_tokens_details: { cached_tokens: 10, ...writeFields },
                   output_tokens_details: { reasoning_tokens: 2 },
                   raw: "a private host string",
                 },
@@ -532,7 +553,12 @@ test("R7 completed-send coverage excludes HTTP failures, retains unknown usage, 
   const root = facility(t),
     b = await prepareStageBCalibration(root),
     hash = dossier(root, b);
-  const { model, state } = trialFixture(root, hash, "Synthetic reply.", true);
+  const { model, state } = trialFixture(
+    root,
+    hash,
+    "Synthetic reply.",
+    "missingUsage",
+  );
   const rows = [
     ["INCOMPLETE", "IDENTITY_MISMATCH_FIRST_CONTACT"],
     ["NOT_DISPATCHED_PREFLIGHT", "IDENTITY_HOLD"],
@@ -566,4 +592,91 @@ test("R7 completed-send coverage excludes HTTP failures, retains unknown usage, 
     rows.map(([, reason]) => reason),
   );
   assert.equal(r.c16_decision, "DEFERRED_BY_DECISION");
+});
+
+test("price coverage separates known physical totals from an unpriced probe and includes known workload writes", async (t) => {
+  const root = facility(t);
+  const binding = await prepareStageBCalibration(root);
+  const hash = dossier(root, binding);
+  const { model } = trialFixture(
+    root,
+    hash,
+    "Offline fixture.",
+    "missingPrice",
+  );
+  const report = buildStageBReport(root);
+  const byModel = report.models.find((r) => r.model === model)!;
+  assert.equal(byModel.completed_usage_coverage.percent, 100);
+  assert.deepEqual(byModel.completed_price_coverage, {
+    completed_responses: 2,
+    with_recorded_estimate: 1,
+    unknown: 1,
+    percent: 50,
+  });
+  assert.equal(byModel.price_provenance?.schedule, "PHYSICAL_V3");
+  assert.equal(byModel.price_provenance?.cache_write_usd_per_million, 2.5);
+  assert.equal(
+    report.probe_dispositions.find((r) => r.model === model)?.cost
+      .completed_price_coverage.percent,
+    0,
+  );
+  assert.equal(report.probes[0].provider_usage?.cache_write_tokens, null);
+  assert.equal(report.probes[0].usage_rate_estimate_usd, null);
+  assert.equal(
+    report.slots[6].attempts[1].provider_usage?.cache_write_tokens,
+    2,
+  );
+  assert.equal(report.slots[6].cost.completed_price_coverage.percent, 100);
+  assert.equal(report.overall.usage_rate_estimate_usd, 0.000056);
+  assert.equal(report.overall.unknown_full_reservation_usd, 0.02);
+  assert.equal(
+    report.expected_input_pricing_assumption,
+    "ALL_ORDINARY_ZERO_CACHE_READS_OR_WRITES",
+  );
+});
+
+test("provenance drift retains the recorded reservation under its original schedule only", async (t) => {
+  const root = facility(t);
+  const binding = await prepareStageBCalibration(root);
+  const hash = dossier(root, binding);
+  trialFixture(root, hash, "Offline fixture.", "drift");
+  const report = buildStageBReport(root);
+  assert.equal(
+    report.probes[0].reservation_basis,
+    "FROZEN_SCHEDULE_ONLY_AFTER_PROVENANCE_CHANGE",
+  );
+  assert.equal(report.probes[0].usage_rate_estimate_usd, null);
+  assert.equal(report.probes[0].unknown_reservation_usd, 0.01);
+  assert.deepEqual(report.overall.provenance_change_reservations, {
+    attempts: 1,
+    frozen_schedule_only_usd: 0.01,
+  });
+  assert.equal(report.overall.invoice_usd, null);
+});
+
+test("offline legacy replay keeps historical estimates, raw ledger and freeze bytes unchanged", async (t) => {
+  const root = facility(t);
+  const binding = await prepareStageBCalibration(root);
+  const hash = dossier(root, binding, true);
+  const { model } = trialFixture(
+    root,
+    hash,
+    "Offline fixture.",
+    "complete",
+    true,
+  );
+  const ledgerFile = path.join(root, "campaign/attempts.jsonl");
+  const ledgerHash = sha(read(ledgerFile));
+  const report = buildStageBReport(root);
+  const row = report.models.find((r) => r.model === model)!;
+  assert.equal(report.physical_policy_schema, "issue122-physical-v2");
+  assert.equal(report.expected_input_pricing_assumption, null);
+  assert.equal(row.price_provenance?.schedule, "LEGACY_PHYSICAL_V2");
+  assert.equal(row.price_provenance?.cache_write_usd_per_million, null);
+  assert.equal(row.usage_rate_estimate_usd, 0.00011);
+  assert.equal(report.probes[0].usage_rate_estimate_usd, 0.000055);
+  assert.equal(report.probes[0].provider_usage?.cache_write_tokens, null);
+  assert.equal(report.overall.unknown_full_reservation_usd, 0.01);
+  assert.equal(sha(read(ledgerFile)), ledgerHash);
+  assert.equal(sha(read(path.join(root, "configs/stage-b-freeze.json"))), hash);
 });

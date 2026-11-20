@@ -138,7 +138,10 @@ function ownedStoppedRuns(d: Domains): Run[] {
       );
       dossier = JSON.parse(frozen.toString());
       requireThat(
-        dossier.schema === "issue122-stage-b-freeze-v2" &&
+        dossier.schema ===
+          (campaign.physical_policy.schema === "issue122-physical-v3"
+            ? "issue122-stage-b-freeze-v3"
+            : "issue122-stage-b-freeze-v2") &&
           sha(read(path.join(d.root, "configs/issue122-b0.json"))) ===
             dossier.b0_sha256 &&
           JSON.stringify(

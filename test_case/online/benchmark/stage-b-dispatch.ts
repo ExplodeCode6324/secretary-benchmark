@@ -274,7 +274,7 @@ async function publication(
 async function probe(root: string, active: Active) {
   const model = descriptor(active.model);
   const key = credential(active.model, true);
-  const evidence = path.join(root, "evidence", active.episode);
+  const evidence = path.join(directory(root), "probes", active.episode);
   mkdir(evidence);
   const original = globalThis.fetch;
   try {

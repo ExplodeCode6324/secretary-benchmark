@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import path from "node:path";
+import fs from "node:fs";
+import os from "node:os";
+import { Domains } from "../../online/benchmark/domain.ts";
+import { archiveFacility } from "../../online/benchmark/archive.ts";
 import { randomUUID } from "node:crypto";
 import {
   stageModels,
@@ -34,11 +38,66 @@ import {
   repository,
   mkdir,
   readJSON,
+  read,
   writeJSON,
   sha,
 } from "../../online/benchmark/io.ts";
 const clock = Date.now(),
   hash = sha("fixture-policy");
+test("Closed probe-only Stage B facility archives exact frozen files and refuses changed or unclaimed data", async () => {
+  const root = path.join(repository, ".local/benchmark/tests", randomUUID());
+  const destination = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "stage-b-archive-")),
+  );
+  try {
+    await Domains.use(root, async (domains) => {
+      const b0 = path.join(root, "configs/issue122-b0.json"),
+        inputs = path.join(root, "configs/stage-b-inputs.json"),
+        frozen = path.join(root, "configs/stage-b-freeze.json");
+      writeJSON(b0, { fixture: "B0" });
+      writeJSON(inputs, { fixture: "price and calibration hashes" });
+      writeJSON(frozen, {
+        schema: "issue122-stage-b-freeze-v2",
+        inputs: readJSON(inputs),
+        b0_sha256: sha(read(b0)),
+      });
+      const bound = { ...policy(), freeze_sha256: sha(read(frozen)) };
+      await createCampaign(root, randomUUID(), undefined, undefined, bound);
+      const state = initialState(bound.freeze_sha256);
+      const terminal = {
+        status: "HALTED" as const,
+        reason: "OPERATOR",
+        at: new Date().toISOString(),
+      };
+      for (const model of stageModels)
+        state.probes["probe--" + model] = terminal;
+      for (const slot of stageSlots) state.terminals[slot.lane] = terminal;
+      state.ended = true;
+      writeJSON(path.join(root, "campaign/stage-b-dispatch.json"), state);
+      writeJSON(
+        path.join(root, "campaign/probes", randomUUID(), "http-fixture.json"),
+        { status: 429 },
+      );
+      await domains.closeStoppedCampaign();
+    });
+    assert.equal((await archiveFacility(root, destination)).status, "DRY_RUN");
+    const b0 = path.join(root, "configs/issue122-b0.json");
+    writeJSON(b0, { fixture: "altered" });
+    await assert.rejects(
+      () => archiveFacility(root, destination),
+      /INPUT_CHANGED/,
+    );
+    writeJSON(b0, { fixture: "B0" });
+    writeJSON(path.join(root, "configs/unknown.json"), {});
+    await assert.rejects(
+      () => archiveFacility(root, destination),
+      /CONFIG_UNSUPPORTED/,
+    );
+    fs.unlinkSync(path.join(root, "configs/unknown.json"));
+  } finally {
+    fs.rmSync(destination, { recursive: true });
+  }
+});
 function policy(): PhysicalPolicy {
   const providers = Object.fromEntries(
     stageModels.map((model) => [

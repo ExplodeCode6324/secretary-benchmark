@@ -50,8 +50,8 @@ export async function stageCommand(
   const source = () => {
     const file = path.resolve(options["--source"]);
     requireThat(
-      inside(path.join(root, "configs"), file),
-      "STAGE_B_REVIEW_INPUT_OUTSIDE_CONFIGS",
+      inside(path.join(root, "inputs", "stage-b-review"), file),
+      "STAGE_B_REVIEW_INPUT_OUTSIDE_FACILITY",
     );
     return readJSON(file);
   };

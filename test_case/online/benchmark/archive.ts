@@ -23,7 +23,8 @@ import {
   type FileEntry,
 } from "./io.ts";
 import { controlID, pgRunning } from "./postgres.ts";
-import { assertCampaignClosed } from "./campaign.ts";
+import { assertCampaignClosed, loadCampaign } from "./campaign.ts";
+import { stageSlots, stageModels } from "./stage-b-policy.ts";
 
 export function archiveConfiguration(
   file = path.join(repository, ".local/archive.json"),
@@ -111,6 +112,42 @@ function childNames(root: string, name: string) {
 }
 function ownedStoppedRuns(d: Domains): Run[] {
   assertCampaignClosed(d.root);
+  let dossier;
+  if (fs.existsSync(path.join(d.root, "campaign/manifest.json"))) {
+    const campaign = loadCampaign(d.root);
+    if (campaign.physical_policy) {
+      const registered = readJSON(
+        path.join(
+          repository,
+          ".local/benchmark/.campaign-registry",
+          campaign.approval_id + ".json",
+        ),
+      );
+      const state = readJSON(
+        path.join(d.root, "campaign/stage-b-dispatch.json"),
+      );
+      const frozen = read(path.join(d.root, "configs/stage-b-freeze.json"));
+      requireThat(
+        JSON.stringify(registered) === JSON.stringify(campaign) &&
+          sha(frozen) === campaign.physical_policy.freeze_sha256 &&
+          state.ended === true &&
+          state.freeze_sha256 === sha(frozen) &&
+          stageSlots.every((s) => state.terminals[s.lane]) &&
+          stageModels.every((m) => state.probes["probe--" + m]),
+        "ARCHIVE_STAGE_B_UNVERIFIED",
+      );
+      dossier = JSON.parse(frozen.toString());
+      requireThat(
+        dossier.schema === "issue122-stage-b-freeze-v2" &&
+          sha(read(path.join(d.root, "configs/issue122-b0.json"))) ===
+            dossier.b0_sha256 &&
+          JSON.stringify(
+            readJSON(path.join(d.root, "configs/stage-b-inputs.json")),
+          ) === JSON.stringify(dossier.inputs),
+        "ARCHIVE_STAGE_B_INPUT_CHANGED",
+      );
+    }
+  }
   const allowed = new Set([
     "facility.json",
     "controller.lock",
@@ -134,12 +171,21 @@ function ownedStoppedRuns(d: Domains): Run[] {
       "ARCHIVE_UNKNOWN_TOP_LEVEL",
     );
   for (const name of childNames(d.root, "configs")) {
+    if (
+      dossier &&
+      [
+        "stage-b-freeze.json",
+        "issue122-b0.json",
+        "stage-b-inputs.json",
+      ].includes(name)
+    )
+      continue;
     requireThat(name.endsWith(".json"), "ARCHIVE_UNKNOWN_CONFIG");
     validateConfiguration(readJSON(path.join(d.root, "configs", name)));
   }
   const names = childNames(d.root, "runs");
   requireThat(
-    names.length > 0 &&
+    (names.length > 0 || !!dossier) &&
       names.every((n) => n.endsWith(".json") && uuid.test(n.slice(0, -5))),
     "ARCHIVE_INVALID_RUN_REGISTRY",
   );

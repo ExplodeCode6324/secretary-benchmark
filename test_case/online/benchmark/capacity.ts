@@ -24,6 +24,7 @@ import { sha, readJSON, requireThat } from "./io.ts";
 export function capacityForecast(
   app: App,
   profiles: readonly ("RC" | "DEP" | "RC98304_CANDIDATE")[] = ["RC", "DEP"],
+  models: readonly Parameters<typeof descriptor>[0][] = modelIDs,
 ) {
   const context = (app.host as unknown as { context: HostContext }).context;
   const tools = context.tools("benchmark-offline-capacity");
@@ -48,7 +49,7 @@ export function capacityForecast(
         process.env.SECRETARY_MAIN_CONTEXT_WINDOW = "98304";
         process.env.SECRETARY_TASK_CONTEXT_WINDOW = "98304";
       } else configureProfile(profile);
-      for (const id of modelIDs) {
+      for (const id of models) {
         const model = descriptor(id),
           agent = new Agent({
             streamFn: () => {

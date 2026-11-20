@@ -72,6 +72,8 @@ import { worldPilot } from "./world-replay.ts";
 import { scoreDevelopment } from "./score.ts";
 import { exportPublicGrades, importPublicGrades } from "./public-grading.ts";
 import { baselinePlan, prepareBaseline } from "./baseline.ts";
+import { prepareB0 } from "./baseline-b0.ts";
+import { stageCommand } from "./stage-b-cli.ts";
 
 async function main() {
   const [command, ...args] = process.argv.slice(2),
@@ -81,6 +83,7 @@ async function main() {
       [
         "--batch",
         "--attempt",
+        "--lane",
         "--transaction",
         "--sha256",
         "--run",
@@ -120,6 +123,7 @@ async function main() {
       "memory-repository",
       "memory-world",
       "baseline-prepare",
+      "baseline-b0",
     ].includes(command)
   )
     requireThat(
@@ -127,6 +131,24 @@ async function main() {
       "BENCHMARK_EXPLICIT_FACILITY_ROOT_REQUIRED",
     );
   deploymentGuard(repository, root);
+  if (command.startsWith("baseline-stage-b-")) {
+    requireThat(
+      !!options["--root"] && root !== path.join(repository, ".local/benchmark"),
+      "BENCHMARK_EXPLICIT_FACILITY_ROOT_REQUIRED",
+    );
+    console.log(
+      JSON.stringify(await stageCommand(command, root, options), null, 2),
+    );
+    return;
+  }
+  if (command === "baseline-b0") {
+    requireThat(
+      Object.keys(options).every((key) => key === "--root"),
+      "BASELINE_PREPARE_NO_LIVE_OPTIONS",
+    );
+    console.log(JSON.stringify(await prepareB0(root)));
+    return;
+  }
   if (command === "baseline-plan") {
     requireThat(Object.keys(options).length === 0, "BASELINE_PLAN_NO_OPTIONS");
     console.log(JSON.stringify(baselinePlan(), null, 2));

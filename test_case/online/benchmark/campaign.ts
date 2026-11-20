@@ -1,5 +1,14 @@
 import { fingerprint } from "./source.ts";
 import {
+  validatePhysical,
+  physicalBound,
+  physicalViolation,
+  checkAdmission,
+  type PhysicalBound,
+  type PhysicalPolicy,
+  type StageModel,
+} from "./stage-b-policy.ts";
+import {
   validateBaselineLimits,
   assertBaselineReservation,
   type BaselineLimits,
@@ -31,7 +40,8 @@ export type Campaign = {
   approval_id: string;
   facility: string;
   state: "OPEN" | "CLOSED";
-  ceiling_usd: number | null;
+  ceiling_usd?: number | null;
+  physical_policy?: PhysicalPolicy;
   created_at: string;
   source?: ReturnType<typeof fingerprint>;
   closed_at?: string;
@@ -51,6 +61,7 @@ export type Attempt = {
   lane?: string;
   request_sha256: string;
   reserved_usd: number;
+  physical?: PhysicalBound;
   at: string;
   pid: number;
 };
@@ -92,13 +103,22 @@ export function loadCampaign(root: string): Campaign {
       ["OPEN", "CLOSED"].includes(c.state),
     "CAMPAIGN_INVALID",
   );
-  requireThat(
-    c.ceiling_usd === null ||
-      (Number.isFinite(c.ceiling_usd) && c.ceiling_usd > 0),
-    "CAMPAIGN_INVALID_CEILING",
-  );
+  if (c.physical_policy) {
+    validatePhysical(c.physical_policy);
+    requireThat(
+      !("ceiling_usd" in c) && !("baseline_limits" in c),
+      "STAGE_B_MIXED_POLICY",
+    );
+  } else
+    requireThat(
+      c.ceiling_usd === null ||
+        (typeof c.ceiling_usd === "number" &&
+          Number.isFinite(c.ceiling_usd) &&
+          c.ceiling_usd > 0),
+      "CAMPAIGN_INVALID_CEILING",
+    );
   if (c.baseline_limits)
-    validateBaselineLimits(c.baseline_limits, c.ceiling_usd);
+    validateBaselineLimits(c.baseline_limits, c.ceiling_usd ?? null);
   return c;
 }
 export function ledger(root: string) {
@@ -110,6 +130,12 @@ export function ledger(root: string) {
       settled: boolean;
       charged_usd: number;
       outcome?: string;
+      component_violation?: boolean;
+      returned_model?: string;
+      actual_usd?: number | null;
+      usage?: unknown;
+      settled_at?: string;
+      settled_sequence?: number;
       bound_violation?: { reserved_usd: number; actual_usd: number };
     }
   >();
@@ -152,6 +178,21 @@ export function ledger(root: string) {
         item.settled = true;
         item.charged_usd = event.actual_usd ?? item.attempt.reserved_usd;
         item.outcome = event.outcome;
+        item.actual_usd = event.actual_usd;
+        item.usage = event.usage;
+        item.settled_at = event.at;
+        item.settled_sequence = sequence;
+        if (item.attempt.physical) {
+          const details = event.usage as {
+            provider?: unknown;
+            returned_model?: string;
+          } | null;
+          item.component_violation = physicalViolation(
+            item.attempt.physical,
+            details?.provider,
+          );
+          item.returned_model = details?.returned_model;
+        }
         if (
           event.actual_usd !== null &&
           event.actual_usd > item.attempt.reserved_usd
@@ -185,16 +226,26 @@ function append(root: string, event: Event) {
 export async function createCampaign(
   root: string,
   approvalID: string,
-  ceiling: number | null,
+  ceiling: number | null | undefined,
   baselineLimits?: BaselineLimits,
+  physicalPolicy?: PhysicalPolicy,
 ) {
-  if (baselineLimits) validateBaselineLimits(baselineLimits, ceiling);
+  if (baselineLimits) validateBaselineLimits(baselineLimits, ceiling ?? null);
+  if (physicalPolicy) {
+    validatePhysical(physicalPolicy);
+    requireThat(
+      ceiling === undefined && baselineLimits === undefined,
+      "STAGE_B_MIXED_POLICY",
+    );
+  }
   requireThat(
     /^[a-zA-Z0-9_-]{1,100}$/.test(approvalID),
     "CAMPAIGN_APPROVAL_ID",
   );
   requireThat(
-    ceiling === null || (Number.isFinite(ceiling) && ceiling > 0),
+    (physicalPolicy && ceiling === undefined) ||
+      ceiling === null ||
+      (typeof ceiling === "number" && Number.isFinite(ceiling) && ceiling > 0),
     "CAMPAIGN_INVALID_CEILING",
   );
   const source = fingerprint();
@@ -216,7 +267,9 @@ export async function createCampaign(
       approval_id: approvalID,
       facility: root,
       state: "OPEN",
-      ceiling_usd: ceiling,
+      ...(physicalPolicy
+        ? { physical_policy: physicalPolicy }
+        : { ceiling_usd: ceiling }),
       created_at: new Date().toISOString(),
       ...(baselineLimits ? { baseline_limits: baselineLimits } : {}),
     };
@@ -228,6 +281,26 @@ export async function createCampaign(
 }
 export function assertCampaignSource(root: string) {
   const c = loadCampaign(root);
+  const registryFile = path.join(
+    repository,
+    ".local/benchmark/.campaign-registry",
+    c.approval_id + ".json",
+  );
+  if (
+    c.physical_policy ||
+    fs.existsSync(path.join(directory(root), "stage-b-dispatch.json")) ||
+    fs.existsSync(registryFile)
+  ) {
+    const registration = readJSON(registryFile);
+    requireThat(
+      registration.facility === root &&
+        JSON.stringify(registration.physical_policy) ===
+          JSON.stringify(c.physical_policy) &&
+        (!fs.existsSync(path.join(directory(root), "stage-b-dispatch.json")) ||
+          !!c.physical_policy),
+      "CAMPAIGN_REGISTRY_MISMATCH",
+    );
+  }
   requireThat(c.state === "OPEN", "CAMPAIGN_CLOSED");
   requireThat(
     c.source && JSON.stringify(c.source) === JSON.stringify(fingerprint()),
@@ -243,6 +316,101 @@ export async function reserve(
   return locked(directory(root), async () => {
     const campaign = assertCampaignSource(root),
       current = ledger(root);
+    if (campaign.physical_policy || details.physical) {
+      const policy = campaign.physical_policy,
+        bound = details.physical;
+      requireThat(
+        policy && bound && details.lane && details.episode,
+        "STAGE_B_PHYSICAL_REQUIRED",
+      );
+      const active = readJSON(
+        path.join(directory(root), "active-stage-b.json"),
+      );
+      requireThat(
+        active.lane === details.lane &&
+          active.episode === details.episode &&
+          active.model === details.model &&
+          active.freeze_sha256 === policy.freeze_sha256 &&
+          active.state === "OPEN",
+        "STAGE_B_LANE_NOT_ACTIVE",
+      );
+      const model = details.model as StageModel;
+      requireThat(
+        JSON.stringify(
+          physicalBound(
+            policy,
+            model,
+            bound.input_bytes,
+            bound.requested_output,
+            bound.role,
+          ),
+        ) === JSON.stringify(bound),
+        "STAGE_B_PHYSICAL_CHANGED",
+      );
+      const entries = [...current.entries.values()];
+      requireThat(
+        !entries.some((entry) => entry.component_violation),
+        "STAGE_B_BOUND_VIOLATION",
+      );
+      requireThat(
+        !entries.some((entry) => entry.outcome === "PROVENANCE_CHANGE"),
+        "STAGE_B_PROVENANCE_CHANGE",
+      );
+      requireThat(
+        !entries.some(
+          (entry) =>
+            entry.attempt.model === model &&
+            entry.outcome === "VERSION_TRANSITION",
+        ),
+        "STAGE_B_VERSION_HOLD",
+      );
+      const dispatch = readJSON(
+        path.join(directory(root), "stage-b-dispatch.json"),
+      );
+      requireThat(
+        !dispatch.ended &&
+          dispatch.freeze_sha256 === policy.freeze_sha256 &&
+          !dispatch.terminals[details.lane] &&
+          !dispatch.probes[details.lane],
+        "STAGE_B_LANE_NOT_ACTIVE",
+      );
+      requireThat(
+        !entries.some(
+          (entry) =>
+            model !== "deepseek-flash" &&
+            entry.attempt.model === model &&
+            entry.outcome === "EXHAUSTED_QUOTA",
+        ),
+        "STAGE_B_ACCOUNT_BLOCKED",
+      );
+      requireThat(
+        !entries.some(
+          (entry) =>
+            entry.attempt.model === "deepseek-flash" &&
+            ["EXHAUSTED_QUOTA", "AUTH"].includes(entry.outcome ?? "") &&
+            !dispatch.repairs[entry.attempt.id],
+        ),
+        "STAGE_B_PRIMARY_BLOCKED",
+      );
+      requireThat(
+        !entries.some(
+          (entry) =>
+            entry.attempt.lane === details.lane &&
+            ["IDENTITY_UNKNOWN", "EXHAUSTED_QUOTA", "AUTH"].includes(
+              entry.outcome ?? "",
+            ),
+        ),
+        "STAGE_B_LANE_FAILED",
+      );
+      checkAdmission(
+        policy,
+        entries.map((entry) => entry.attempt),
+        details.lane,
+        model,
+        details.episode,
+        Date.now(),
+      );
+    }
     if (campaign.baseline_limits) {
       requireThat(
         ![...current.entries.values()].some((e) => e.bound_violation),
@@ -270,7 +438,8 @@ export async function reserve(
       "CAMPAIGN_INVALID_RESERVATION",
     );
     requireThat(
-      campaign.ceiling_usd === null ||
+      campaign.physical_policy ||
+        campaign.ceiling_usd == null ||
         current.charged_usd + details.reserved_usd <= campaign.ceiling_usd,
       "CAMPAIGN_BUDGET_EXHAUSTED",
     );

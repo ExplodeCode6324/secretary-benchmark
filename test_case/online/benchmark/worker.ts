@@ -19,7 +19,12 @@ import type {
 import { appendJSON, readJSON, requireThat, writeJSON, read } from "./io.ts";
 import { completedFileWrite } from "./effect-proof.ts";
 import { validateConfiguration, type WorkerPermit } from "./domain.ts";
-import { configureProfile, liveRoles, meteredFetch } from "./live-model.ts";
+import {
+  baselineModels,
+  configureProfile,
+  liveRoles,
+  meteredFetch,
+} from "./live-model.ts";
 import { capacityForecast } from "./capacity.ts";
 import type { HostContext } from "../../../sut/secretary/src/pi_secretary/src/host-context.ts";
 
@@ -59,6 +64,9 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         root: run.live.facility,
         run: run.id,
         episode: run.lineage,
+        ...(run.config.version === 2
+          ? { lane: run.config.lane, stageFreeze: run.config.freeze_sha256 }
+          : {}),
         evidence: run.evidence,
         model: run.config.model,
         key: run.live.key,
@@ -208,11 +216,21 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
       path.join(run.evidence, "capacity-forecast.json"),
       capacityForecast(app),
     );
-    if (run.config.mode === "fixture")
+    if (run.config.mode === "fixture") {
+      const rows = capacityForecast(
+        app,
+        ["DEP", "RC98304_CANDIDATE"],
+        ["gpt-6.1-sol", ...baselineModels],
+      );
       writeJSON(
         path.join(run.evidence, "issue122-capacity-candidates.json"),
-        capacityForecast(app, ["DEP", "RC98304_CANDIDATE"]),
+        rows.filter((row) => row.model !== "gpt-6.2-sol"),
       );
+      writeJSON(
+        path.join(run.evidence, "issue122-b0-capacity.json"),
+        rows.filter((row) => row.model !== "gpt-6.1-sol"),
+      );
+    }
     const finish = app.authorization.finish.bind(app.authorization);
     app.authorization.finish = ((id, receipt, outcome) => {
       const operation = app.store.get<Operation>("Operation", id);

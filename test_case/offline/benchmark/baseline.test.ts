@@ -116,7 +116,11 @@ test("#122 due maintenance and in-flight calls prevent a paired probe", () => {
     maintenance_running: false,
     summary_pending: false,
     last_handled_sequence: 0,
-    consciousness: [{ revision: 1, covered_event_sequence: 0 }],
+    session_id: "main",
+    consciousness: [
+      { session_id: "task", revision: 3, covered_event_sequence: 999 },
+      { session_id: "main", revision: 1, covered_event_sequence: 0 },
+    ],
     sessions: [{ state: "IDLE" }],
     compactions: [],
     extractions: [],
@@ -507,7 +511,6 @@ test(
           {
             id: "paired",
             a_effectful: false,
-            a_inputs: ["probe-A"],
             future_a: ["probe-B"],
             future_b: [],
             deadline: Date.now() + 60000,
@@ -530,6 +533,7 @@ test(
         );
         assert.equal(d.raw(source.id).state, "RETIRED");
         assert.equal(receipt.first_failure, null);
+        assert.deepEqual(receipt.a.input_sha256, [sha("probe-A")]);
         assert.equal(
           snapshot(
             path.join(root, "retired", source.id, "core"),

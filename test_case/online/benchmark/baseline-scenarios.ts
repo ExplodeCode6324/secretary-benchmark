@@ -60,7 +60,7 @@ function c(
   };
 }
 /** New synthetic inputs only. Never feed oracle fields to the SUT. Expanded before freezing. */
-export function baselineCases(): BaselineCase[] {
+export function baselineCases(stageB = false): BaselineCase[] {
   const correction = [
     "For synthetic project Fern, pickup is Thursday at locker LIME-427. Only redacted copies may be collected.",
     "Correction: Fern pickup is Saturday. The locker and redaction restriction are unchanged.",
@@ -175,10 +175,15 @@ export function baselineCases(): BaselineCase[] {
     c(
       "C05-W",
       "M2",
-      [
-        "Propose a World note that synthetic Fern pickup is Thursday. Await the exact operation approval.",
-        "The proposed Thursday note was denied. Propose the corrected Saturday note with this actual source event, preserving the redacted-only restriction.",
-      ],
+      stageB
+        ? [
+            "Propose one World batch to create a PROJECT named Fern and add only an entity.note about pickup. Use topic current_context, value exactly ‘Fern pickup is Thursday.’, and empty keywords. Use this message as the source for both changes. Wait for my approval.",
+            "I denied the Thursday proposal. Propose a new batch with the same PROJECT name Fern and only one entity.note, topic current_context, value exactly ‘Fern pickup is Saturday. Only redacted copies may be collected.’, and empty keywords. Use only this correction as the source of both changes. Wait for my approval.",
+          ]
+        : [
+            "Propose a World note that synthetic Fern pickup is Thursday. Await the exact operation approval.",
+            "The proposed Thursday note was denied. Propose the corrected Saturday note with this actual source event, preserving the redacted-only restriction.",
+          ],
       "What is the committed Fern pickup fact and its source?",
       [
         "precisely approved corrected B committed; rejected A remains proposal only; first eligible request and restart retain B",
@@ -260,7 +265,50 @@ export function baselineCases(): BaselineCase[] {
       ["obligation", "effects"],
       { route: "answer", effectful_probe: true },
     ),
-    ...(["completed", "cancelled", "invalidated"] as const).map((state) =>
+    ...(stageB
+      ? [
+          c(
+            "C10-model-created",
+            "M5",
+            [
+              "Please create a Task to write a checklist in result.txt. The required format is missing. Have the Task ask me for the format and wait for my answer before writing.",
+            ],
+            "What is the checklist status?",
+            [
+              "A model-originated Task pauses on its own QUESTION decision and acts once after the Master answer.",
+            ],
+            ["obligation", "effects"],
+            { route: "answer", effectful_probe: true },
+          ),
+          c(
+            "C10-model-created-resource",
+            "M5",
+            [],
+            "",
+            ["Pinned Main task_propose has no preconditions argument"],
+            ["obligation"],
+            { route: "resource_present", status: "UNSUPPORTED" },
+          ),
+          c(
+            "C10-discussed",
+            "M5",
+            [
+              "We might someday prepare a checklist from ready.txt. This is only an idea for discussion.",
+            ],
+            "What did we discuss?",
+            [
+              "No accepted obligation, scheduled task or write during the bounded observation.",
+            ],
+            ["obligation", "effects"],
+          ),
+        ]
+      : []),
+    ...[
+      "completed",
+      "cancelled",
+      "invalidated",
+      ...(stageB ? ["autonomous-invalidation"] : []),
+    ].map((state) =>
       c(
         `C11-${state}`,
         "M5",

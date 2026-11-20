@@ -125,21 +125,30 @@ export type Quiescence = {
   maintenance_running: boolean;
   summary_pending: boolean;
   last_handled_sequence: number;
-  consciousness: { revision: number; covered_event_sequence?: number }[];
+  session_id: string;
+  consciousness: {
+    session_id: string;
+    revision: number;
+    covered_event_sequence?: number;
+  }[];
   sessions: { state: string }[];
   compactions: { state: string }[];
   extractions: { state: string }[];
   calls: { state: string }[];
 };
 export function memoryBoundary(
-  o: Pick<Quiescence, "consciousness" | "last_handled_sequence">,
+  o: Pick<Quiescence, "session_id" | "consciousness" | "last_handled_sequence">,
 ) {
+  const main = o.consciousness.filter(
+    (record) => record.session_id === o.session_id,
+  );
   requireThat(
-    o.consciousness.length === 1 &&
+    !!o.session_id &&
+      main.length === 1 &&
       Number.isSafeInteger(o.last_handled_sequence),
     "BASELINE_MEMORY_BOUNDARY_MISSING",
   );
-  const c = o.consciousness[0];
+  const c = main[0];
   return {
     revision: c.revision,
     covered_sequence: c.covered_event_sequence ?? 0,

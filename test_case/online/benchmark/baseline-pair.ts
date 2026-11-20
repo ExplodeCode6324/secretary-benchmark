@@ -93,7 +93,6 @@ export async function baselinePair(
   options: {
     id: string;
     a_effectful: boolean;
-    a_inputs: string[];
     future_a: string[];
     future_b: string[];
     deadline: number;
@@ -155,6 +154,34 @@ export async function baselinePair(
     await baselineQuiescence(current, options.deadline, false);
     current = await d.stop(current.id);
     const after = snapshot(path.join(current.active, "core"));
+    const oldInputs = new Set(
+      before.records
+        .filter((record) => record.record_type === "Input")
+        .map((record) => record.id),
+    );
+    const newInputs = after.records.filter(
+      (record) => record.record_type === "Input" && !oldInputs.has(record.id),
+    );
+    const actualInputs = newInputs.map((record) => {
+      const payload = (
+        record as import("../../../sut/secretary/src/pi_secretary/src/contracts.ts").Input
+      ).payload;
+      requireThat(
+        payload.path === "objects/" + payload.sha256 &&
+          /^[0-9a-f]{64}$/.test(payload.sha256),
+        "BASELINE_PAIR_INPUT_REF",
+      );
+      const bytes = read(path.join(current.active, "core", payload.path));
+      requireThat(
+        sha(bytes) === payload.sha256 &&
+          bytes.length === payload.bytes &&
+          bytes.length > 0,
+        "BASELINE_PAIR_INPUT_REF",
+      );
+      return bytes.toString("utf8");
+    });
+    requireThat(actualInputs.length > 0, "BASELINE_PAIR_A_INPUT_MISSING");
+    receipt.a.input_sha256 = actualInputs.map((input) => sha(input));
     receipt.a.final_digest = after.digest;
     pairRestoreGuard(
       before.records,
@@ -179,7 +206,7 @@ export async function baselinePair(
     );
     writeJSON(record, receipt);
     setFutureInputs(d.root, current.lineage, [
-      ...new Set([...options.future_b, ...options.a_inputs]),
+      ...new Set([...options.future_b, ...actualInputs]),
     ]);
     current = await d.start(current.id);
     const bObserved = await baselineQuiescence(current, options.deadline);

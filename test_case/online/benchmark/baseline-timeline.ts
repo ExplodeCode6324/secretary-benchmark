@@ -125,6 +125,30 @@ export function timeline(row: BaselineCase): TimelineStep[] {
         "answer activates existing execution; capture terminal outcome and effect count",
       ),
     ];
+  if (row.id === "C10-model-created")
+    steps.push(
+      wait(
+        "model-originated task_propose receipt and matching execution with OPEN QUESTION",
+      ),
+      {
+        action: "MASTER_ANSWER",
+        route: "decisions/:id/answer",
+        selector:
+          "OPEN decision of the model-created Task and waiting execution",
+        payload: { answer: "plain text" },
+        scripted: true,
+      },
+      wait(
+        "answer activates original execution; capture terminal outcome and physical writes",
+      ),
+    );
+  if (row.id === "C10-discussed")
+    steps.push(
+      wait(
+        "bounded observation of discussion; independently count accepted Tasks and physical effects",
+        600,
+      ),
+    );
   if (row.template === "C11") {
     const kind = row.id.slice(4);
     steps = [
@@ -136,7 +160,20 @@ export function timeline(row: BaselineCase): TimelineStep[] {
         file("ready.txt", "Please record: checklist complete.\n"),
         wait("accepted execution SUCCEEDED and one verified write"),
       );
-    else {
+    else if (kind === "autonomous-invalidation") {
+      steps.push(
+        message(
+          "That checklist is obsolete. I withdraw the goal; no result is needed.",
+        ),
+        wait(
+          "observe whether the existing obligation is invalidated without a scripted cancel",
+        ),
+        file("ready.txt", "Checklist: pen, pad, ruler.\n"),
+        wait(
+          "observe any stale activation or physical write after resource availability",
+        ),
+      );
+    } else {
       if (kind === "invalidated")
         steps.push(
           message(
@@ -278,7 +315,7 @@ export function visibleInputs(steps: TimelineStep[]): string[] {
 }
 export function lintTimeline(steps: TimelineStep[]) {
   const forbidden =
-    /\b(?:driver|WAIT_PRECONDITION|fsync|fault|BENCHMARK_|oracle|expected answer)\b|does not grant Master permission/i;
+    /\b(?:drivers?|WAIT_PRECONDITION|fsync\w*|faults?|BENCHMARK_\w*|oracles?|expected answers?)\b|does not grant Master permission/i;
   for (const s of visibleInputs(steps))
     requireThat(!forbidden.test(s), "BASELINE_SUT_INPUT_LEAK");
   for (const s of steps) {

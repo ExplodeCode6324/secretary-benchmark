@@ -1,5 +1,6 @@
 import { initializeGuard, forbiddenPayload } from "./payload-guard.ts";
 import { fingerprint } from "./source.ts";
+import { captureProcessWitness } from "./process-witness.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -48,6 +49,7 @@ import { restorePreflight } from "./snapshot.ts";
 import {
   validateLiveConfiguration,
   type LiveConfiguration,
+  type StageConfiguration,
 } from "./memory-config.ts";
 import { credential } from "./live-model.ts";
 import {
@@ -93,6 +95,7 @@ export type Run = {
 };
 export type Configuration =
   | LiveConfiguration
+  | StageConfiguration
   | {
       version: 1;
       mode: "fixture";
@@ -101,7 +104,7 @@ export type Configuration =
       seed: number;
       fault_injection?: "write-after-fsync";
     };
-export const configuration: Configuration = {
+export const configuration: Extract<Configuration, { mode: "fixture" }> = {
   version: 1,
   mode: "fixture",
   track: "correctness",
@@ -331,7 +334,7 @@ export class Domains {
     this.save(run);
     await verifyDatabase(run.database);
   }
-  async create(config = configuration) {
+  async create(config: Configuration = configuration) {
     const run = await this.allocate(config);
     try {
       requireThat(!fs.existsSync(run.active), "SLOT_EXISTS");
@@ -357,9 +360,32 @@ export class Domains {
   }
   async start(id: string) {
     const run = this.load(id);
+    if (run.config.mode === "live") {
+      const campaign = assertCampaignSource(this.root);
+      if (run.config.version === 2) {
+        requireThat(
+          campaign.physical_policy?.freeze_sha256 === run.config.freeze_sha256,
+          "STAGE_B_FREEZE_BINDING",
+        );
+        const active = readJSON(
+          path.join(this.root, "campaign", "active-stage-b.json"),
+        );
+        requireThat(
+          active.state === "OPEN" &&
+            active.episode === run.lineage &&
+            active.lane === run.config.lane &&
+            active.model === run.config.model &&
+            active.freeze_sha256 === run.config.freeze_sha256,
+          "STAGE_B_LANE_NOT_ACTIVE",
+        );
+      } else requireThat(!campaign.physical_policy, "STAGE_B_LEGACY_CONFIG");
+    }
     const live =
       run.config.mode === "live"
-        ? { key: credential(run.config.model), facility: this.root }
+        ? {
+            key: credential(run.config.model, run.config.version === 2),
+            facility: this.root,
+          }
         : undefined;
     if (live) {
       assertCampaignSource(this.root);
@@ -439,6 +465,7 @@ export class Domains {
       );
       if (child.connected) child.disconnect();
       child.unref();
+      captureProcessWitness(run.evidence, run.process, "RUNNING");
       return run;
     } catch (e) {
       if (child.connected) child.disconnect();
@@ -482,6 +509,7 @@ export class Domains {
         processStatus(run.process) === "STOPPED",
         "WORKER_STOP_UNCONFIRMED",
       );
+      captureProcessWitness(run.evidence, run.process, "STOPPED");
     }
     run.state = "STOPPED";
     this.save(run);

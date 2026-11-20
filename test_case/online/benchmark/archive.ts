@@ -23,7 +23,8 @@ import {
   type FileEntry,
 } from "./io.ts";
 import { controlID, pgRunning } from "./postgres.ts";
-import { assertCampaignClosed } from "./campaign.ts";
+import { assertCampaignClosed, loadCampaign } from "./campaign.ts";
+import { stageSlots, stageModels } from "./stage-b-policy.ts";
 
 export function archiveConfiguration(
   file = path.join(repository, ".local/archive.json"),
@@ -109,8 +110,84 @@ function childNames(root: string, name: string) {
   requireThat(fs.statSync(dir).isDirectory(), "ARCHIVE_EXPECTED_DIRECTORY");
   return fs.readdirSync(dir).sort();
 }
+/** V3 binds the pricing facts to private content-addressed originals in the frozen dossier. */
+function verifyPricingOriginals(
+  root: string,
+  dossier: {
+    verified_facts: Record<
+      string,
+      Record<string, { url: string; sha256: string }>
+    >;
+  },
+) {
+  const digests = new Set<string>();
+  for (const model of stageModels) {
+    if (model === "deepseek-flash") continue;
+    const records = dossier.verified_facts?.[model];
+    requireThat(records, "ARCHIVE_STAGE_B_SOURCE_MISSING");
+    for (const role of ["model", "usage_split", "output_cap"])
+      requireThat(records[role], "ARCHIVE_STAGE_B_SOURCE_MISSING");
+    for (const fact of Object.values(records)) {
+      requireThat(
+        fact &&
+          typeof fact.sha256 === "string" &&
+          /^[a-f0-9]{64}$/.test(fact.sha256),
+        "ARCHIVE_STAGE_B_SOURCE_INVALID",
+      );
+      digests.add(fact.sha256);
+    }
+  }
+  for (const digest of digests) {
+    const filename = path.join(root, "inputs", "official", digest + ".source");
+    requireThat(
+      fs.existsSync(filename) && sha(read(filename)) === digest,
+      "ARCHIVE_STAGE_B_SOURCE_CHANGED",
+    );
+  }
+}
 function ownedStoppedRuns(d: Domains): Run[] {
   assertCampaignClosed(d.root);
+  let dossier;
+  if (fs.existsSync(path.join(d.root, "campaign/manifest.json"))) {
+    const campaign = loadCampaign(d.root);
+    if (campaign.physical_policy) {
+      const registered = readJSON(
+        path.join(
+          repository,
+          ".local/benchmark/.campaign-registry",
+          campaign.approval_id + ".json",
+        ),
+      );
+      const state = readJSON(
+        path.join(d.root, "campaign/stage-b-dispatch.json"),
+      );
+      const frozen = read(path.join(d.root, "configs/stage-b-freeze.json"));
+      requireThat(
+        JSON.stringify(registered) === JSON.stringify(campaign) &&
+          sha(frozen) === campaign.physical_policy.freeze_sha256 &&
+          state.ended === true &&
+          state.freeze_sha256 === sha(frozen) &&
+          stageSlots.every((s) => state.terminals[s.lane]) &&
+          stageModels.every((m) => state.probes["probe--" + m]),
+        "ARCHIVE_STAGE_B_UNVERIFIED",
+      );
+      dossier = JSON.parse(frozen.toString());
+      requireThat(
+        dossier.schema ===
+          (campaign.physical_policy.schema === "issue122-physical-v3"
+            ? "issue122-stage-b-freeze-v3"
+            : "issue122-stage-b-freeze-v2") &&
+          sha(read(path.join(d.root, "configs/issue122-b0.json"))) ===
+            dossier.b0_sha256 &&
+          JSON.stringify(
+            readJSON(path.join(d.root, "configs/stage-b-inputs.json")),
+          ) === JSON.stringify(dossier.inputs),
+        "ARCHIVE_STAGE_B_INPUT_CHANGED",
+      );
+      if (campaign.physical_policy.schema === "issue122-physical-v3")
+        verifyPricingOriginals(d.root, dossier);
+    }
+  }
   const allowed = new Set([
     "facility.json",
     "controller.lock",
@@ -126,6 +203,7 @@ function ownedStoppedRuns(d: Domains): Run[] {
     "campaign",
     "inputs",
     "oracles",
+    "pairs",
   ]);
   for (const name of fs.readdirSync(d.root))
     requireThat(
@@ -133,16 +211,43 @@ function ownedStoppedRuns(d: Domains): Run[] {
       "ARCHIVE_UNKNOWN_TOP_LEVEL",
     );
   for (const name of childNames(d.root, "configs")) {
+    if (
+      dossier &&
+      [
+        "stage-b-freeze.json",
+        "issue122-b0.json",
+        "stage-b-inputs.json",
+      ].includes(name)
+    )
+      continue;
     requireThat(name.endsWith(".json"), "ARCHIVE_UNKNOWN_CONFIG");
     validateConfiguration(readJSON(path.join(d.root, "configs", name)));
   }
   const names = childNames(d.root, "runs");
   requireThat(
-    names.length > 0 &&
+    (names.length > 0 || !!dossier) &&
       names.every((n) => n.endsWith(".json") && uuid.test(n.slice(0, -5))),
     "ARCHIVE_INVALID_RUN_REGISTRY",
   );
   const runs = names.map((n) => d.load(n.slice(0, -5)));
+  for (const name of childNames(d.root, "pairs")) {
+    requireThat(/^[A-Za-z0-9_-]+\.json$/.test(name), "ARCHIVE_UNKNOWN_PAIR");
+    const pair = readJSON(path.join(d.root, "pairs", name));
+    requireThat(
+      pair.schema === "issue122-pair-v1" &&
+        pair.id + ".json" === name &&
+        runs.some((r) => r.id === pair.source && r.lineage === pair.lineage) &&
+        [pair.a, pair.b].every(
+          (branch) =>
+            branch == null ||
+            runs.some((r) => r.id === branch.run && r.lineage === pair.lineage),
+        ) &&
+        (pair.checkpoint == null ||
+          (uuid.test(pair.checkpoint) &&
+            childNames(d.root, "checkpoints").includes(pair.checkpoint))),
+      "ARCHIVE_UNKNOWN_PAIR",
+    );
+  }
   for (const run of runs) {
     requireThat(
       ["STOPPED", "CLEANED", "RETIRED"].includes(run.state),

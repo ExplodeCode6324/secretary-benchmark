@@ -69,6 +69,23 @@ test(
       });
       const run = readJSON(path.join(root, "runs", runID + ".json"));
       writeJSON(path.join(root, "configs", "fixture.json"), configuration);
+      const pairFile = path.join(root, "pairs", "fixture.json");
+      const pair = {
+        schema: "issue122-pair-v1",
+        id: "fixture",
+        source: runID,
+        lineage: run.lineage,
+        checkpoint: null,
+        a: null,
+        b: null,
+        first_failure: "preserved fixture failure",
+      };
+      writeJSON(pairFile, { ...pair, source: randomUUID() });
+      await assert.rejects(() => archiveFacility(root, target), /UNKNOWN_PAIR/);
+      writeJSON(pairFile, { ...pair, b: { run: randomUUID() } });
+      await assert.rejects(() => archiveFacility(root, target), /UNKNOWN_PAIR/);
+      writeJSON(pairFile, pair);
+
       const failure = "failure-" + randomUUID() + ".json";
       writeJSON(path.join(root, failure), {
         case: "first-failure",

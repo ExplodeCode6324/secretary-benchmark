@@ -6,6 +6,7 @@ import {
   projectedIdentity,
   gradableIdentity,
 } from "./stage-b-report-publication.ts";
+import { publicTier } from "./stage-b-policy.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { ledger, loadCampaign } from "./campaign.ts";
@@ -201,6 +202,7 @@ function projectAttempt(
         error_sha256?: string;
         response_complete?: boolean;
         observed_models?: string[];
+        returned_service_tier?: unknown;
       }
     | undefined;
   const provider = details?.provider,
@@ -228,6 +230,18 @@ function projectAttempt(
     lane: lane.lane,
     model: lane.model,
     role: physical.role,
+    ...(physical.requested_service_tier
+      ? {
+          requested_service_tier: physical.requested_service_tier,
+          returned_service_tier:
+            details?.returned_service_tier === undefined
+              ? null
+              : details.returned_service_tier === "MISSING"
+                ? "MISSING"
+                : publicTier(details.returned_service_tier),
+          first_tier_mismatch: entry.pricing_drift?.observed_tier ?? null,
+        }
+      : {}),
     at: stamp(attempt.at),
     attempt_id_sha256: sha(attempt.id),
     episode_sha256: sha(attempt.episode ?? ""),
@@ -566,6 +580,12 @@ export function buildStageBReport(root: string) {
             input_usd_per_million: rule.input_rate,
             output_usd_per_million: rule.output_rate,
             tier: rule.tier,
+            ...(rule.request_service_tier
+              ? {
+                  requested_service_tier: rule.request_service_tier,
+                  standard_rate_attribution: "ASSUMED_FROM_CAPTURED_BASE_RATES",
+                }
+              : {}),
             cache_retention: rule.cache_retention,
             context_band: rule.context_band,
             context_upper_tokens: rule.context_upper_tokens,

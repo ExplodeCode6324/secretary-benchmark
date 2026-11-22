@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
-import { roleModel } from "../../../sut/secretary/src/pi_secretary/src/model.ts";
+import { runStageProbe } from "./stage-b-probe.ts";
+import { usesCapturedSchedule } from "./stage-b-capture.ts";
 import {
   assertCampaignSource,
   createCampaign,
@@ -271,6 +271,14 @@ export async function driveWorklist(
 }
 export async function startStage(root: string, approval: string, hash: string) {
   const { policy, freeze } = loadFreeze(root, hash);
+  requireThat(
+    stageModels.every(
+      (model) =>
+        !usesCapturedSchedule(policy.providers[model]) ||
+        policy.providers[model].request_service_tier === "default",
+    ),
+    "STAGE_B_EXPLICIT_TIER_REQUIRED",
+  );
   for (const model of stageModels)
     checkAdmission(
       policy,
@@ -315,7 +323,7 @@ async function publication(
     throw Error(changed ? "PROVENANCE_CHANGE" : "INFRASTRUCTURE");
   }
 }
-async function probe(root: string, active: Active) {
+async function probe(root: string, active: Active, tier?: "default") {
   const model = descriptor(active.model);
   const key = credential(active.model, true);
   const evidence = path.join(directory(root), "probes", active.episode);
@@ -336,22 +344,16 @@ async function probe(root: string, active: Active) {
       },
       original,
     );
-    const response = await (
-      await roleModel(model, key).stream(
-        model,
-        normalizeContext({
-          messages: [
-            {
-              role: "user",
-              content: "Reply with READY.",
-              timestamp: Date.now(),
-            },
-          ],
-        }),
-        { maxTokens: 128, signal: AbortSignal.timeout(30000) },
-      )
-    ).result();
-    return !["error", "aborted"].includes(response.stopReason);
+    const ready = await runStageProbe(model, key, tier);
+    return (
+      ready &&
+      (!tier ||
+        entries(root).some(
+          (e) =>
+            e.attempt.episode === active.episode &&
+            e.outcome === "RESPONSE_COMPLETE",
+        ))
+    );
   } finally {
     globalThis.fetch = original;
   }
@@ -455,7 +457,11 @@ async function runLane(
         ? result("COMPLETED", "PROTOCOL_COMPLETE")
         : result("INCOMPLETE", execution.reason ?? "PARTIAL_TRIAL");
     } else
-      outcome = (await probe(root, active))
+      outcome = (await probe(
+        root,
+        active,
+        policy.providers[active.model].request_service_tier,
+      ))
         ? result("COMPLETED", "CONNECTIVITY_ONLY")
         : result("INCOMPLETE", "PROBE_FAILED");
   } catch (error) {

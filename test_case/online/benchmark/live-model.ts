@@ -10,6 +10,9 @@ import {
   chatUsageRequest,
   measuredEstimate,
   pricingDrift,
+  tierMismatch,
+  publicTier,
+  type ObservedTier,
   reservationUSD,
   providerFailure,
   type StageModel,
@@ -166,14 +169,58 @@ export function configureProfile(profile: Profile | "RC98304") {
 }
 type Attribution = { role: string; context_sha256: string };
 const attribution = new AsyncLocalStorage<Attribution>();
+export function benchmarkRoleModel(
+  model: Model<Api>,
+  key: string,
+  role: "main" | "task",
+  tier?: "default",
+) {
+  const base = roleModel(model, key, role);
+  if (!tier) return base;
+  requireThat(
+    model.api === "openai-responses" && model.provider === "openai",
+    "STAGE_B_PRICING_TIER",
+  );
+  const stream: StreamFn = (m, context, opts) => {
+    requireThat(
+      !opts || !("serviceTier" in opts) || opts.serviceTier === tier,
+      "STAGE_B_PRICING_TIER",
+    );
+    return base.stream(m, context, {
+      ...opts,
+      onPayload: async (payload, actualModel) => {
+        requireThat(
+          payload &&
+            typeof payload === "object" &&
+            !Array.isArray(payload) &&
+            (!("service_tier" in payload) || payload.service_tier === tier),
+          "STAGE_B_PRICING_TIER",
+        );
+        const configured = { ...payload, service_tier: tier };
+        const changed = await opts?.onPayload?.(configured, actualModel);
+        const final = changed === undefined ? configured : changed;
+        requireThat(
+          final &&
+            typeof final === "object" &&
+            "service_tier" in final &&
+            final.service_tier === tier,
+          "STAGE_B_PRICING_TIER",
+        );
+        return final;
+      },
+    });
+  };
+  return { model, stream };
+}
 export function liveRoles(
   id: ModelID | StageModel,
   key: string,
   evidence: string,
+  tier?: "default",
 ) {
   const model = descriptor(id);
   const role = (name: "main" | "task") => {
-    const config = roleModel(model, key, name);
+    const config = benchmarkRoleModel(model, key, name, tier);
     const stream: StreamFn = async (m, context, options) => {
       const raw = JSON.stringify(context);
       requireThat(!raw.includes(key), "CREDENTIAL_CONTEXT_LEAK");
@@ -310,10 +357,14 @@ export function meteredFetch(
         policy?.freeze_sha256 === options.stageFreeze,
         "STAGE_B_FREEZE_BINDING",
       );
+      const expectedTier =
+        policy?.providers[options.model as StageModel].request_service_tier;
       if (policy)
         requireThat(
-          (payload.service_tier === undefined ||
-            payload.service_tier === "default") &&
+          (expectedTier
+            ? payload.service_tier === expectedTier
+            : payload.service_tier === undefined ||
+              payload.service_tier === "default") &&
             payload.prompt_cache_retention === undefined &&
             (options.model === "deepseek-flash" ||
               (!Object.hasOwn(payload, "prompt_cache_options") &&
@@ -455,6 +506,7 @@ export function meteredFetch(
       const reader = response.body.getReader(),
         decoder = new TextDecoder();
       const observedModels: string[] = [];
+      let terminalTier: ObservedTier | undefined;
       let pending = "",
         usage: unknown = null,
         returnedModel: string | null = null,
@@ -474,16 +526,30 @@ export function meteredFetch(
         pending = lines.pop()!;
         for (const rawLine of lines) {
           const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-          if (line === "data: [DONE]") completed = true;
-          else if (line.startsWith("data: ")) {
+          if (line === "data: [DONE]") {
+            if (!expectedTier) completed = true;
+          } else if (line.startsWith("data: ")) {
             const data = JSON.parse(line.slice(6));
-            const drift =
-              policy && pricingDrift(data, options.model as StageModel);
+            const mismatch = expectedTier && tierMismatch(data, expectedTier);
+            const drift = mismatch
+              ? "SERVICE_TIER"
+              : policy && pricingDrift(data, options.model as StageModel);
             if (drift && !tierChanged) {
               tierChanged = true;
-              await recordPricingDrift(options.root, id, drift);
+              await recordPricingDrift(
+                options.root,
+                id,
+                drift,
+                expectedTier && mismatch
+                  ? { requested_tier: expectedTier, observed_tier: mismatch }
+                  : undefined,
+              );
             }
-            if (data.type === "response.completed") completed = true;
+            if (data.type === "response.completed") {
+              completed = true;
+              if (expectedTier)
+                terminalTier = publicTier(data.response?.service_tier);
+            }
             usage = data.usage ?? data.response?.usage ?? usage;
             if (physical && physicalViolation(physical, usage))
               firstUsageViolation ??= usage;
@@ -521,6 +587,9 @@ export function meteredFetch(
                   response_complete:
                     completed && outcome === "RESPONSE_COMPLETE",
                   observed_models: observedModels,
+                  ...(terminalTier
+                    ? { returned_service_tier: terminalTier }
+                    : {}),
                 }
               : {}),
           },

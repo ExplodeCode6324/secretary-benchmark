@@ -1,3 +1,4 @@
+import { loadCampaign } from "./campaign.ts";
 import { forbiddenPayload } from "./payload-guard.ts";
 // Owned fixture/live entry. A detached sender owns its durable campaign accounting.
 import fs from "node:fs";
@@ -182,7 +183,16 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
     app = await App.open(
       path.join(run.active, "core"),
       run.config.mode === "live"
-        ? liveRoles(run.config.model, run.live!.key, run.evidence)
+        ? liveRoles(
+            run.config.model,
+            run.live!.key,
+            run.evidence,
+            run.config.version === 2
+              ? loadCampaign(run.live!.facility).physical_policy?.providers[
+                  run.config.model
+                ].request_service_tier
+              : undefined,
+          )
         : { model: fixtureModel, stream },
       run.core_dsn,
       {

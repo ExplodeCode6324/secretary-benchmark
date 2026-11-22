@@ -1,6 +1,8 @@
 import { fingerprint } from "./source.ts";
 import {
   validatePhysical,
+  publicTier,
+  type ObservedTier,
   physicalBound,
   physicalViolation,
   returnedIdentity,
@@ -67,9 +69,36 @@ export type Attempt = {
   at: string;
   pid: number;
 };
+type TierObservation = {
+  requested_tier: "default";
+  observed_tier: ObservedTier;
+};
+type PricingDrift = { reason: string; at: string } & Partial<TierObservation>;
+function validateTierDrift(
+  reason: string,
+  expected: "default" | undefined,
+  observed: Partial<TierObservation>,
+) {
+  if (reason === "SERVICE_TIER" && expected) {
+    const value = observed.observed_tier;
+    requireThat(
+      observed.requested_tier === expected &&
+        value !== expected &&
+        (value === "MISSING" ||
+          value === "UNRECOGNIZED" ||
+          (typeof value === "string" && publicTier(value) === value)),
+      "STAGE_B_DRIFT_EVENT_INVALID",
+    );
+  } else
+    requireThat(
+      observed.requested_tier === undefined &&
+        observed.observed_tier === undefined,
+      "STAGE_B_DRIFT_EVENT_INVALID",
+    );
+}
 type Event =
   | { type: "RESERVE"; attempt: Attempt }
-  | { type: "PRICING_DRIFT"; id: string; reason: string; at: string }
+  | ({ type: "PRICING_DRIFT"; id: string } & PricingDrift)
   | {
       type: "SETTLE";
       id: string;
@@ -133,7 +162,7 @@ export function ledger(root: string) {
       settled: boolean;
       charged_usd: number;
       outcome?: string;
-      pricing_drift?: { reason: string; at: string };
+      pricing_drift?: PricingDrift;
       component_violation?: boolean;
       returned_model?: string;
       actual_usd?: number | null;
@@ -181,7 +210,21 @@ export function ledger(root: string) {
             ),
           "STAGE_B_DRIFT_EVENT_INVALID",
         );
-        item.pricing_drift = { reason: event.reason, at: event.at };
+        validateTierDrift(
+          event.reason,
+          item.attempt.physical.requested_service_tier,
+          event,
+        );
+        item.pricing_drift = {
+          reason: event.reason,
+          at: event.at,
+          ...(event.requested_tier
+            ? {
+                requested_tier: event.requested_tier,
+                observed_tier: event.observed_tier,
+              }
+            : {}),
+        };
         item.outcome = "PROVENANCE_CHANGE";
       } else {
         requireThat(event.type === "SETTLE", "CAMPAIGN_UNKNOWN_EVENT");
@@ -482,6 +525,7 @@ export async function recordPricingDrift(
   root: string,
   id: string,
   reason: string,
+  observation?: TierObservation,
 ) {
   await locked(directory(root), async () => {
     const item = ledger(root).entries.get(id);
@@ -489,11 +533,17 @@ export async function recordPricingDrift(
       item?.attempt.physical && !item.settled,
       "STAGE_B_DRIFT_EVENT_INVALID",
     );
+    validateTierDrift(
+      reason,
+      item.attempt.physical.requested_service_tier,
+      observation ?? {},
+    );
     if (!item.pricing_drift)
       append(root, {
         type: "PRICING_DRIFT",
         id,
         reason,
+        ...observation,
         at: new Date().toISOString(),
       });
   });

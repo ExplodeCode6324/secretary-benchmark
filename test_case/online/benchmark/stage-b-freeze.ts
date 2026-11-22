@@ -3,6 +3,10 @@ import fs from "node:fs";
 import { read, readJSON, writeJSON, requireThat, sha } from "./io.ts";
 import { pricingEvidence } from "./stage-b-pricing-source.ts";
 import { b0Matrix } from "./baseline-b0.ts";
+import {
+  prepareTierSamples,
+  verifyTierSamples,
+} from "./stage-b-tier-samples.ts";
 import { descriptor } from "./live-model.ts";
 import {
   stageModels,
@@ -19,7 +23,11 @@ import { fillerTexts, type TimelineStep } from "./baseline-timeline.ts";
 import { maintenancePolicy } from "./baseline.ts";
 import { calibrationReceipt } from "./stage-b-report-calibration.ts";
 
-import { checkCaptureFile, type SourcePage } from "./stage-b-capture.ts";
+import {
+  checkCaptureFile,
+  usesCapturedSchedule,
+  type SourcePage,
+} from "./stage-b-capture.ts";
 type Forecast = {
   ordinary_sends_per_turn: number;
   extra_task_sends: number;
@@ -364,6 +372,10 @@ export function buildFreeze(root: string) {
     providers,
   };
   validatePhysical(policy);
+  const explicit = !!providers["gpt-6-luna"].request_service_tier;
+  const tierSamples = explicit
+    ? verifyTierSamples(root, policy, source)
+    : undefined;
   const captured = stageModels.filter((model) =>
     inputs.sources[model]?.some(
       (page) =>
@@ -473,6 +485,9 @@ export function buildFreeze(root: string) {
         model.baseUrl +
         (model.api === "openai-responses" ? "/responses" : "/chat/completions"),
       model: model.id,
+      ...(providers[slot.model].request_service_tier
+        ? { request_service_tier: providers[slot.model].request_service_tier }
+        : {}),
     };
     const sample = b0.serialized_samples.requests.find(
       (r: { model: string }) => r.model === slot.model,
@@ -485,7 +500,7 @@ export function buildFreeze(root: string) {
     return {
       ...slot,
       representative_body: {
-        source: "B0 C05-W Main",
+        source: explicit ? "Historical B0 C05-W Main" : "B0 C05-W Main",
         ...sample,
         max_input_bytes: providers[slot.model].max_input_bytes,
         future_body_sizes: "UNKNOWN",
@@ -526,6 +541,12 @@ export function buildFreeze(root: string) {
   return {
     schema: "issue122-stage-b-freeze-v3",
     verified_facts: verifiedFacts,
+    ...(tierSamples
+      ? {
+          explicit_tier_samples: tierSamples,
+          standard_rate_attribution: "ASSUMED_FROM_CAPTURED_BASE_RATES",
+        }
+      : {}),
     source,
     worklist,
     inputs,
@@ -546,6 +567,25 @@ export function buildFreeze(root: string) {
 }
 export type StageFreeze = ReturnType<typeof buildFreeze>;
 export async function prepareFreeze(root: string) {
+  const { providers } = readJSON<Inputs>(
+    path.join(root, "configs", "stage-b-inputs.json"),
+  );
+  const policy: PhysicalPolicy = {
+    schema: "issue122-physical-v3",
+    freeze_sha256: "f".repeat(64),
+    providers,
+  };
+  validatePhysical(policy);
+  requireThat(
+    stageModels.every(
+      (model) =>
+        !usesCapturedSchedule(providers[model]) ||
+        providers[model].request_service_tier === "default",
+    ),
+    "STAGE_B_EXPLICIT_TIER_REQUIRED",
+  );
+  if (providers["gpt-6-luna"].request_service_tier)
+    await prepareTierSamples(root, policy);
   const freeze = buildFreeze(root),
     file = freezeFile(root);
   for (const model of stageModels) {

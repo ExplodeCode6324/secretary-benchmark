@@ -1,3 +1,8 @@
+import {
+  prepareTierSamples,
+  verifyTierSamples,
+} from "../../online/benchmark/stage-b-tier-samples.ts";
+import { fingerprint } from "../../online/benchmark/source.ts";
 import { acceptedPages } from "../../online/benchmark/stage-b-capture.ts";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -14,7 +19,11 @@ import {
   sha,
   writeJSON,
 } from "../../online/benchmark/io.ts";
-import { descriptor, meteredFetch } from "../../online/benchmark/live-model.ts";
+import {
+  benchmarkRoleModel,
+  descriptor,
+  meteredFetch,
+} from "../../online/benchmark/live-model.ts";
 import {
   returnedIdentity,
   stageModels,
@@ -71,9 +80,8 @@ const stream = (frames: object[]) =>
     frames.map((f) => "data: " + JSON.stringify(f) + "\n\n").join("") +
       "data: [DONE]\n\n",
   );
-async function fixture(t: TestContext) {
-  const p = policy(),
-    approval = randomUUID(),
+async function fixture(t: TestContext, p = policy()) {
+  const approval = randomUUID(),
     root = path.join(repository, ".local/benchmark/tests", approval),
     episode = randomUUID(),
     evidence = path.join(root, "evidence", episode);
@@ -641,5 +649,313 @@ test("a captured file check distinguishes a returned alias from verified publica
   assert.equal(
     attribute([{ ...boundaries[0], pages: [] }, ...boundaries.slice(1)]),
     "SEGREGATED_CAPTURE_UNCERTAIN",
+  );
+});
+
+function explicitTierPolicy() {
+  const p = policy();
+  for (const model of ["gpt-6-luna", "gpt-6.2-sol"] as const)
+    p.providers[model].request_service_tier = "default";
+  return p;
+}
+test("explicit OpenAI tier is checked before reservation and confirmed by the terminal response", async (t) => {
+  const f = await fixture(t, explicitTierPolicy()),
+    model = "gpt-6-luna";
+  for (const request of [
+    {},
+    { service_tier: "auto" },
+    { service_tier: "priority" },
+    { service_tier: null },
+  ]) {
+    await assert.rejects(
+      () => f.send(model, stream([]), true, request),
+      /TIER|PRICING/,
+    );
+  }
+  assert.equal(f.calls(), 0);
+  assert.equal(ledger(f.root).entries.size, 0);
+  const done = (tier: string) => ({
+    type: "response.completed",
+    response: {
+      model,
+      service_tier: tier,
+      usage: {
+        input_tokens: 10,
+        output_tokens: 2,
+        input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+      },
+    },
+  });
+  const confirmed = await f.send(model, stream([done("default")]), true, {
+    service_tier: "default",
+  });
+  assert.equal(confirmed.outcome, "RESPONSE_COMPLETE");
+  assert.equal((confirmed.usage as any).returned_service_tier, "default");
+  const changed = await f.send(model, stream([done("priority")]), true, {
+    service_tier: "default",
+  });
+  assert.equal(changed.outcome, "PROVENANCE_CHANGE");
+  assert.equal(changed.pricing_drift?.observed_tier, "priority");
+  assert.equal(changed.actual_usd, null);
+});
+
+test("strict controls retain first tier drift and refuse missing or nonpublic terminal tiers", async (t) => {
+  const model = "gpt-6.2-sol";
+  for (const [name, early, terminal, expected] of [
+    ["missing", "default", undefined, "MISSING"],
+    ["nonpublic", undefined, "synthetic-private-value", "UNRECOGNIZED"],
+    ["early priority then standard", "priority", "default", "priority"],
+  ] as const) {
+    await t.test(name, async (t) => {
+      const f = await fixture(t, explicitTierPolicy());
+      const e = await f.send(
+        model,
+        stream([
+          {
+            type: "response.in_progress",
+            response: { model, service_tier: early },
+          },
+          {
+            type: "response.completed",
+            response: { model, service_tier: terminal },
+          },
+        ]),
+        true,
+        { service_tier: "default" },
+      );
+      assert.equal(e.outcome, "PROVENANCE_CHANGE");
+      assert.equal(e.pricing_drift?.observed_tier, expected);
+      assert.equal(e.pricing_drift?.requested_tier, "default");
+      assert.equal(e.actual_usd, null);
+      assert.ok(
+        !fs
+          .readFileSync(path.join(f.root, "campaign/attempts.jsonl"), "utf8")
+          .includes("synthetic-private-value"),
+      );
+    });
+  }
+});
+
+test("a strict control cannot claim a confirmed response from a bare DONE marker", async (t) => {
+  const f = await fixture(t, explicitTierPolicy());
+  const model = "gpt-6-luna";
+  const entry = await f.send(
+    model,
+    stream([
+      {
+        type: "response.in_progress",
+        response: { model, service_tier: "default" },
+      },
+    ]),
+    true,
+    { service_tier: "default" },
+  );
+  assert.notEqual(entry.outcome, "RESPONSE_COMPLETE");
+  assert.equal(entry.actual_usd, null);
+  assert.notEqual((entry.usage as any)?.returned_service_tier, "default");
+});
+
+test("tier drift survives replay before the stream settles and blocks a second model", async (t) => {
+  const f = await fixture(t, explicitTierPolicy());
+  let source!: ReadableStreamDefaultController<Uint8Array>;
+  const model = "gpt-6-luna";
+  const response = await f.open(
+    model,
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          source = controller;
+        },
+      }),
+    ),
+    true,
+    { service_tier: "default" },
+  );
+  const reader = response.body!.getReader();
+  source.enqueue(
+    new TextEncoder().encode(
+      "data: " +
+        JSON.stringify({
+          type: "response.in_progress",
+          response: { model, service_tier: "flex" },
+        }) +
+        "\n\n",
+    ),
+  );
+  await reader.read();
+  try {
+    const replay = [...ledger(f.root).entries.values()];
+    assert.equal(replay[0].settled, false);
+    assert.equal(replay[0].pricing_drift?.observed_tier, "flex");
+    await assert.rejects(
+      () => f.send("deepseek-flash", stream([])),
+      /PROVENANCE_CHANGE/,
+    );
+    assert.equal(f.calls(), 1);
+  } finally {
+    source.close();
+    while (!(await reader.read()).done) {}
+  }
+  assert.equal(
+    [...ledger(f.root).entries.values()][0].outcome,
+    "PROVENANCE_CHANGE",
+  );
+});
+
+test("the pinned SDK hook preserves the product budget and refuses a replacement or mutation of the explicit tier", async () => {
+  const m = descriptor("gpt-6.2-sol");
+  const ctx = normalizeContext({
+    messages: [
+      { role: "user", content: "Synthetic tier regression", timestamp: 1 },
+    ],
+  });
+  for (const mutation of ["nondefault", "delete", "budget"] as const) {
+    let seen = 0,
+      transmissions = 0;
+    const cfg = benchmarkRoleModel(
+      m,
+      "offline-synthetic-key",
+      "task",
+      "default",
+    );
+    const result = await (
+      await cfg.stream(m, ctx, {
+        maxTokens: 128,
+        onPayload: (payload) => {
+          const p = payload as Record<string, unknown>;
+          seen++;
+          assert.equal(p.service_tier, "default");
+          if (mutation === "delete") {
+            delete p.service_tier;
+            return;
+          }
+          return mutation === "nondefault"
+            ? { ...p, service_tier: "priority" }
+            : { ...p, max_output_tokens: 999 };
+        },
+        fetch: async () => {
+          transmissions++;
+          return new Response("{}", { status: 400 });
+        },
+      })
+    ).result();
+    assert.equal(result.stopReason, "error");
+    assert.equal(seen, 1);
+    assert.equal(transmissions, 0);
+  }
+});
+
+test("failed, incomplete and HTTP-error responses without a tier preserve their failure classification", async (t) => {
+  for (const [name, response, outcome] of [
+    [
+      "failed",
+      stream([
+        {
+          type: "response.failed",
+          response: { model: "gpt-6-luna", status: "failed" },
+        },
+      ]),
+      "STREAM_UNCERTAIN",
+    ],
+    [
+      "incomplete",
+      stream([
+        {
+          type: "response.incomplete",
+          response: { model: "gpt-6-luna", status: "incomplete" },
+        },
+      ]),
+      "STREAM_UNCERTAIN",
+    ],
+    [
+      "rate limit",
+      new Response(JSON.stringify({ error: { code: "rate_limit_exceeded" } }), {
+        status: 429,
+      }),
+      "RATE_LIMITED",
+    ],
+  ] as const) {
+    await t.test(name, async (t) => {
+      const f = await fixture(t, explicitTierPolicy());
+      const entry = await f.send("gpt-6-luna", response, true, {
+        service_tier: "default",
+      });
+      assert.equal(entry.outcome, outcome);
+      assert.equal(entry.pricing_drift, undefined);
+      assert.equal(entry.actual_usd, null);
+    });
+  }
+});
+
+test("both explicit controls bind ten offline product wire bodies and reject a changed digest, order, or physical cap", async (t) => {
+  const p = explicitTierPolicy();
+  for (const model of ["gpt-6-luna", "gpt-6.2-sol"] as const) {
+    Object.assign(p.providers[model], {
+      max_input_bytes: 32768,
+      context_upper_tokens: 32768,
+      max_requested_output: 32768,
+      billed_output: "REQUEST_CAP",
+    });
+  }
+  const f = await fixture(t, p);
+  await prepareTierSamples(f.root, p);
+  const source = fingerprint();
+  const rows = verifyTierSamples(f.root, p, source);
+  assert.equal(rows.length, 10);
+  assert.ok(
+    rows.every(
+      (r) =>
+        r.service_tier === "default" &&
+        (r.path === "probe"
+          ? r.product_payload_sha256 === null
+          : r.sha256 === r.product_payload_sha256),
+    ),
+  );
+  assert.equal(f.calls(), 0);
+  assert.equal(ledger(f.root).entries.size, 0);
+  const file = path.join(f.root, "configs/stage-b-tier-samples.json");
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  const changed = structuredClone(saved);
+  changed.samples[1].wire = changed.samples[1].wire.replace(
+    '"default"',
+    '"auto"',
+  );
+  writeJSON(file, changed);
+  assert.throws(() => verifyTierSamples(f.root, p, source), /SAMPLE_BINDING/);
+  writeJSON(file, { ...saved, samples: [...saved.samples].reverse() });
+  assert.throws(() => verifyTierSamples(f.root, p, source), /SAMPLE_BINDING/);
+  writeJSON(file, saved);
+  p.providers["gpt-6-luna"].max_input_bytes = 10;
+  assert.throws(() => verifyTierSamples(f.root, p, source), /BODY_BOUND/);
+});
+
+test("the explicit policy requires both OpenAI controls and excludes DeepSeek", () => {
+  const p = explicitTierPolicy();
+  validatePhysical(p);
+  delete p.providers["gpt-6-luna"].request_service_tier;
+  assert.throws(() => validatePhysical(p), /PROVENANCE_INVALID/);
+  p.providers["gpt-6-luna"].request_service_tier = "default";
+  p.providers["deepseek-flash"].request_service_tier = "default";
+  assert.throws(() => validatePhysical(p), /PROVENANCE_INVALID/);
+});
+
+test("conflicting provider options cannot be discarded by the simple adapter", () => {
+  const m = descriptor("gpt-6-luna");
+  const config = benchmarkRoleModel(
+    m,
+    "offline-synthetic-key",
+    "main",
+    "default",
+  );
+  const opts = {
+    maxTokens: 128,
+    serviceTier: "auto",
+    fetch: async () => {
+      throw Error("UNEXPECTED_TRANSPORT");
+    },
+  };
+  assert.throws(
+    () => config.stream(m, normalizeContext({ messages: [] }), opts),
+    /STAGE_B_PRICING_TIER/,
   );
 });

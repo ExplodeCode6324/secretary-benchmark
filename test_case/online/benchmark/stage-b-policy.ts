@@ -45,6 +45,7 @@ export type ProviderRule = {
   allowed_returned_models: string[];
   publication_url: string;
   tier: "default";
+  request_service_tier?: "default";
   cache_retention: "default";
   context_band: "all-admitted-input";
   context_upper_tokens: number;
@@ -75,6 +76,10 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
       keys(policy.providers, [...stageModels]),
     "STAGE_B_POLICY_INVALID",
   );
+  const explicit = Object.hasOwn(
+    policy.providers[luna],
+    "request_service_tier",
+  );
   for (const model of stageModels) {
     const rule = policy.providers[model];
     const url = new URL(rule.publication_url);
@@ -101,6 +106,9 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
         "allowed_returned_models",
         "publication_url",
         "tier",
+        ...(!legacy && explicit && model !== flash
+          ? ["request_service_tier"]
+          : []),
         "cache_retention",
         "context_band",
         "context_upper_tokens",
@@ -114,6 +122,9 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
         "billed_output",
       ]) &&
         rule.tier === "default" &&
+        (!explicit ||
+          model === flash ||
+          rule.request_service_tier === rule.tier) &&
         rule.cache_retention === "default" &&
         rule.context_band === "all-admitted-input" &&
         Number.isFinite(Date.parse(rule.checked_at)) &&
@@ -158,6 +169,7 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
   }
 }
 export type PhysicalBound = {
+  requested_service_tier?: "default";
   input_bytes: number;
   output_tokens: number;
   requested_output: number;
@@ -186,6 +198,9 @@ export function physicalBound(
     "STAGE_B_BODY_BOUND",
   );
   return {
+    ...(rule.request_service_tier
+      ? { requested_service_tier: rule.request_service_tier }
+      : {}),
     input_bytes: bytes,
     output_tokens:
       rule.billed_output === "REQUEST_CAP" ? requested : rule.billed_output,
@@ -288,6 +303,32 @@ export function reservationUSD(
   );
 }
 
+const publicTiers = [
+  "auto",
+  "default",
+  "flex",
+  "scale",
+  "priority",
+  "fast",
+  "ultrafast",
+] as const;
+export type ObservedTier =
+  (typeof publicTiers)[number] | "MISSING" | "UNRECOGNIZED";
+export function publicTier(value: unknown): ObservedTier {
+  if (value == null) return "MISSING";
+  return publicTiers.find((tier) => tier === value) ?? "UNRECOGNIZED";
+}
+export function tierMismatch(frame: any, expected: "default") {
+  for (const tier of [frame?.service_tier, frame?.response?.service_tier]) {
+    if (typeof tier === "string" && tier !== expected) return publicTier(tier);
+  }
+  if (
+    frame?.type === "response.completed" &&
+    frame.response?.service_tier !== expected
+  )
+    return publicTier(frame.response?.service_tier);
+  return null;
+}
 export function pricingDrift(frame: any, model: StageModel) {
   for (const response of [frame, frame?.response]) {
     if (!response) continue;

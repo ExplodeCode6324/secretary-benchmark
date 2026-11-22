@@ -392,3 +392,42 @@ test("Stage B prepare seals a dossier only after local evidence, wire bounds and
     }
   }
 });
+
+test("accepted Claude file checks reject missing, altered and substituted files before transport", async (t) => {
+  const root = sourceRoot(t);
+  const official = path.join(root, "inputs", "official");
+  mkdir(official);
+  const { checkPublication } =
+    await import("../../online/benchmark/stage-b-freeze.ts");
+  const page = {
+    url: base + "models/gpt-6.2-sol.md",
+    sha256: "5879adc26f8e257e594aabead9848965a4fa2c6ed7839cc6be310687d90d9049",
+    representation: "CLAUDE_WEBFETCH_FILE" as const,
+    review_sha256:
+      "ddbabe153a23849efd36d1aeff4a8edd95154b7f7ada6ead77c439d2894d9f99",
+  };
+  let requests = 0;
+  const transport = async () => {
+    requests++;
+    return new Response("ignored");
+  };
+  await assert.rejects(
+    () => checkPublication([page], transport, root),
+    /ENOENT|UNAVAILABLE/,
+  );
+  fs.writeFileSync(path.join(official, page.sha256 + ".source"), "altered");
+  await assert.rejects(
+    () => checkPublication([page], transport, root),
+    /PROVENANCE_CHANGE/,
+  );
+  for (const url of [
+    base + "models/gpt-6-luna.md",
+    "https://api-docs.deepseek.com/quick_start/pricing.md",
+  ]) {
+    await assert.rejects(
+      () => checkPublication([{ ...page, url }], transport, root),
+      /SOURCE/,
+    );
+  }
+  assert.equal(requests, 0);
+});

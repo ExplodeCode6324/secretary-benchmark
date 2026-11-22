@@ -1,3 +1,4 @@
+import { usesCapturedSchedule } from "./stage-b-capture.ts";
 import { requireThat } from "./io.ts";
 
 export const stageModels = [
@@ -426,6 +427,14 @@ export function checkAdmission(
     "STAGE_B_REQUEST_LIMIT",
   );
   const start = prior.length ? Date.parse(prior[0].at) : now;
+  if (!prior.length) {
+    for (const rule of Object.values(policy.providers).filter(
+      usesCapturedSchedule,
+    )) {
+      const age = now - Date.parse(rule.checked_at);
+      requireThat(age >= 0 && age <= 86400000, "STAGE_B_STALE_PROVENANCE");
+    }
+  }
   const checked = Date.parse(policy.providers[model].checked_at);
   requireThat(
     checked <= start && start - checked <= 86400000,

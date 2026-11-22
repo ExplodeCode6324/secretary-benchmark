@@ -292,13 +292,13 @@ async function publication(
   const pages = freeze.inputs.sources[model];
   const at = now();
   try {
-    await checkPublication(pages);
+    const status = await checkPublication(pages, fetch, root);
     appendJSON(path.join(directory(root), "publication.jsonl"), {
       point,
       model,
       at,
       pages,
-      status: "MATCH",
+      status,
     });
   } catch (error) {
     const changed =
@@ -307,6 +307,9 @@ async function publication(
       point,
       model,
       at,
+      ...(pages.some((p) => p.representation)
+        ? { verification: "CAPTURE_FILE_INTEGRITY" }
+        : {}),
       status: changed ? "CHANGED" : "UNAVAILABLE",
     });
     throw Error(changed ? "PROVENANCE_CHANGE" : "INFRASTRUCTURE");

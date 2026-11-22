@@ -2,7 +2,7 @@ import path from "node:path";
 import { read, requireThat, sha } from "./io.ts";
 import type { ProviderRule, StageModel } from "./stage-b-policy.ts";
 
-type Page = { url: string; sha256: string };
+import { capturedPricingEvidence, type SourcePage } from "./stage-b-capture.ts";
 type Limits = {
   context_window: number;
   max_output_tokens: number;
@@ -14,8 +14,14 @@ export function pricingEvidence(
   model: Exclude<StageModel, "deepseek-flash">,
   rule: ProviderRule,
   limits: Limits,
-  pages: Page[],
+  pages: SourcePage[],
 ) {
+  if (
+    pages.some(
+      (p) => p.representation !== undefined || p.review_sha256 !== undefined,
+    )
+  )
+    return capturedPricingEvidence(root, model, rule, limits, pages);
   const base = "https://developers.openai.com/api/docs/";
   const evidence: Record<
     string,

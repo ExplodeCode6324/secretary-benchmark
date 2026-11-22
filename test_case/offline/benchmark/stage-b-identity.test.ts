@@ -1,3 +1,4 @@
+import { acceptedPages } from "../../online/benchmark/stage-b-capture.ts";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -596,4 +597,49 @@ test("Provider input beyond the frozen short-context band keeps unknown cost and
       assert.equal(f.calls(), 1);
     });
   }
+});
+
+test("a captured file check distinguishes a returned alias from verified publication coverage", () => {
+  const model = "gpt-6-luna";
+  const lane = "fixture";
+  const pages = acceptedPages(model);
+  const policy = {
+    ...rule(model),
+    provenance_sha256: sha(JSON.stringify(pages)),
+  };
+  const stamp = (ms: number) => new Date(ms).toISOString();
+  const observed = [
+    {
+      at: stamp(2),
+      settled_at: stamp(3),
+      outcome: "RESPONSE_COMPLETE",
+      returned_model_sha256: sha(model),
+    },
+  ];
+  const boundaries: Parameters<typeof attributeLane>[0] = [
+    "fixture:start",
+    "fixture:end",
+    "campaign:end",
+  ].map((point, i) => ({
+    point,
+    model,
+    at: stamp([1, 4, 5][i]),
+    pages,
+    status: "CAPTURE_MATCH" as const,
+  }));
+  const attribute = (log: Parameters<typeof attributeLane>[0]) =>
+    attributeLane(log, lane, model, policy, observed, true);
+  assert.equal(attribute(boundaries), "BACKEND_UNVERIFIED_ALIAS_ONLY");
+  assert.equal(
+    attribute(boundaries.slice(0, 2)),
+    "HELD_CAMPAIGN_END_CAPTURE_CHECK",
+  );
+  assert.equal(
+    attribute(boundaries.map((x) => ({ ...x, status: "MATCH" }))),
+    "SEGREGATED_CAPTURE_UNCERTAIN",
+  );
+  assert.equal(
+    attribute([{ ...boundaries[0], pages: [] }, ...boundaries.slice(1)]),
+    "SEGREGATED_CAPTURE_UNCERTAIN",
+  );
 });

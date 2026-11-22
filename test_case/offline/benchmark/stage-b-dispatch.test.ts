@@ -921,3 +921,27 @@ test("Twelve ordered trial dispositions survive a primary pause and repair witho
   }))
     assert.equal(status.filter((s) => s === key).length, count);
 });
+
+test("a stale control capture blocks the first physical reservation even when Flash goes first", () => {
+  const p = policy();
+  const at = Date.parse("2026-11-22T17:00:32.283Z");
+  const first = at + 86400001;
+  for (const item of Object.values(p.providers))
+    item.checked_at = new Date(first).toISOString();
+  const control = p.providers["gpt-6.2-sol"];
+  control.checked_at = new Date(at).toISOString();
+  control.provenance_sha256 =
+    "212105f13349b30ecd7541f1b4612a8851c4f9cabce4b4f248fd1e681a8e620e";
+  assert.throws(
+    () =>
+      checkAdmission(
+        p,
+        [],
+        "probe--deepseek-flash",
+        "deepseek-flash",
+        "preflight",
+        first,
+      ),
+    /STAGE_B_STALE_PROVENANCE/,
+  );
+});

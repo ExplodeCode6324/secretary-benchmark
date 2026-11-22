@@ -110,7 +110,7 @@ function childNames(root: string, name: string) {
   requireThat(fs.statSync(dir).isDirectory(), "ARCHIVE_EXPECTED_DIRECTORY");
   return fs.readdirSync(dir).sort();
 }
-/** V3 binds the pricing facts to private content-addressed originals in the frozen dossier. */
+/** V3 pricing facts bind each source, including accepted captures and their independent review, by content hash. */
 function verifyPricingOriginals(
   root: string,
   dossier: {

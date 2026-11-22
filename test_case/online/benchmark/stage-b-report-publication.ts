@@ -1,3 +1,4 @@
+import { usesCapturedSchedule } from "./stage-b-capture.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { read, requireThat, sha } from "./io.ts";
@@ -7,7 +8,7 @@ type Observation = {
   model: StageModel;
   point: string;
   at: string;
-  status: "MATCH" | "CHANGED" | "UNAVAILABLE";
+  status: "MATCH" | "CAPTURE_MATCH" | "CHANGED" | "UNAVAILABLE";
   pages?: unknown;
 };
 export function publicationLog(root: string): Observation[] {
@@ -53,7 +54,9 @@ export function projectedIdentity(
   return !matched
     ? "NO_RETURNED_IDENTIFIER"
     : matched === sha(model)
-      ? "SEE_PER_LANE_PUBLICATION_WINDOW"
+      ? usesCapturedSchedule(rule)
+        ? "BACKEND_UNVERIFIED_ALIAS_ONLY"
+        : "SEE_PER_LANE_PUBLICATION_WINDOW"
       : "FROZEN_RETURNED_IDENTIFIER";
 }
 export function attributeLane(
@@ -91,8 +94,10 @@ export function attributeLane(
   const last = Math.max(
     ...attempts.map((a) => Date.parse(a.settled_at ?? a.at)),
   );
+  const captured = usesCapturedSchedule(rule);
+  const expectedStatus = captured ? "CAPTURE_MATCH" : "MATCH";
   const match = (e: Observation) =>
-    e?.status === "MATCH" &&
+    e?.status === expectedStatus &&
     Array.isArray(e.pages) &&
     sha(JSON.stringify(e.pages)) === rule.provenance_sha256;
   const start = entries.filter((e) => e.point === lane + ":start"),
@@ -105,8 +110,11 @@ export function attributeLane(
           e.point === lane + ":end"),
     )
   )
-    return "SEGREGATED_PUBLICATION_TRANSITION";
+    return captured
+      ? "SEGREGATED_CAPTURE_INTEGRITY_CHANGE"
+      : "SEGREGATED_PUBLICATION_TRANSITION";
   if (
+    !captured &&
     identity === "FROZEN_RETURNED_IDENTIFIER" &&
     !entries.some((e) => e.status !== "MATCH")
   )
@@ -127,7 +135,9 @@ export function attributeLane(
         Date.parse(e.at) <= Date.parse(end[0].at),
     )
   )
-    return "SEGREGATED_PUBLICATION_UNCERTAIN";
+    return captured
+      ? "SEGREGATED_CAPTURE_UNCERTAIN"
+      : "SEGREGATED_PUBLICATION_UNCERTAIN";
   const final = entries.filter((e) => e.point === "campaign:end");
   if (
     !endChecked ||
@@ -135,11 +145,16 @@ export function attributeLane(
     !match(final[0]) ||
     !(Date.parse(final[0].at) >= Date.parse(end[0].at))
   )
-    return "HELD_CAMPAIGN_END_PUBLICATION";
-  return "PUBLICATION_WINDOW_IMMUTABLE_BACKEND_UNKNOWN";
+    return captured
+      ? "HELD_CAMPAIGN_END_CAPTURE_CHECK"
+      : "HELD_CAMPAIGN_END_PUBLICATION";
+  return captured
+    ? "BACKEND_UNVERIFIED_ALIAS_ONLY"
+    : "PUBLICATION_WINDOW_IMMUTABLE_BACKEND_UNKNOWN";
 }
 export const gradableIdentity = (s: string) =>
   [
+    "BACKEND_UNVERIFIED_ALIAS_ONLY",
     "PUBLICATION_WINDOW_IMMUTABLE_BACKEND_UNKNOWN",
     "FROZEN_RETURNED_IDENTIFIER",
   ].includes(s);

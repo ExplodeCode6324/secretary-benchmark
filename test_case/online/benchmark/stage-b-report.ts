@@ -1,3 +1,4 @@
+import { usesCapturedSchedule } from "./stage-b-capture.ts";
 import { trialArtifact, hostEvidence } from "./stage-b-report-evidence.ts";
 import {
   publicationLog,
@@ -177,6 +178,7 @@ function projectAttempt(
   ordinal: number,
   allowed: readonly string[],
   legacy: boolean,
+  captured: boolean,
 ) {
   const { attempt } = entry,
     physical = attempt.physical;
@@ -249,6 +251,9 @@ function projectAttempt(
       : [],
     component_violation: entry.component_violation === true,
     monetary_overrun: !!entry.bound_violation,
+    ...(captured && entry.returned_model === attempt.model
+      ? { backend_attribution: "BACKEND_UNVERIFIED_ALIAS_ONLY" }
+      : {}),
     matched_returned_model:
       entry.returned_model && allowed.includes(entry.returned_model)
         ? publicModelId(entry.returned_model)
@@ -424,6 +429,11 @@ export function buildStageBReport(root: string) {
       freeze!.inputs.providers[e.attempt.model as (typeof stageModels)[number]]
         ?.allowed_returned_models ?? [],
       legacy,
+      usesCapturedSchedule(
+        freeze?.inputs.providers[
+          e.attempt.model as (typeof stageModels)[number]
+        ],
+      ),
     ),
   );
   const publications = publicationLog(root);
@@ -511,6 +521,10 @@ export function buildStageBReport(root: string) {
       first_failed_attempt: predecessor ?? null,
       host,
       identity,
+      ...(usesCapturedSchedule(freeze?.inputs.providers[slot.model]) &&
+      sends.some((s) => s.matched_returned_model === slot.model)
+        ? { backend_attribution: "BACKEND_UNVERIFIED_ALIAS_ONLY" }
+        : {}),
       scenario_evidence_sha256: terminal?.evidence ?? null,
       ...grades,
     };
@@ -534,6 +548,16 @@ export function buildStageBReport(root: string) {
       worst_usd: estimate?.worst_usd ?? null,
       price_provenance: rule
         ? {
+            ...(usesCapturedSchedule(rule)
+              ? {
+                  evidence_representation:
+                    "CLAUDE_WEBFETCH_EXCERPTS_AND_PARAPHRASES",
+                  independent_review_sha256:
+                    freeze?.inputs.sources[model][0].review_sha256,
+                  publication_during_campaign: "NOT_OBSERVED",
+                  cost_basis: "CAPTURED_SCHEDULE",
+                }
+              : {}),
             schedule: legacy ? "LEGACY_PHYSICAL_V2" : "PHYSICAL_V3",
             verified_at: stamp(rule.checked_at),
             source_sha256: rule.provenance_sha256,

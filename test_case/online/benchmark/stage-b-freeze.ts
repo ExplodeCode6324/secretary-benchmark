@@ -19,7 +19,7 @@ import { fillerTexts, type TimelineStep } from "./baseline-timeline.ts";
 import { maintenancePolicy } from "./baseline.ts";
 import { calibrationReceipt } from "./stage-b-report-calibration.ts";
 
-type SourcePage = { url: string; sha256: string };
+import { checkCaptureFile, type SourcePage } from "./stage-b-capture.ts";
 type Forecast = {
   ordinary_sends_per_turn: number;
   extra_task_sends: number;
@@ -364,6 +364,17 @@ export function buildFreeze(root: string) {
     providers,
   };
   validatePhysical(policy);
+  const captured = stageModels.filter((model) =>
+    inputs.sources[model]?.some(
+      (page) =>
+        page.representation !== undefined || page.review_sha256 !== undefined,
+    ),
+  );
+  requireThat(
+    !captured.length ||
+      (captured.length === 2 && !captured.includes("deepseek-flash")),
+    "STAGE_B_SOURCE_CAPTURE_SCOPE",
+  );
   const verifiedFacts: Partial<
     Record<StageModel, ReturnType<typeof pricingEvidence>>
   > = {};
@@ -541,7 +552,7 @@ export async function prepareFreeze(root: string) {
     const age =
       Date.now() - Date.parse(freeze.inputs.providers[model].checked_at);
     requireThat(age >= 0 && age <= 86400000, "STAGE_B_STALE_PROVENANCE");
-    await checkPublication(freeze.inputs.sources[model]);
+    await checkPublication(freeze.inputs.sources[model], fetch, root);
   }
   if (fs.existsSync(file))
     requireThat(
@@ -574,7 +585,19 @@ export function loadFreeze(root: string, hash: string) {
   };
   return { freeze, policy };
 }
-export async function checkPublication(pages: SourcePage[], transport = fetch) {
+export async function checkPublication(
+  pages: SourcePage[],
+  transport = fetch,
+  root?: string,
+) {
+  if (
+    pages.some(
+      (p) => p.representation !== undefined || p.review_sha256 !== undefined,
+    )
+  ) {
+    for (const page of pages) checkCaptureFile(root, page);
+    return "CAPTURE_MATCH" as const;
+  }
   for (const page of pages) {
     const response = await transport(page.url, {
       redirect: "error",
@@ -586,4 +609,5 @@ export async function checkPublication(pages: SourcePage[], transport = fetch) {
       "STAGE_B_PROVENANCE_CHANGE",
     );
   }
+  return "MATCH" as const;
 }

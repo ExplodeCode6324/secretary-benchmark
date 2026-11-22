@@ -26,6 +26,8 @@ import { calibrationReceipt } from "./stage-b-report-calibration.ts";
 import {
   checkCaptureFile,
   usesCapturedSchedule,
+  retentionEvidence,
+  requireCapturedRetention,
   type SourcePage,
 } from "./stage-b-capture.ts";
 type Forecast = {
@@ -372,6 +374,7 @@ export function buildFreeze(root: string) {
     providers,
   };
   validatePhysical(policy);
+  const retentionDigest = retentionEvidence(root, providers["gpt-6-luna"]);
   const explicit = !!providers["gpt-6-luna"].request_service_tier;
   const tierSamples = explicit
     ? verifyTierSamples(root, policy, source)
@@ -541,6 +544,7 @@ export function buildFreeze(root: string) {
   return {
     schema: "issue122-stage-b-freeze-v3",
     verified_facts: verifiedFacts,
+    ...(retentionDigest ? { retention_evidence_sha256: retentionDigest } : {}),
     ...(tierSamples
       ? {
           explicit_tier_samples: tierSamples,
@@ -584,6 +588,7 @@ export async function prepareFreeze(root: string) {
     ),
     "STAGE_B_EXPLICIT_TIER_REQUIRED",
   );
+  Object.values(providers).forEach(requireCapturedRetention);
   if (providers["gpt-6-luna"].request_service_tier)
     await prepareTierSamples(root, policy);
   const freeze = buildFreeze(root),

@@ -72,12 +72,21 @@ function rule(model: string): ProviderRule {
     billed_output: 64,
   };
 }
-function dossier(root: string, b: CalibrationBinding, legacy = false) {
+function dossier(
+  root: string,
+  b: CalibrationBinding,
+  legacy = false,
+  retention = false,
+) {
   const providers = Object.fromEntries(
     stageModels.map((model) => {
       const rates = rule(model);
       if (!legacy) {
         rates.cache_write_rate = model === "deepseek-flash" ? 2 : 2.5;
+      }
+      if (retention && model !== "deepseek-flash") {
+        rates.request_service_tier = "default";
+        rates.cache_retention_contract = "responses-ttl-30m-v1";
       }
       return [model, rates];
     }),
@@ -679,4 +688,67 @@ test("offline legacy replay keeps historical estimates, raw ledger and freeze by
   assert.equal(report.overall.unknown_full_reservation_usd, 0.01);
   assert.equal(sha(read(ledgerFile)), ledgerHash);
   assert.equal(sha(read(path.join(root, "configs/stage-b-freeze.json"))), hash);
+});
+
+test("probe projection retains the first cache anomaly and the separate terminal observation", async (t) => {
+  const { retentionFrame } =
+    await import("../../online/benchmark/stage-b-retention.ts");
+  const root = facility(t),
+    b = await prepareStageBCalibration(root),
+    hash = dossier(root, b, false, true);
+  trialFixture(root, hash, "synthetic test", "drift");
+  const file = path.join(root, "campaign/attempts.jsonl");
+  const events = read(file)
+    .toString()
+    .trimEnd()
+    .split("\n")
+    .map((row) => JSON.parse(row).event);
+  for (const e of events.filter((row) => row.type === "RESERVE"))
+    Object.assign(e.attempt.physical, {
+      requested_service_tier: "default",
+      cache_retention_contract: "responses-ttl-30m-v1",
+    });
+  const first = retentionFrame(
+    { type: "response.created", prompt_cache_retention: "24h" },
+    1,
+  );
+  const terminal = retentionFrame(
+    {
+      type: "response.completed",
+      response: { prompt_cache_retention: "in_memory" },
+    },
+    2,
+  );
+  const witness = { ...first, scope: "frame", field: "prompt_cache_retention" };
+  const settled = events[1];
+  settled.usage.terminal_cache_retention = terminal;
+  settled.usage.returned_service_tier = "default";
+  events.splice(1, 0, {
+    type: "PRICING_DRIFT",
+    id: settled.id,
+    reason: "CACHE_RETENTION",
+    at: date(2),
+    cache_retention: witness,
+  });
+  for (const e of events.filter(
+    (row) => row.type === "SETTLE" && row.usage?.response_complete,
+  ))
+    e.usage.terminal_cache_retention = terminal;
+  let previous = "0".repeat(64);
+  fs.writeFileSync(
+    file,
+    events
+      .map((event, index) => {
+        const sequence = index + 1,
+          hash = sha(JSON.stringify(event) + previous + sequence);
+        const row = JSON.stringify({ previous, sequence, hash, event });
+        previous = hash;
+        return row;
+      })
+      .join("\n") + "\n",
+  );
+  const report = buildStageBReport(root);
+  assert.deepEqual(report.probes[0].first_cache_anomaly, witness);
+  assert.deepEqual(report.probes[0].terminal_cache_retention, terminal);
+  assert.equal(report.slots[6].attempts[0].terminal_cache_retention, null);
 });

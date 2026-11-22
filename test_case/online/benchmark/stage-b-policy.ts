@@ -1,3 +1,4 @@
+import { retentionContract } from "./stage-b-retention.ts";
 import { usesCapturedSchedule } from "./stage-b-capture.ts";
 import { requireThat } from "./io.ts";
 
@@ -46,6 +47,7 @@ export type ProviderRule = {
   publication_url: string;
   tier: "default";
   request_service_tier?: "default";
+  cache_retention_contract?: typeof retentionContract;
   cache_retention: "default";
   context_band: "all-admitted-input";
   context_upper_tokens: number;
@@ -80,6 +82,10 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
     policy.providers[luna],
     "request_service_tier",
   );
+  const retention = Object.hasOwn(
+    policy.providers[luna],
+    "cache_retention_contract",
+  );
   for (const model of stageModels) {
     const rule = policy.providers[model];
     const url = new URL(rule.publication_url);
@@ -109,6 +115,9 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
         ...(!legacy && explicit && model !== flash
           ? ["request_service_tier"]
           : []),
+        ...(!legacy && explicit && retention && model !== flash
+          ? ["cache_retention_contract"]
+          : []),
         "cache_retention",
         "context_band",
         "context_upper_tokens",
@@ -125,6 +134,9 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
         (!explicit ||
           model === flash ||
           rule.request_service_tier === rule.tier) &&
+        (!retention ||
+          model === flash ||
+          rule.cache_retention_contract === retentionContract) &&
         rule.cache_retention === "default" &&
         rule.context_band === "all-admitted-input" &&
         Number.isFinite(Date.parse(rule.checked_at)) &&
@@ -169,6 +181,7 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
   }
 }
 export type PhysicalBound = {
+  cache_retention_contract?: typeof retentionContract;
   requested_service_tier?: "default";
   input_bytes: number;
   output_tokens: number;
@@ -200,6 +213,9 @@ export function physicalBound(
   return {
     ...(rule.request_service_tier
       ? { requested_service_tier: rule.request_service_tier }
+      : {}),
+    ...(rule.cache_retention_contract
+      ? { cache_retention_contract: rule.cache_retention_contract }
       : {}),
     input_bytes: bytes,
     output_tokens:

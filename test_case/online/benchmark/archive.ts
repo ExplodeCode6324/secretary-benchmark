@@ -1,3 +1,4 @@
+import { retentionEvidence } from "./stage-b-capture.ts";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -188,6 +189,13 @@ function ownedStoppedRuns(d: Domains): Run[] {
       );
       if (campaign.physical_policy.schema === "issue122-physical-v3") {
         verifyPricingOriginals(d.root, dossier);
+        requireThat(
+          retentionEvidence(
+            d.root,
+            campaign.physical_policy.providers["gpt-6-luna"],
+          ) === dossier.retention_evidence_sha256,
+          "ARCHIVE_STAGE_B_RETENTION_CHANGED",
+        );
         if (
           campaign.physical_policy.providers["gpt-6-luna"].request_service_tier
         ) {

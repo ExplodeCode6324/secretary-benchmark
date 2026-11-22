@@ -231,3 +231,62 @@ export function capturedPricingEvidence(
   };
   return facts;
 }
+
+export const retentionReview =
+  "a640c28576ebb2096f1d00318ec1c9ffa2e376e2fa4ced554dab55c67e5535f5";
+export function verifyRetentionEvidence(root: string) {
+  const review = JSON.parse(evidenceBytes(root, retentionReview).toString());
+  const parent = JSON.parse(evidenceBytes(root, reviewHash).toString());
+  const cache = parent.pages.cache as ReviewedPage;
+  requireThat(
+    review.schema === "issue122-cache-retention-evidence-v1" &&
+      review.parent === reviewHash &&
+      review.capture === roles.cache[1] &&
+      review.capture === cache.sha256 &&
+      review.corroboration === cache.corroboration.sha256 &&
+      parent.captured_at === capturedAt &&
+      JSON.stringify(review.models) ===
+        JSON.stringify(["gpt-6-luna", "gpt-6.2-sol"]) &&
+      typeof review.cohort_inference === "string",
+    "STAGE_B_SOURCE_CAPTURE_REVIEW",
+  );
+  const capture = evidenceBytes(root, review.capture).toString(),
+    browser = evidenceBytes(root, review.corroboration).toString();
+  for (const name of [
+    "priced_lifetime",
+    "separate_legacy_control",
+    "recognized_values",
+    "legacy_duration",
+    "write_rates",
+    "mode",
+  ]) {
+    const fact = review.facts[name];
+    requireThat(
+      fact?.status === "CONFIRMED" &&
+        fact.capture &&
+        capture.includes(fact.capture) &&
+        fact.corroboration &&
+        browser.includes(fact.corroboration) &&
+        (name !== "mode" ||
+          (fact.capture_context &&
+            capture.includes(fact.capture_context) &&
+            fact.corroboration_context &&
+            browser.includes(fact.corroboration_context))),
+      "STAGE_B_SOURCE_CAPTURE_UNCONFIRMED",
+    );
+  }
+  return retentionReview;
+}
+
+export function retentionEvidence(root: string, rule: ProviderRule) {
+  return rule.cache_retention_contract && usesCapturedSchedule(rule)
+    ? verifyRetentionEvidence(root)
+    : undefined;
+}
+export function requireCapturedRetention(rule: ProviderRule) {
+  requireThat(
+    !usesCapturedSchedule(rule) ||
+      rule.cache_retention_contract === "responses-ttl-30m-v1",
+    "STAGE_B_RETENTION_CONTRACT_REQUIRED",
+  );
+}

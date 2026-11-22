@@ -1,3 +1,4 @@
+import { defaultCacheRequest } from "./stage-b-retention.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
@@ -196,6 +197,8 @@ export function verifyTierSamples(
       tier === "default" &&
         body.model === model &&
         body.service_tier === tier &&
+        (!policy.providers[model].cache_retention_contract ||
+          defaultCacheRequest(body)) &&
         body.stream === true &&
         (label === "probe"
           ? s.product_payload_sha256 === null
@@ -214,6 +217,12 @@ export function verifyTierSamples(
       path: label,
       endpoint: s.endpoint,
       service_tier: tier,
+      ...(policy.providers[model].cache_retention_contract
+        ? {
+            cache_retention_contract:
+              policy.providers[model].cache_retention_contract,
+          }
+        : {}),
       bytes,
       output_cap: body.max_output_tokens,
       sha256: hash,

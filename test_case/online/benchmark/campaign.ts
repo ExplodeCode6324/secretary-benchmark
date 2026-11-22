@@ -1,3 +1,9 @@
+import {
+  validateRetentionFrame,
+  retentionFinding,
+  type CacheObservation,
+  type RetentionFrame,
+} from "./stage-b-retention.ts";
 import { fingerprint } from "./source.ts";
 import {
   validatePhysical,
@@ -73,7 +79,68 @@ type TierObservation = {
   requested_tier: "default";
   observed_tier: ObservedTier;
 };
-type PricingDrift = { reason: string; at: string } & Partial<TierObservation>;
+type DriftObservation = Partial<TierObservation> & {
+  cache_retention?: CacheObservation;
+};
+type PricingDrift = { reason: string; at: string } & DriftObservation;
+function validateCacheDrift(
+  contract: PhysicalBound["cache_retention_contract"],
+  reason: string,
+  observation: DriftObservation,
+) {
+  if (contract && ["CACHE_RETENTION", "CACHE_WRITE_12H"].includes(reason)) {
+    requireThat(observation.cache_retention, "STAGE_B_CACHE_DRIFT_MISSING");
+    validateRetentionFrame(observation.cache_retention, reason);
+  } else
+    requireThat(
+      observation.cache_retention === undefined,
+      "STAGE_B_CACHE_DRIFT_INVALID",
+    );
+}
+function validateTerminalCache(
+  physical: PhysicalBound | undefined,
+  usage: unknown,
+  price: number | null,
+  drift: PricingDrift | undefined,
+) {
+  const details = usage as {
+    terminal_cache_retention?: RetentionFrame;
+    invalid_long_write_count?: true;
+    response_complete?: boolean;
+  } | null;
+  if (details?.terminal_cache_retention !== undefined) {
+    requireThat(
+      physical?.cache_retention_contract,
+      "STAGE_B_CACHE_TERMINAL_INVALID",
+    );
+    const terminal = details.terminal_cache_retention;
+    validateRetentionFrame(terminal);
+    requireThat(
+      !retentionFinding(terminal) || drift,
+      "STAGE_B_CACHE_DRIFT_MISSING",
+    );
+    if (
+      terminal.frame.long_writes === "INVALID" ||
+      terminal.response.long_writes === "INVALID"
+    )
+      requireThat(
+        details.invalid_long_write_count,
+        "STAGE_B_CACHE_USAGE_INVALID",
+      );
+  }
+  if (physical?.cache_retention_contract && details?.response_complete)
+    requireThat(
+      details.terminal_cache_retention,
+      "STAGE_B_CACHE_TERMINAL_MISSING",
+    );
+  if (details?.invalid_long_write_count !== undefined)
+    requireThat(
+      physical?.cache_retention_contract &&
+        details.invalid_long_write_count === true &&
+        price === null,
+      "STAGE_B_CACHE_USAGE_INVALID",
+    );
+}
 function validateTierDrift(
   reason: string,
   expected: "default" | undefined,
@@ -215,7 +282,15 @@ export function ledger(root: string) {
           item.attempt.physical.requested_service_tier,
           event,
         );
+        validateCacheDrift(
+          item.attempt.physical.cache_retention_contract,
+          event.reason,
+          event,
+        );
         item.pricing_drift = {
+          ...(event.cache_retention
+            ? { cache_retention: event.cache_retention }
+            : {}),
           reason: event.reason,
           at: event.at,
           ...(event.requested_tier
@@ -234,6 +309,12 @@ export function ledger(root: string) {
           event.actual_usd === null ||
             (Number.isFinite(event.actual_usd) && event.actual_usd >= 0),
           "CAMPAIGN_INVALID_COST",
+        );
+        validateTerminalCache(
+          item.attempt.physical,
+          event.usage,
+          event.actual_usd,
+          item.pricing_drift,
         );
         item.settled = true;
         item.charged_usd = event.actual_usd ?? item.attempt.reserved_usd;
@@ -525,7 +606,7 @@ export async function recordPricingDrift(
   root: string,
   id: string,
   reason: string,
-  observation?: TierObservation,
+  observation?: DriftObservation,
 ) {
   await locked(directory(root), async () => {
     const item = ledger(root).entries.get(id);
@@ -536,6 +617,11 @@ export async function recordPricingDrift(
     validateTierDrift(
       reason,
       item.attempt.physical.requested_service_tier,
+      observation ?? {},
+    );
+    validateCacheDrift(
+      item.attempt.physical.cache_retention_contract,
+      reason,
       observation ?? {},
     );
     if (!item.pricing_drift)
@@ -611,6 +697,12 @@ export async function settle(
       )
         outcome = identity;
     }
+    validateTerminalCache(
+      item.attempt.physical,
+      usage,
+      actualUSD,
+      item.pricing_drift,
+    );
     append(root, {
       type: "SETTLE",
       id,

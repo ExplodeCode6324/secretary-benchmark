@@ -2,7 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { runStageProbe } from "./stage-b-probe.ts";
-import { usesCapturedSchedule } from "./stage-b-capture.ts";
+import {
+  usesCapturedSchedule,
+  retentionEvidence,
+  requireCapturedRetention,
+} from "./stage-b-capture.ts";
 import {
   assertCampaignSource,
   createCampaign,
@@ -279,6 +283,7 @@ export async function startStage(root: string, approval: string, hash: string) {
     ),
     "STAGE_B_EXPLICIT_TIER_REQUIRED",
   );
+  Object.values(policy.providers).forEach(requireCapturedRetention);
   for (const model of stageModels)
     checkAdmission(
       policy,
@@ -300,12 +305,20 @@ async function publication(
   const pages = freeze.inputs.sources[model];
   const at = now();
   try {
+    const rule = freeze.inputs.providers[model];
+    const digest = retentionEvidence(root, rule);
+    if (digest)
+      requireThat(
+        digest === freeze.retention_evidence_sha256,
+        "STAGE_B_PROVENANCE_CHANGE",
+      );
     const status = await checkPublication(pages, fetch, root);
     appendJSON(path.join(directory(root), "publication.jsonl"), {
       point,
       model,
       at,
       pages,
+      ...(digest ? { retention_evidence_sha256: digest } : {}),
       status,
     });
   } catch (error) {

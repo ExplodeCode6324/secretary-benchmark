@@ -959,3 +959,362 @@ test("conflicting provider options cannot be discarded by the simple adapter", (
     /STAGE_B_PRICING_TIER/,
   );
 });
+
+function retentionPolicy() {
+  const p = explicitTierPolicy();
+  for (const model of ["gpt-6-luna", "gpt-6.2-sol"] as const)
+    p.providers[model].cache_retention_contract = "responses-ttl-30m-v1";
+  return p;
+}
+
+test("modern cache lifetime and legacy response metadata are assessed independently", async (t) => {
+  for (const model of ["gpt-6-luna", "gpt-6.2-sol"] as const) {
+    await t.test(model, async (t) => {
+      const f = await fixture(t, retentionPolicy());
+      const usage = {
+        input_tokens: 20,
+        output_tokens: 1,
+        input_tokens_details: {
+          cached_tokens: 0,
+          cache_write_tokens: 0,
+          cache_write_tokens_details: { ttl_30m_tokens: 0, ttl_12h_tokens: 0 },
+        },
+      };
+      for (const fields of [
+        { prompt_cache_retention: "in_memory" },
+        {
+          prompt_cache_options: { ttl: "30m" },
+          prompt_cache_retention: "in_memory",
+        },
+        {},
+      ]) {
+        const entry = await f.send(
+          model,
+          stream([
+            { type: "response.created", response: { model } },
+            {
+              type: "response.completed",
+              response: { model, service_tier: "default", usage, ...fields },
+            },
+          ]),
+          true,
+          { service_tier: "default" },
+        );
+        assert.equal(entry.outcome, "RESPONSE_COMPLETE");
+        assert.ok(typeof entry.actual_usd === "number");
+        const observed = (entry.usage as any).terminal_cache_retention;
+        assert.equal(observed.frame_index, 2);
+        assert.equal(observed.frame_type, "response.completed");
+        assert.equal(
+          observed.response.legacy_retention,
+          fields.prompt_cache_retention ?? "MISSING",
+        );
+        assert.equal(
+          observed.response.modern_ttl,
+          fields.prompt_cache_options?.ttl ?? "MISSING",
+        );
+      }
+    });
+  }
+});
+
+test("cache drift records field, safe values and first frame before later clean completion", async (t) => {
+  const model = "gpt-6-luna";
+  for (const [name, fields, expected, reason] of [
+    [
+      "modern extended",
+      {
+        prompt_cache_options: { ttl: "12h" },
+        prompt_cache_retention: "in_memory",
+      },
+      "prompt_cache_options.ttl",
+      "CACHE_RETENTION",
+    ],
+    [
+      "legacy extended",
+      { prompt_cache_options: { ttl: "30m" }, prompt_cache_retention: "24h" },
+      "prompt_cache_retention",
+      "CACHE_RETENTION",
+    ],
+    [
+      "wrong domain",
+      { prompt_cache_options: { ttl: "in_memory" } },
+      "prompt_cache_options.ttl",
+      "CACHE_RETENTION",
+    ],
+    [
+      "unknown",
+      { prompt_cache_retention: "private-value-do-not-retain" },
+      "prompt_cache_retention",
+      "CACHE_RETENTION",
+    ],
+    [
+      "invalid container",
+      { prompt_cache_options: ["private-value-do-not-retain"] },
+      "prompt_cache_options",
+      "CACHE_RETENTION",
+    ],
+    [
+      "unknown option",
+      {
+        prompt_cache_options: { ttl: "30m", "private-value-do-not-retain": 1 },
+      },
+      "prompt_cache_options",
+      "CACHE_RETENTION",
+    ],
+    [
+      "invalid mode",
+      { prompt_cache_options: { mode: "private-value-do-not-retain" } },
+      "prompt_cache_options.mode",
+      "CACHE_RETENTION",
+    ],
+    [
+      "positive long writes",
+      {
+        usage: {
+          input_tokens_details: {
+            cache_write_tokens_details: { ttl_12h_tokens: 1 },
+          },
+        },
+      },
+      "usage.input_tokens_details.cache_write_tokens_details.ttl_12h_tokens",
+      "CACHE_WRITE_12H",
+    ],
+  ] as const) {
+    await t.test(name, async (t) => {
+      const f = await fixture(t, retentionPolicy());
+      const entry = await f.send(
+        model,
+        stream([
+          { type: "response.created", response: { model } },
+          { type: "response.in_progress", response: { model, ...fields } },
+          {
+            type: "response.completed",
+            response: {
+              model,
+              service_tier: "default",
+              prompt_cache_options: { ttl: "30m" },
+            },
+          },
+        ]),
+        true,
+        { service_tier: "default" },
+      );
+      assert.equal(entry.outcome, "PROVENANCE_CHANGE");
+      assert.equal(entry.actual_usd, null);
+      assert.equal(entry.pricing_drift?.reason, reason);
+      const observation = entry.pricing_drift?.cache_retention;
+      assert.equal(observation?.frame_index, 2);
+      assert.equal(observation?.frame_type, "response.in_progress");
+      assert.equal(observation?.scope, "response");
+      assert.equal(observation?.field, expected);
+      assert.equal(
+        (entry.usage as any).terminal_cache_retention.response.modern_ttl,
+        "30m",
+      );
+      assert.ok(
+        !fs
+          .readFileSync(path.join(f.root, "campaign/attempts.jsonl"), "utf8")
+          .includes("private-value-do-not-retain"),
+      );
+      await assert.rejects(
+        () => f.send("deepseek-flash", stream([])),
+        /PROVENANCE_CHANGE/,
+      );
+    });
+  }
+});
+
+test("cache observation survives an interrupted stream, rejects forged replay and cannot leak an unrecognized frame", async (t) => {
+  const f = await fixture(t, retentionPolicy()),
+    model = "gpt-6-luna";
+  let source!: ReadableStreamDefaultController<Uint8Array>;
+  const response = await f.open(
+    model,
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          source = controller;
+        },
+      }),
+    ),
+    true,
+    { service_tier: "default" },
+  );
+  const reader = response.body!.getReader();
+  source.enqueue(
+    new TextEncoder().encode(
+      "data: " +
+        JSON.stringify({
+          type: "private-frame-kind",
+          prompt_cache_options: { ttl: "private-cache-value" },
+          response: { model, prompt_cache_retention: "in_memory" },
+        }) +
+        "\n\n",
+    ),
+  );
+  await reader.read();
+  try {
+    const [entry] = ledger(f.root).entries.values();
+    assert.equal(entry.settled, false);
+    assert.equal(entry.pricing_drift?.cache_retention?.scope, "frame");
+    assert.equal(entry.pricing_drift?.cache_retention?.frame_type, "OTHER");
+    await assert.rejects(
+      () => f.send("deepseek-flash", stream([])),
+      /PROVENANCE_CHANGE/,
+    );
+    assert.equal(f.calls(), 1);
+  } finally {
+    await reader.cancel();
+  }
+  const [entry] = ledger(f.root).entries.values();
+  assert.equal(entry.outcome, "PROVENANCE_CHANGE");
+  assert.equal((entry.usage as any)?.terminal_cache_retention, undefined);
+  const file = path.join(f.root, "campaign/attempts.jsonl");
+  const saved = fs.readFileSync(file, "utf8");
+  assert.doesNotMatch(saved, /private-frame-kind|private-cache-value/);
+  const frames = saved
+    .trimEnd()
+    .split("\n")
+    .map((x) => JSON.parse(x));
+  const target = frames.find((x) => x.event.type === "PRICING_DRIFT");
+  target.event.cache_retention.frame_type = "private-frame-kind";
+  let previous = "0".repeat(64);
+  for (const frame of frames) {
+    frame.previous = previous;
+    previous = frame.hash = sha(
+      JSON.stringify(frame.event) + previous + frame.sequence,
+    );
+  }
+  fs.writeFileSync(
+    file,
+    frames.map((x) => JSON.stringify(x)).join("\n") + "\n",
+  );
+  assert.throws(() => ledger(f.root), /CACHE|DRIFT/);
+});
+
+test("cache retention policy cannot cover just one control or DeepSeek", () => {
+  const p = retentionPolicy();
+  validatePhysical(p);
+  delete p.providers["gpt-6.2-sol"].cache_retention_contract;
+  assert.throws(() => validatePhysical(p), /PROVENANCE_INVALID/);
+  p.providers["gpt-6.2-sol"].cache_retention_contract = "responses-ttl-30m-v1";
+  p.providers["deepseek-flash"].cache_retention_contract =
+    "responses-ttl-30m-v1";
+  assert.throws(() => validatePhysical(p), /PROVENANCE_INVALID/);
+});
+
+test("empty options and documented cache modes make no TTL assertion", async (t) => {
+  const model = "gpt-6-luna";
+  for (const options of [
+    {},
+    { mode: "implicit" },
+    { mode: "explicit", ttl: null },
+  ]) {
+    const f = await fixture(t, retentionPolicy());
+    const entry = await f.send(
+      model,
+      stream([
+        {
+          type: "response.completed",
+          response: {
+            model,
+            service_tier: "default",
+            prompt_cache_options: options,
+          },
+        },
+      ]),
+      true,
+      { service_tier: "default" },
+    );
+    assert.equal(entry.outcome, "RESPONSE_COMPLETE");
+    assert.equal(entry.pricing_drift, undefined);
+    assert.equal(
+      (entry.usage as any).terminal_cache_retention.response.modern_ttl,
+      "MISSING",
+    );
+  }
+});
+
+test("positive nested long-write count takes precedence over frame-level extended echo", async (t) => {
+  const f = await fixture(t, retentionPolicy()),
+    model = "gpt-6-luna";
+  const entry = await f.send(
+    model,
+    stream([
+      {
+        type: "response.completed",
+        prompt_cache_retention: "24h",
+        response: {
+          model,
+          service_tier: "default",
+          usage: {
+            input_tokens_details: {
+              cache_write_tokens_details: { ttl_12h_tokens: 1 },
+            },
+          },
+        },
+      },
+    ]),
+    true,
+    { service_tier: "default" },
+  );
+  assert.equal(entry.pricing_drift?.reason, "CACHE_WRITE_12H");
+  assert.equal(entry.pricing_drift?.cache_retention?.scope, "response");
+  assert.equal(
+    entry.pricing_drift?.cache_retention?.frame.legacy_retention,
+    "24h",
+  );
+});
+
+test("invalid 12h usage makes the estimate unknown through settlement without stopping the campaign", async (t) => {
+  for (const breakdown of [
+    {},
+    { ttl_12h_tokens: null },
+    { ttl_12h_tokens: -1 },
+    { ttl_12h_tokens: 0.5 },
+    { ttl_12h_tokens: Number.MAX_SAFE_INTEGER + 1 },
+    { ttl_12h_tokens: "private-count-do-not-retain" },
+    "private-count-do-not-retain",
+    null,
+  ]) {
+    const f = await fixture(t, retentionPolicy()),
+      model = "gpt-6.2-sol";
+    const usage = {
+      input_tokens: 20,
+      output_tokens: 1,
+      input_tokens_details: {
+        cached_tokens: 0,
+        cache_write_tokens: 0,
+        cache_write_tokens_details: breakdown,
+      },
+    };
+    const valid = {
+      ...usage,
+      input_tokens_details: {
+        ...usage.input_tokens_details,
+        cache_write_tokens_details: { ttl_12h_tokens: 0, ttl_30m_tokens: 0 },
+      },
+    };
+    const entry = await f.send(
+      model,
+      stream([
+        { type: "response.in_progress", response: { model, usage } },
+        {
+          type: "response.completed",
+          response: { model, service_tier: "default", usage: valid },
+        },
+      ]),
+      true,
+      { service_tier: "default" },
+    );
+    assert.equal(entry.outcome, "RESPONSE_COMPLETE");
+    assert.equal(entry.actual_usd, null);
+    assert.equal(entry.pricing_drift, undefined);
+    assert.equal((entry.usage as any).invalid_long_write_count, true);
+    assert.doesNotMatch(
+      fs.readFileSync(path.join(f.root, "campaign/attempts.jsonl"), "utf8"),
+      /private-count-do-not-retain/,
+    );
+  }
+});

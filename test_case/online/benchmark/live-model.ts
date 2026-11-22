@@ -1,3 +1,10 @@
+import {
+  defaultCacheRequest,
+  retentionFrame,
+  retentionFinding,
+  safeRetentionUsage,
+  type RetentionFrame,
+} from "./stage-b-retention.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -365,22 +372,9 @@ export function meteredFetch(
             ? payload.service_tier === expectedTier
             : payload.service_tier === undefined ||
               payload.service_tier === "default") &&
-            payload.prompt_cache_retention === undefined &&
-            (options.model === "deepseek-flash" ||
-              (!Object.hasOwn(payload, "prompt_cache_options") &&
-                !(
-                  Array.isArray(payload.input) &&
-                  payload.input.some(
-                    (item: any) =>
-                      Array.isArray(item?.content) &&
-                      item.content.some(
-                        (part: any) =>
-                          part &&
-                          typeof part === "object" &&
-                          Object.hasOwn(part, "prompt_cache_breakpoint"),
-                      ),
-                  )
-                ))),
+            (options.model === "deepseek-flash"
+              ? payload.prompt_cache_retention === undefined
+              : defaultCacheRequest(payload)),
           "STAGE_B_PRICING_TIER",
         );
       const requestedUsage = policy
@@ -506,6 +500,10 @@ export function meteredFetch(
       const reader = response.body.getReader(),
         decoder = new TextDecoder();
       const observedModels: string[] = [];
+      const retention = physical?.cache_retention_contract;
+      let frameIndex = 0,
+        invalidLongWriteCount = false;
+      let terminalCache: RetentionFrame | undefined;
       let terminalTier: ObservedTier | undefined;
       let pending = "",
         usage: unknown = null,
@@ -531,9 +529,21 @@ export function meteredFetch(
           } else if (line.startsWith("data: ")) {
             const data = JSON.parse(line.slice(6));
             const mismatch = expectedTier && tierMismatch(data, expectedTier);
+            const snapshot = retention
+              ? retentionFrame(data, ++frameIndex)
+              : null;
+            const finding = snapshot && retentionFinding(snapshot);
+            if (
+              snapshot &&
+              (snapshot.frame.long_writes === "INVALID" ||
+                snapshot.response.long_writes === "INVALID")
+            )
+              invalidLongWriteCount = true;
             const drift = mismatch
               ? "SERVICE_TIER"
-              : policy && pricingDrift(data, options.model as StageModel);
+              : snapshot
+                ? finding?.reason
+                : policy && pricingDrift(data, options.model as StageModel);
             if (drift && !tierChanged) {
               tierChanged = true;
               await recordPricingDrift(
@@ -542,11 +552,14 @@ export function meteredFetch(
                 drift,
                 expectedTier && mismatch
                   ? { requested_tier: expectedTier, observed_tier: mismatch }
-                  : undefined,
+                  : finding
+                    ? { cache_retention: finding.observation }
+                    : undefined,
               );
             }
             if (data.type === "response.completed") {
               completed = true;
+              if (snapshot) terminalCache = snapshot;
               if (expectedTier)
                 terminalTier = publicTier(data.response?.service_tier);
             }
@@ -580,7 +593,15 @@ export function meteredFetch(
                 ? "STREAM_UNCERTAIN"
                 : outcome,
           {
-            provider: firstUsageViolation ?? usage,
+            provider: retention
+              ? safeRetentionUsage(firstUsageViolation ?? usage)
+              : (firstUsageViolation ?? usage),
+            ...(terminalCache
+              ? { terminal_cache_retention: terminalCache }
+              : {}),
+            ...(invalidLongWriteCount
+              ? { invalid_long_write_count: true }
+              : {}),
             returned_model: returnedModel,
             ...(policy
               ? {
@@ -594,7 +615,10 @@ export function meteredFetch(
               : {}),
           },
           policy
-            ? completed && !tierChanged && outcome === "RESPONSE_COMPLETE"
+            ? completed &&
+              !tierChanged &&
+              !invalidLongWriteCount &&
+              outcome === "RESPONSE_COMPLETE"
               ? measuredEstimate(
                   policy.providers[options.model as StageModel],
                   firstUsageViolation ?? usage,

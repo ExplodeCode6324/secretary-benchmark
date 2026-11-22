@@ -1,4 +1,4 @@
-import { usesCapturedSchedule } from "./stage-b-capture.ts";
+import { usesCapturedSchedule, retentionReview } from "./stage-b-capture.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { read, requireThat, sha } from "./io.ts";
@@ -10,6 +10,7 @@ type Observation = {
   at: string;
   status: "MATCH" | "CAPTURE_MATCH" | "CHANGED" | "UNAVAILABLE";
   pages?: unknown;
+  retention_evidence_sha256?: string;
 };
 export function publicationLog(root: string): Observation[] {
   const file = path.join(root, "campaign/publication.jsonl");
@@ -98,6 +99,9 @@ export function attributeLane(
   const expectedStatus = captured ? "CAPTURE_MATCH" : "MATCH";
   const match = (e: Observation) =>
     e?.status === expectedStatus &&
+    (!captured ||
+      !rule.cache_retention_contract ||
+      e.retention_evidence_sha256 === retentionReview) &&
     Array.isArray(e.pages) &&
     sha(JSON.stringify(e.pages)) === rule.provenance_sha256;
   const start = entries.filter((e) => e.point === lane + ":start"),

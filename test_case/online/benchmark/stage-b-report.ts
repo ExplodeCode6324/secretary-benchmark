@@ -1,4 +1,5 @@
-import { usesCapturedSchedule } from "./stage-b-capture.ts";
+import type { RetentionFrame } from "./stage-b-retention.ts";
+import { usesCapturedSchedule, retentionReview } from "./stage-b-capture.ts";
 import { trialArtifact, hostEvidence } from "./stage-b-report-evidence.ts";
 import {
   publicationLog,
@@ -203,6 +204,8 @@ function projectAttempt(
         response_complete?: boolean;
         observed_models?: string[];
         returned_service_tier?: unknown;
+        terminal_cache_retention?: RetentionFrame;
+        invalid_long_write_count?: true;
       }
     | undefined;
   const provider = details?.provider,
@@ -227,6 +230,14 @@ function projectAttempt(
       : "RESERVED_UNSETTLED";
   return {
     ordinal,
+    ...(physical.cache_retention_contract
+      ? {
+          cache_retention_contract: physical.cache_retention_contract,
+          terminal_cache_retention: details?.terminal_cache_retention ?? null,
+          first_cache_anomaly: entry.pricing_drift?.cache_retention ?? null,
+          invalid_long_write_count: details?.invalid_long_write_count === true,
+        }
+      : {}),
     lane: lane.lane,
     model: lane.model,
     role: physical.role,
@@ -418,6 +429,13 @@ export function buildStageBReport(root: string) {
       ["DISPATCH", "DEFERRED_BY_DECISION"].includes(freeze.inputs.c16_decision),
       "STAGE_B_REPORT_C16_DECISION",
     );
+    requireThat(
+      (freeze.inputs.providers["gpt-6-luna"].cache_retention_contract &&
+      usesCapturedSchedule(freeze.inputs.providers["gpt-6-luna"])
+        ? retentionReview
+        : undefined) === freeze.retention_evidence_sha256,
+      "STAGE_B_REPORT_RETENTION_BINDING",
+    );
     validatePhysical(
       {
         schema: policySchema,
@@ -433,6 +451,15 @@ export function buildStageBReport(root: string) {
           JSON.stringify(campaign.physical_policy!.providers) ===
             JSON.stringify(freeze.inputs.providers)),
       "STAGE_B_REPORT_PRICE_INVALID",
+    );
+  }
+  for (const { attempt } of log.entries.values()) {
+    const rule =
+      freeze?.inputs.providers[attempt.model as (typeof stageModels)[number]];
+    requireThat(
+      attempt.physical?.cache_retention_contract ===
+        rule?.cache_retention_contract,
+      "STAGE_B_REPORT_RETENTION_BINDING",
     );
   }
   const attempts = [...log.entries.values()].map((e, i) =>
@@ -584,6 +611,13 @@ export function buildStageBReport(root: string) {
               ? {
                   requested_service_tier: rule.request_service_tier,
                   standard_rate_attribution: "ASSUMED_FROM_CAPTURED_BASE_RATES",
+                }
+              : {}),
+            ...(rule.cache_retention_contract
+              ? {
+                  cache_retention_contract: rule.cache_retention_contract,
+                  retention_evidence_sha256:
+                    freeze?.retention_evidence_sha256 ?? null,
                 }
               : {}),
             cache_retention: rule.cache_retention,

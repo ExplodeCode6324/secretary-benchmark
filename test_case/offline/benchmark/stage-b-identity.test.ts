@@ -38,6 +38,7 @@ import {
 } from "../../online/benchmark/stage-b-policy.ts";
 import {
   beforeLane,
+  firstLaneFailure,
   stageState,
 } from "../../online/benchmark/stage-b-dispatch.ts";
 import { attributeLane } from "../../online/benchmark/stage-b-report-publication.ts";
@@ -1629,6 +1630,24 @@ test("recovery latches an orphaned echo before a new lane can reserve", async (t
   const [entry] = ledger(f.root).entries.values();
   assert.equal(entry.settled, false);
   assert.equal(entry.pricing_drift?.echo_stop, "ORPHANED_AT_BOUNDARY");
+  const earlier = {
+    ...entry,
+    orphan_sequence: undefined,
+    settled: true,
+    settled_sequence: entry.orphan_sequence! - 1,
+    component_violation: true,
+  };
+  assert.equal(
+    firstLaneFailure([entry, earlier], "probe--" + m)?.reason,
+    "COMPONENT_OVERRUN",
+  );
+  assert.equal(
+    firstLaneFailure(
+      [{ ...earlier, settled_sequence: entry.orphan_sequence! + 1 }, entry],
+      "probe--" + m,
+    )?.reason,
+    "PROVENANCE_CHANGE",
+  );
   assert.equal(entry.charged_usd, entry.attempt.reserved_usd);
   await assert.rejects(
     () => f.send("deepseek-flash", stream([])),

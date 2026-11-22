@@ -324,6 +324,7 @@ export function ledger(root: string) {
       pricing_drift?: PricingDrift;
       legacy_echo?: RetentionFrame;
       legacy_echo_at?: string;
+      orphan_sequence?: number;
       component_violation?: boolean;
       returned_model?: string;
       actual_usd?: number | null;
@@ -405,6 +406,8 @@ export function ledger(root: string) {
               }
             : {}),
         };
+        if (event.echo_stop === "ORPHANED_AT_BOUNDARY")
+          item.orphan_sequence = sequence;
         item.outcome = "PROVENANCE_CHANGE";
       } else {
         requireThat(event.type === "SETTLE", "CAMPAIGN_UNKNOWN_EVENT");

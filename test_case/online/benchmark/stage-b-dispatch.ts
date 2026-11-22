@@ -137,15 +137,17 @@ export function stageState(root: string) {
   return state;
 }
 export function firstLaneFailure(records: Entry[], lane: string) {
-  const orphan = records.find(
-    (r) =>
-      r.attempt.lane === lane &&
-      r.pricing_drift?.echo_stop === "ORPHANED_AT_BOUNDARY",
-  );
-  if (orphan) return result("HALTED", "PROVENANCE_CHANGE");
+  const sequence = (r: Entry) =>
+    r.orphan_sequence ?? r.settled_sequence ?? Infinity;
   for (const record of records
-    .filter((r) => r.attempt.lane === lane && r.settled)
-    .sort((a, b) => a.settled_sequence! - b.settled_sequence!)) {
+    .filter(
+      (r) =>
+        r.attempt.lane === lane &&
+        (r.settled || r.orphan_sequence !== undefined),
+    )
+    .sort((a, b) => sequence(a) - sequence(b))) {
+    if (record.orphan_sequence !== undefined)
+      return result("HALTED", "PROVENANCE_CHANGE");
     if (record.component_violation)
       return result("STOPPED_BOUND_VIOLATION", "COMPONENT_OVERRUN");
     if (record.outcome === "PROVENANCE_CHANGE")

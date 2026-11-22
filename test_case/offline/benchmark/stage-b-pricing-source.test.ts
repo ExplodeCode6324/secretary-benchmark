@@ -13,6 +13,7 @@ import {
 import { stageCommand } from "../../online/benchmark/stage-b-cli.ts";
 import {
   freezeFile,
+  loadFreeze,
   reviewedB0Receipt,
 } from "../../online/benchmark/stage-b-freeze.ts";
 import { prepareStageBCalibration } from "../../online/benchmark/stage-b-report-calibration.ts";
@@ -391,6 +392,21 @@ test("Stage B prepare seals a dossier only after local evidence, wire bounds and
       assert.ok(control.texts[i].includes(facts[key].quote));
     }
   }
+  const frozenHash = sha(read(file));
+  for (const model of ["gpt-6-luna", "deepseek-flash"] as const) {
+    const modified = structuredClone(inputs);
+    Object.assign(modified.sources[model][0], {
+      representation: "CLAUDE_WEBFETCH_FILE",
+    });
+    writeJSON(inputFile, modified);
+    assert.throws(
+      () => loadFreeze(root, frozenHash),
+      /STAGE_B_SOURCE_CAPTURE_SCOPE/,
+    );
+    assert.equal(sha(read(file)), frozenHash);
+  }
+  writeJSON(inputFile, inputs);
+  assert.equal(loadFreeze(root, frozenHash).freeze.schema, frozen.schema);
 });
 
 test("accepted Claude file checks reject missing, altered and substituted files before transport", async (t) => {
@@ -415,7 +431,16 @@ test("accepted Claude file checks reject missing, altered and substituted files 
     () => checkPublication([page], transport, root),
     /ENOENT|UNAVAILABLE/,
   );
-  fs.writeFileSync(path.join(official, page.sha256 + ".source"), "altered");
+  const filename = path.join(official, page.sha256 + ".source");
+  const elsewhere = path.join(root, "outside-official");
+  fs.writeFileSync(elsewhere, "copy");
+  fs.symlinkSync(elsewhere, filename);
+  await assert.rejects(
+    () => checkPublication([page], transport, root),
+    /SYMLINK_PATH/,
+  );
+  fs.unlinkSync(filename);
+  fs.writeFileSync(filename, "altered");
   await assert.rejects(
     () => checkPublication([page], transport, root),
     /PROVENANCE_CHANGE/,

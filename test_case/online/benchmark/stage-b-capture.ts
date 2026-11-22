@@ -163,6 +163,26 @@ export function capturedPricingEvidence(
       rule.billed_output === "REQUEST_CAP",
     "STAGE_B_SOURCE_CAPTURE_RULE",
   );
+  const labels = {
+    ordinary: "Input",
+    read: "Cached input",
+    write: "Cache writes",
+    output: "Output",
+  };
+  for (const [key, label] of Object.entries(labels)) {
+    const fact = spec.facts[key];
+    const captureRate = fact?.quote.match(
+      /^\| ([^|]+) \| \$([0-9.]+) \| 1M tokens \|$/,
+    );
+    const browserRate = fact?.official_text.match(/^([^\n]+)\n\$([0-9.]+)$/);
+    requireThat(
+      captureRate?.[1] === label &&
+        browserRate?.[1] === label &&
+        Number(captureRate[2]) === n[key] &&
+        Number(browserRate[2]) === n[key],
+      "STAGE_B_SOURCE_CAPTURE_RATE",
+    );
+  }
   const facts: Record<
     string,
     { url: string; sha256: string; quote: string; representation: string }

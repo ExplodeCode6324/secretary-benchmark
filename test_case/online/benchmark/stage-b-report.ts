@@ -556,6 +556,7 @@ export function buildStageBReport(root: string) {
                     freeze?.inputs.sources[model][0].review_sha256,
                   publication_during_campaign: "NOT_OBSERVED",
                   cost_basis: "CAPTURED_SCHEDULE",
+                  captured_at: stamp(rule.checked_at),
                 }
               : {}),
             schedule: legacy ? "LEGACY_PHYSICAL_V2" : "PHYSICAL_V3",

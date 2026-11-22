@@ -19,6 +19,7 @@ import {
 import { captureBodies } from "../../online/benchmark/baseline-b0.ts";
 import {
   mkdir,
+  lease,
   repository,
   sha,
   writeJSON,
@@ -1655,4 +1656,55 @@ test("recovery latches an orphaned echo before a new lane can reserve", async (t
   );
   assert.equal(f.calls(), 1);
   await reader.cancel();
+});
+
+test("cancel waits for the same durable settlement as a concurrent pending read", async (t) => {
+  const f = await fixture(t, echoPolicy()),
+    m = "gpt-6-luna";
+  let source!: ReadableStreamDefaultController<Uint8Array>;
+  const res = await f.open(
+    m,
+    new Response(
+      new ReadableStream({
+        start(c) {
+          source = c;
+        },
+      }),
+    ),
+    true,
+    { service_tier: "default" },
+  );
+  const reader = res.body!.getReader();
+  source.enqueue(
+    new TextEncoder().encode("data: " + JSON.stringify(echoStart) + "\n\n"),
+  );
+  await reader.read();
+  let cancellation!: Promise<void>,
+    returned = false;
+  await lease(
+    path.join(f.root, "campaign"),
+    async () => {
+      cancellation = reader.cancel().then(() => {
+        returned = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      assert.equal(
+        ledger(f.root).entries.values().next().value?.settled,
+        false,
+      );
+    },
+    "campaign.lock",
+  );
+  const returnedBeforeUnlock = returned;
+  await cancellation;
+  const [entry] = ledger(f.root).entries.values();
+  assert.equal(returnedBeforeUnlock, false);
+  assert.equal(entry.settled, true);
+  assert.equal(entry.pricing_drift?.echo_stop, "INCOMPLETE_STREAM");
+  const events = fs
+    .readFileSync(path.join(f.root, "campaign/attempts.jsonl"), "utf8")
+    .trimEnd()
+    .split("\n")
+    .map((l) => JSON.parse(l).event);
+  assert.equal(events.filter((e) => e.type === "SETTLE").length, 1);
 });

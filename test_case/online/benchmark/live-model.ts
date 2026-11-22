@@ -519,7 +519,6 @@ export function meteredFetch(
       let pending = "",
         usage: unknown = null,
         returnedModel: string | null = null,
-        done = false,
         firstUsageViolation: unknown = null,
         completed = false,
         tierChanged = false;
@@ -628,9 +627,7 @@ export function meteredFetch(
           }
         }
       };
-      const finish = async (outcome: string) => {
-        if (done) return;
-        done = true;
+      const commitSettlement = async (outcome: string) => {
         if (
           firstEcho &&
           !tierChanged &&
@@ -714,6 +711,16 @@ export function meteredFetch(
               ),
         );
       };
+      let observing: Promise<void> = Promise.resolve();
+      let settlement: Promise<void> | undefined;
+      let cancelling = false;
+      // Cancel wakes an outstanding reader.read(). Both paths must await the
+      // same commit, including a frame whose ledger write is still in flight.
+      const finish = (outcome: string) =>
+        (settlement ??= observing.then(
+          () => commitSettlement(cancelling ? "CANCELLED_UNCERTAIN" : outcome),
+          () => commitSettlement("STREAM_UNCERTAIN"),
+        ));
       return new Response(
         new ReadableStream<Uint8Array>({
           async pull(controller) {
@@ -721,10 +728,11 @@ export function meteredFetch(
               const chunk = await reader.read();
               if (chunk.done) {
                 await finish("RESPONSE_COMPLETE");
-                controller.close();
+                if (!cancelling) controller.close();
               } else {
-                await observe(chunk.value);
-                controller.enqueue(chunk.value);
+                observing = observe(chunk.value);
+                await observing;
+                if (!cancelling) controller.enqueue(chunk.value);
               }
             } catch (error) {
               await finish("STREAM_UNCERTAIN");
@@ -733,6 +741,7 @@ export function meteredFetch(
             }
           },
           async cancel() {
+            cancelling = true;
             try {
               await reader.cancel();
             } finally {

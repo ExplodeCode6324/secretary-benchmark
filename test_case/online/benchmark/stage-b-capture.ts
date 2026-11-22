@@ -1,3 +1,4 @@
+import { echoContract } from "./stage-b-retention.ts";
 import path from "node:path";
 import { read, requireThat, sha } from "./io.ts";
 import type { ProviderRule, StageModel } from "./stage-b-policy.ts";
@@ -285,8 +286,9 @@ export function retentionEvidence(root: string, rule: ProviderRule) {
 }
 export function requireCapturedRetention(rule: ProviderRule) {
   requireThat(
-    !usesCapturedSchedule(rule) ||
-      rule.cache_retention_contract === "responses-ttl-30m-v1",
+    usesCapturedSchedule(rule)
+      ? rule.cache_retention_contract === echoContract
+      : rule.cache_retention_contract !== echoContract,
     "STAGE_B_RETENTION_CONTRACT_REQUIRED",
   );
 }

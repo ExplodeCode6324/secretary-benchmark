@@ -1,6 +1,10 @@
 import { requireThat } from "./io.ts";
 
 export const retentionContract = "responses-ttl-30m-v1" as const;
+export const echoContract = "responses-legacy-echo-v2" as const;
+export const echoPriceBasis =
+  "INFERRED_FROM_SEPARATE_LEGACY_CONTROL_AND_LIFETIME_WRITE_COUNTS" as const;
+export type RetentionContract = typeof retentionContract | typeof echoContract;
 const modern = ["30m", "12h"] as const;
 const legacy = ["in_memory", "24h"] as const;
 const modes = ["implicit", "explicit"] as const;
@@ -73,10 +77,17 @@ const checks = [
   ["modern_ttl", ["UNRECOGNIZED", "12h"], "prompt_cache_options.ttl"],
   ["legacy_retention", ["UNRECOGNIZED", "24h"], "prompt_cache_retention"],
 ] as const;
-export function retentionFinding(snapshot: RetentionFrame) {
+export function retentionFinding(snapshot: RetentionFrame, deferEcho = false) {
   for (const [key, failures, field] of checks)
     for (const scope of ["frame", "response"] as const)
-      if ((failures as readonly string[]).includes(snapshot[scope][key]))
+      if (
+        !(
+          deferEcho &&
+          key === "legacy_retention" &&
+          snapshot[scope][key] === "24h"
+        ) &&
+        (failures as readonly string[]).includes(snapshot[scope][key])
+      )
         return {
           reason:
             field === counterField
@@ -89,6 +100,35 @@ export function retentionFinding(snapshot: RetentionFrame) {
 export type CacheObservation = NonNullable<
   ReturnType<typeof retentionFinding>
 >["observation"];
+export function echoScope(frame: RetentionFrame) {
+  return (["frame", "response"] as const).find(
+    (scope) => frame[scope].legacy_retention === "24h",
+  );
+}
+export function echoObservation(frame: RetentionFrame): CacheObservation {
+  const scope = echoScope(frame);
+  requireThat(scope, "STAGE_B_ECHO_WITNESS_INVALID");
+  return { ...frame, scope, field: "prompt_cache_retention" };
+}
+export function echoConflict(frame: RetentionFrame) {
+  for (const part of [frame.frame, frame.response]) {
+    if (part.modern_ttl !== "MISSING") return "MODERN_TTL";
+    if (part.legacy_retention === "in_memory") return "CONFLICTING_LEGACY";
+    if (part.long_writes === "INVALID") return "INVALID_12H_COUNT";
+  }
+  return null;
+}
+export function confirmedEchoTerminal(
+  frame: RetentionFrame | undefined,
+  usage: any,
+) {
+  return (
+    frame?.frame_type === "response.completed" &&
+    frame.response.long_writes === "ZERO" &&
+    usage?.input_tokens_details?.cache_write_tokens_details?.ttl_12h_tokens ===
+      0
+  );
+}
 const scopeValues = {
   options: ["MISSING", "INVALID", "OBJECT", "UNDOCUMENTED_OPTION"],
   mode: ["MISSING", "UNRECOGNIZED", ...modes],
@@ -99,13 +139,14 @@ const scopeValues = {
 export function validateRetentionFrame(
   snapshot: RetentionFrame,
   reason?: string,
+  deferEcho = false,
 ) {
   const allowed = [
     "frame",
     "response",
     "frame_index",
     "frame_type",
-    ...(reason ? ["scope", "field"] : []),
+    ...(reason && reason !== "WITNESS" ? ["scope", "field"] : []),
   ];
   requireThat(
     object(snapshot) &&
@@ -127,9 +168,10 @@ export function validateRetentionFrame(
       "STAGE_B_CACHE_SCOPE_INVALID",
     );
   }
+  if (reason === "WITNESS") return;
   if (reason) {
     const actual = snapshot as CacheObservation,
-      finding = retentionFinding(snapshot);
+      finding = retentionFinding(snapshot, deferEcho);
     requireThat(
       finding?.reason === reason &&
         actual.scope === finding.observation.scope &&

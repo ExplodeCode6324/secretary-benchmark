@@ -11,7 +11,11 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import { roleModel } from "../../../sut/secretary/src/pi_secretary/src/model.ts";
-import { createCampaign, ledger } from "../../online/benchmark/campaign.ts";
+import {
+  closePendingEchoes,
+  createCampaign,
+  ledger,
+} from "../../online/benchmark/campaign.ts";
 import { captureBodies } from "../../online/benchmark/baseline-b0.ts";
 import {
   mkdir,
@@ -1317,4 +1321,319 @@ test("invalid 12h usage makes the estimate unknown through settlement without st
       /private-count-do-not-retain/,
     );
   }
+});
+
+function echoPolicy() {
+  const p = retentionPolicy();
+  for (const m of ["gpt-6-luna", "gpt-6.2-sol"] as const)
+    p.providers[m].cache_retention_contract = "responses-legacy-echo-v2";
+  return p;
+}
+function echoUsage(writes = 0, long: unknown = 0) {
+  return {
+    input_tokens: 10,
+    output_tokens: 5,
+    input_tokens_details: {
+      cached_tokens: 0,
+      cache_write_tokens: writes,
+      cache_write_tokens_details: {
+        ttl_30m_tokens: writes,
+        ttl_12h_tokens: long,
+      },
+    },
+  };
+}
+const echoStart = {
+  type: "response.created",
+  response: { prompt_cache_retention: "24h" },
+};
+function echoTerminal(model: StageModel, extra: Record<string, unknown> = {}) {
+  return {
+    type: "response.completed",
+    response: {
+      model,
+      service_tier: "default",
+      prompt_cache_retention: "24h",
+      usage: echoUsage(),
+      ...extra,
+    },
+  };
+}
+
+test("an unpriced legacy 24h echo requires a completed response with an explicit zero count", async (t) => {
+  for (const model of ["gpt-6-luna", "gpt-6.2-sol"] as const) {
+    const p = echoPolicy(),
+      f = await fixture(t, p);
+    for (const writes of [0, 4]) {
+      const last = echoTerminal(model, { usage: echoUsage(writes) });
+      const entry = await f.send(model, stream([echoStart, last]), true, {
+        service_tier: "default",
+      });
+      assert.equal(entry.outcome, "RESPONSE_COMPLETE");
+      assert.equal(entry.pricing_drift, undefined);
+      assert.equal(entry.legacy_echo?.frame_index, 1);
+      assert.equal(
+        (entry.usage as any).legacy_echo_disposition,
+        "COMPATIBILITY_ECHO",
+      );
+      assert.equal(entry.actual_usd, (10 - writes + 1.25 * writes + 5) / 1e6);
+    }
+  }
+});
+
+test("conflicting or incomplete evidence cannot release a pending legacy echo", async (t) => {
+  const model = "gpt-6-luna";
+  for (const [name, frames, reason] of [
+    ["no terminal", [echoStart], "CACHE_RETENTION"],
+    [
+      "provider failure cannot be erased",
+      [echoStart, { type: "response.failed" }, echoTerminal(model)],
+      "CACHE_RETENTION",
+    ],
+    [
+      "missing breakdown",
+      [
+        echoStart,
+        echoTerminal(model, { usage: { input_tokens: 10, output_tokens: 5 } }),
+      ],
+      "CACHE_RETENTION",
+    ],
+    [
+      "early zero only",
+      [
+        { ...echoStart, usage: echoUsage() },
+        echoTerminal(model, { usage: {} }),
+      ],
+      "CACHE_RETENTION",
+    ],
+    [
+      "invalid earlier count",
+      [{ usage: echoUsage(0, "0") }, echoStart, echoTerminal(model)],
+      "CACHE_RETENTION",
+    ],
+    [
+      "earlier modern default",
+      [
+        { prompt_cache_options: { ttl: "30m" } },
+        echoStart,
+        echoTerminal(model),
+      ],
+      "CACHE_RETENTION",
+    ],
+    [
+      "later modern default",
+      [
+        echoStart,
+        echoTerminal(model, { prompt_cache_options: { ttl: "30m" } }),
+      ],
+      "CACHE_RETENTION",
+    ],
+    [
+      "opposing legacy",
+      [echoStart, { prompt_cache_retention: "in_memory" }, echoTerminal(model)],
+      "CACHE_RETENTION",
+    ],
+    [
+      "long writes",
+      [echoStart, echoTerminal(model, { usage: echoUsage(2, 2) })],
+      "CACHE_WRITE_12H",
+    ],
+    [
+      "bad TTL",
+      [
+        echoStart,
+        echoTerminal(model, {
+          prompt_cache_options: { ttl: "unknown private value" },
+        }),
+      ],
+      "CACHE_RETENTION",
+    ],
+    [
+      "scope conflict",
+      [
+        { ...echoStart, prompt_cache_options: { ttl: "30m" } },
+        echoTerminal(model),
+      ],
+      "CACHE_RETENTION",
+    ],
+    [
+      "tier still wins",
+      [echoStart, echoTerminal(model, { service_tier: "priority" })],
+      "SERVICE_TIER",
+    ],
+    [
+      "no borrowing root zero",
+      [
+        echoStart,
+        { ...echoTerminal(model, { usage: {} }), usage: echoUsage() },
+      ],
+      "CACHE_RETENTION",
+    ],
+  ] as const) {
+    await t.test(name, async (t) => {
+      const f = await fixture(t, echoPolicy());
+      const entry = await f.send(model, stream([...frames]), true, {
+        service_tier: "default",
+      });
+      assert.equal(entry.pricing_drift?.reason, reason);
+      assert.equal(entry.outcome, "PROVENANCE_CHANGE");
+      assert.equal(entry.actual_usd, null);
+      assert.notEqual(
+        (entry.usage as any)?.legacy_echo_disposition,
+        "COMPATIBILITY_ECHO",
+      );
+    });
+  }
+});
+
+test("pending 24h permits same-lane overlap; cancellation latches a campaign stop", async (t) => {
+  const f = await fixture(t, echoPolicy()),
+    model = "gpt-6-luna";
+  let source!: ReadableStreamDefaultController<Uint8Array>;
+  const response = await f.open(
+    model,
+    new Response(
+      new ReadableStream({
+        start(c) {
+          source = c;
+        },
+      }),
+    ),
+    true,
+    { service_tier: "default" },
+  );
+  const reader = response.body!.getReader();
+  source.enqueue(
+    new TextEncoder().encode("data: " + JSON.stringify(echoStart) + "\n\n"),
+  );
+  await reader.read();
+  const [pending] = ledger(f.root).entries.values();
+  assert.equal(pending.legacy_echo?.frame_index, 1);
+  assert.equal(pending.pricing_drift, undefined);
+  assert.equal(pending.settled, false);
+  const gate = beforeLane(
+    stageState(f.root),
+    [...ledger(f.root).entries.values()],
+    "deepseek-flash",
+    Date.now(),
+  );
+  assert.ok(
+    gate &&
+      gate !== "PAUSE" &&
+      gate.status === "HALTED" &&
+      gate.reason === "PROVENANCE_CHANGE",
+  );
+  await assert.rejects(
+    () => f.send("deepseek-flash", stream([])),
+    /PROVENANCE_CHANGE/,
+  );
+  const overlap = await f.send(model, stream([echoTerminal(model)]), true, {
+    service_tier: "default",
+  });
+  assert.equal(overlap.outcome, "RESPONSE_COMPLETE");
+  assert.equal(f.calls(), 2);
+  await reader.cancel();
+  await assert.rejects(
+    () => f.send("deepseek-flash", stream([])),
+    /PROVENANCE_CHANGE/,
+  );
+  assert.equal(f.calls(), 2);
+  const [entry] = ledger(f.root).entries.values();
+  assert.equal(entry.outcome, "PROVENANCE_CHANGE");
+  assert.equal(entry.pricing_drift?.cache_retention?.frame_index, 1);
+  assert.notEqual(
+    (entry.usage as any).legacy_echo_disposition,
+    "COMPATIBILITY_ECHO",
+  );
+});
+
+test("a forged long-write zero or unbound compatibility classification fails replay", async (t) => {
+  const f = await fixture(t, echoPolicy()),
+    m = "gpt-6-luna";
+  await f.send(m, stream([echoStart, echoTerminal(m)]), true, {
+    service_tier: "default",
+  });
+  const filename = path.join(f.root, "campaign/attempts.jsonl"),
+    bytes = fs.readFileSync(filename, "utf8");
+  const rows = bytes
+    .trimEnd()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  for (const mutator of [
+    (events: any[]) => {
+      events.find(
+        (e) => e.type === "SETTLE",
+      ).usage.provider.input_tokens_details.cache_write_tokens_details.ttl_12h_tokens =
+        1;
+    },
+    (events: any[]) => {
+      events.find(
+        (e) => e.type === "SETTLE",
+      ).usage.terminal_cache_retention.response.long_writes = "MISSING";
+    },
+    (events: any[]) => {
+      events.splice(
+        events.findIndex((e) => e.type === "LEGACY_ECHO"),
+        1,
+      );
+    },
+  ]) {
+    const events = rows.map((row) => structuredClone(row.event));
+    mutator(events);
+    let previous = "0".repeat(64);
+    const changed =
+      events
+        .map((event, i) => {
+          const sequence = i + 1,
+            hash = sha(JSON.stringify(event) + previous + sequence);
+          const row = { sequence, previous, hash, event };
+          previous = hash;
+          return JSON.stringify(row);
+        })
+        .join("\n") + "\n";
+    fs.writeFileSync(filename, changed);
+    assert.throws(() => ledger(f.root), /CACHE|ECHO/);
+  }
+});
+
+test("the two Responses controls cannot mix the old and new retention contract", () => {
+  const p = echoPolicy();
+  validatePhysical(p);
+  p.providers["gpt-6.2-sol"].cache_retention_contract = "responses-ttl-30m-v1";
+  assert.throws(() => validatePhysical(p), /PROVENANCE_INVALID/);
+});
+
+test("recovery latches an orphaned echo before a new lane can reserve", async (t) => {
+  const f = await fixture(t, echoPolicy()),
+    m = "gpt-6-luna";
+  let source!: ReadableStreamDefaultController<Uint8Array>;
+  const res = await f.open(
+    m,
+    new Response(
+      new ReadableStream({
+        start(c) {
+          source = c;
+        },
+      }),
+    ),
+    true,
+    { service_tier: "default" },
+  );
+  const reader = res.body!.getReader();
+  source.enqueue(
+    new TextEncoder().encode("data: " + JSON.stringify(echoStart) + "\n\n"),
+  );
+  await reader.read();
+  await closePendingEchoes(f.root, "probe--" + m);
+  await closePendingEchoes(f.root, "probe--" + m);
+  const [entry] = ledger(f.root).entries.values();
+  assert.equal(entry.settled, false);
+  assert.equal(entry.pricing_drift?.echo_stop, "ORPHANED_AT_BOUNDARY");
+  assert.equal(entry.charged_usd, entry.attempt.reserved_usd);
+  await assert.rejects(
+    () => f.send("deepseek-flash", stream([])),
+    /PROVENANCE_CHANGE/,
+  );
+  assert.equal(f.calls(), 1);
+  await reader.cancel();
 });

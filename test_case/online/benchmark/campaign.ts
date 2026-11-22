@@ -1,4 +1,9 @@
 import {
+  echoContract,
+  echoScope,
+  echoObservation,
+  echoConflict,
+  confirmedEchoTerminal,
   validateRetentionFrame,
   retentionFinding,
   type CacheObservation,
@@ -79,18 +84,69 @@ type TierObservation = {
   requested_tier: "default";
   observed_tier: ObservedTier;
 };
+type EchoStop =
+  | "CONFLICTING_METADATA"
+  | "TERMINAL_ZERO_UNCONFIRMED"
+  | "INCOMPLETE_STREAM"
+  | "ORPHANED_AT_BOUNDARY"
+  | "COMPONENT_OVERRUN";
 type DriftObservation = Partial<TierObservation> & {
   cache_retention?: CacheObservation;
+  echo_stop?: EchoStop;
+  conflicting_frame?: RetentionFrame;
+  first_legacy_echo?: RetentionFrame;
 };
 type PricingDrift = { reason: string; at: string } & DriftObservation;
 function validateCacheDrift(
   contract: PhysicalBound["cache_retention_contract"],
   reason: string,
   observation: DriftObservation,
+  firstEcho?: RetentionFrame,
 ) {
+  if (observation.echo_stop !== undefined) {
+    requireThat(
+      contract === echoContract &&
+        firstEcho &&
+        reason === "CACHE_RETENTION" &&
+        JSON.stringify(observation.cache_retention) ===
+          JSON.stringify(echoObservation(firstEcho)) &&
+        [
+          "CONFLICTING_METADATA",
+          "TERMINAL_ZERO_UNCONFIRMED",
+          "INCOMPLETE_STREAM",
+          "ORPHANED_AT_BOUNDARY",
+          "COMPONENT_OVERRUN",
+        ].includes(observation.echo_stop),
+      "STAGE_B_ECHO_STOP_INVALID",
+    );
+    if (observation.echo_stop === "CONFLICTING_METADATA") {
+      requireThat(
+        observation.conflicting_frame,
+        "STAGE_B_ECHO_CONFLICT_MISSING",
+      );
+      validateRetentionFrame(observation.conflicting_frame, "WITNESS");
+      requireThat(
+        echoConflict(observation.conflicting_frame),
+        "STAGE_B_ECHO_CONFLICT_INVALID",
+      );
+    } else
+      requireThat(
+        observation.conflicting_frame === undefined,
+        "STAGE_B_ECHO_CONFLICT_INVALID",
+      );
+    return;
+  }
+  requireThat(
+    observation.conflicting_frame === undefined,
+    "STAGE_B_ECHO_CONFLICT_INVALID",
+  );
   if (contract && ["CACHE_RETENTION", "CACHE_WRITE_12H"].includes(reason)) {
     requireThat(observation.cache_retention, "STAGE_B_CACHE_DRIFT_MISSING");
-    validateRetentionFrame(observation.cache_retention, reason);
+    validateRetentionFrame(
+      observation.cache_retention,
+      reason,
+      contract === echoContract,
+    );
   } else
     requireThat(
       observation.cache_retention === undefined,
@@ -102,11 +158,15 @@ function validateTerminalCache(
   usage: unknown,
   price: number | null,
   drift: PricingDrift | undefined,
+  firstEcho?: RetentionFrame,
 ) {
   const details = usage as {
     terminal_cache_retention?: RetentionFrame;
     invalid_long_write_count?: true;
     response_complete?: boolean;
+    legacy_echo_disposition?: "COMPATIBILITY_ECHO";
+    returned_service_tier?: unknown;
+    provider?: unknown;
   } | null;
   if (details?.terminal_cache_retention !== undefined) {
     requireThat(
@@ -115,8 +175,16 @@ function validateTerminalCache(
     );
     const terminal = details.terminal_cache_retention;
     validateRetentionFrame(terminal);
+    if (
+      physical.cache_retention_contract === echoContract &&
+      echoScope(terminal)
+    )
+      requireThat(firstEcho, "STAGE_B_ECHO_WITNESS_MISSING");
     requireThat(
-      !retentionFinding(terminal) || drift,
+      !retentionFinding(
+        terminal,
+        physical.cache_retention_contract === echoContract,
+      ) || drift,
       "STAGE_B_CACHE_DRIFT_MISSING",
     );
     if (
@@ -128,6 +196,29 @@ function validateTerminalCache(
         "STAGE_B_CACHE_USAGE_INVALID",
       );
   }
+  if (firstEcho && !drift) {
+    requireThat(
+      physical?.cache_retention_contract === echoContract &&
+        details?.legacy_echo_disposition === "COMPATIBILITY_ECHO" &&
+        details.response_complete === true &&
+        details.returned_service_tier === "default" &&
+        !details.invalid_long_write_count &&
+        !echoConflict(firstEcho) &&
+        !retentionFinding(firstEcho, true) &&
+        details.terminal_cache_retention &&
+        details.terminal_cache_retention.frame_index >= firstEcho.frame_index &&
+        !echoConflict(details.terminal_cache_retention) &&
+        confirmedEchoTerminal(
+          details.terminal_cache_retention,
+          details.provider,
+        ),
+      "STAGE_B_ECHO_CONFIRMATION_INVALID",
+    );
+  } else
+    requireThat(
+      details?.legacy_echo_disposition === undefined,
+      "STAGE_B_ECHO_DISPOSITION_INVALID",
+    );
   if (physical?.cache_retention_contract && details?.response_complete)
     requireThat(
       details.terminal_cache_retention,
@@ -165,6 +256,7 @@ function validateTierDrift(
 }
 type Event =
   | { type: "RESERVE"; attempt: Attempt }
+  | { type: "LEGACY_ECHO"; id: string; at: string; witness: RetentionFrame }
   | ({ type: "PRICING_DRIFT"; id: string } & PricingDrift)
   | {
       type: "SETTLE";
@@ -230,6 +322,8 @@ export function ledger(root: string) {
       charged_usd: number;
       outcome?: string;
       pricing_drift?: PricingDrift;
+      legacy_echo?: RetentionFrame;
+      legacy_echo_at?: string;
       component_violation?: boolean;
       returned_model?: string;
       actual_usd?: number | null;
@@ -266,6 +360,10 @@ export function ledger(root: string) {
           settled: false,
           charged_usd: event.attempt.reserved_usd,
         });
+      } else if (event.type === "LEGACY_ECHO") {
+        const item = entries.get(event.id);
+        requireThat(item, "STAGE_B_ECHO_BINDING");
+        bindEcho(item, event.witness, event.at);
       } else if (event.type === "PRICING_DRIFT") {
         const item = entries.get(event.id);
         requireThat(
@@ -277,6 +375,8 @@ export function ledger(root: string) {
             ),
           "STAGE_B_DRIFT_EVENT_INVALID",
         );
+        if (event.first_legacy_echo)
+          bindEcho(item, event.first_legacy_echo, event.at);
         validateTierDrift(
           event.reason,
           item.attempt.physical.requested_service_tier,
@@ -286,8 +386,13 @@ export function ledger(root: string) {
           item.attempt.physical.cache_retention_contract,
           event.reason,
           event,
+          item.legacy_echo,
         );
         item.pricing_drift = {
+          ...(event.echo_stop ? { echo_stop: event.echo_stop } : {}),
+          ...(event.conflicting_frame
+            ? { conflicting_frame: event.conflicting_frame }
+            : {}),
           ...(event.cache_retention
             ? { cache_retention: event.cache_retention }
             : {}),
@@ -315,6 +420,7 @@ export function ledger(root: string) {
           event.usage,
           event.actual_usd,
           item.pricing_drift,
+          item.legacy_echo,
         );
         item.settled = true;
         item.charged_usd = event.actual_usd ?? item.attempt.reserved_usd;
@@ -494,7 +600,13 @@ export async function reserve(
         "STAGE_B_BOUND_VIOLATION",
       );
       requireThat(
-        !entries.some((entry) => entry.outcome === "PROVENANCE_CHANGE"),
+        !entries.some(
+          (entry) =>
+            entry.outcome === "PROVENANCE_CHANGE" ||
+            (entry.legacy_echo &&
+              !entry.settled &&
+              entry.attempt.lane !== details.lane),
+        ),
         "STAGE_B_PROVENANCE_CHANGE",
       );
       requireThat(
@@ -602,6 +714,61 @@ export async function reserve(
     return attempt.id;
   });
 }
+function bindEcho(
+  item: {
+    attempt: Attempt;
+    settled: boolean;
+    legacy_echo?: RetentionFrame;
+    legacy_echo_at?: string;
+  },
+  witness: RetentionFrame,
+  at: string,
+) {
+  requireThat(
+    item.attempt.physical?.cache_retention_contract === echoContract &&
+      !item.settled &&
+      !item.legacy_echo &&
+      Number.isFinite(Date.parse(at)),
+    "STAGE_B_ECHO_BINDING",
+  );
+  validateRetentionFrame(witness, "WITNESS");
+  requireThat(echoScope(witness), "STAGE_B_ECHO_WITNESS_INVALID");
+  item.legacy_echo = witness;
+  item.legacy_echo_at = at;
+}
+export async function recordLegacyEcho(
+  root: string,
+  id: string,
+  witness: RetentionFrame,
+) {
+  await locked(directory(root), async () => {
+    const item = ledger(root).entries.get(id);
+    requireThat(item, "STAGE_B_ECHO_BINDING");
+    const at = new Date().toISOString();
+    bindEcho(item, witness, at);
+    append(root, { type: "LEGACY_ECHO", id, at, witness });
+  });
+}
+export async function closePendingEchoes(root: string, lane: string) {
+  await locked(directory(root), async () => {
+    for (const [id, item] of ledger(root).entries) {
+      if (
+        item.attempt.lane === lane &&
+        item.legacy_echo &&
+        !item.pricing_drift &&
+        !item.settled
+      )
+        append(root, {
+          type: "PRICING_DRIFT",
+          id,
+          reason: "CACHE_RETENTION",
+          at: new Date().toISOString(),
+          echo_stop: "ORPHANED_AT_BOUNDARY",
+          cache_retention: echoObservation(item.legacy_echo),
+        });
+    }
+  });
+}
 export async function recordPricingDrift(
   root: string,
   id: string,
@@ -614,6 +781,9 @@ export async function recordPricingDrift(
       item?.attempt.physical && !item.settled,
       "STAGE_B_DRIFT_EVENT_INVALID",
     );
+    const at = new Date().toISOString();
+    if (observation?.first_legacy_echo)
+      bindEcho(item, observation.first_legacy_echo, at);
     validateTierDrift(
       reason,
       item.attempt.physical.requested_service_tier,
@@ -623,6 +793,7 @@ export async function recordPricingDrift(
       item.attempt.physical.cache_retention_contract,
       reason,
       observation ?? {},
+      item.legacy_echo,
     );
     if (!item.pricing_drift)
       append(root, {
@@ -630,7 +801,7 @@ export async function recordPricingDrift(
         id,
         reason,
         ...observation,
-        at: new Date().toISOString(),
+        at,
       });
   });
 }
@@ -652,6 +823,14 @@ export async function settle(
       "CAMPAIGN_INVALID_COST",
     );
     if (item.pricing_drift) {
+      if (
+        usage &&
+        typeof usage === "object" &&
+        "legacy_echo_disposition" in usage
+      ) {
+        const { legacy_echo_disposition, ...rest } = usage;
+        usage = rest;
+      }
       outcome = "PROVENANCE_CHANGE";
       actualUSD = null;
     }
@@ -702,6 +881,7 @@ export async function settle(
       usage,
       actualUSD,
       item.pricing_drift,
+      item.legacy_echo,
     );
     append(root, {
       type: "SETTLE",

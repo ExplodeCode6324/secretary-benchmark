@@ -1,3 +1,4 @@
+import { echoContract, echoPriceBasis } from "./stage-b-retention.ts";
 import { retentionEvidence } from "./stage-b-capture.ts";
 import fs from "node:fs";
 import path from "node:path";
@@ -189,6 +190,14 @@ function ownedStoppedRuns(d: Domains): Run[] {
       );
       if (campaign.physical_policy.schema === "issue122-physical-v3") {
         verifyPricingOriginals(d.root, dossier);
+        requireThat(
+          dossier.legacy_echo_price_basis ===
+            (campaign.physical_policy.providers["gpt-6-luna"]
+              .cache_retention_contract === echoContract
+              ? echoPriceBasis
+              : undefined),
+          "ARCHIVE_STAGE_B_ECHO_PRICE_BASIS",
+        );
         requireThat(
           retentionEvidence(
             d.root,

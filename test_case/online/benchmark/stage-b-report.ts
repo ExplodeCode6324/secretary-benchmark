@@ -1,4 +1,8 @@
-import type { RetentionFrame } from "./stage-b-retention.ts";
+import {
+  echoPriceBasis,
+  echoContract,
+  type RetentionFrame,
+} from "./stage-b-retention.ts";
 import { usesCapturedSchedule, retentionReview } from "./stage-b-capture.ts";
 import { trialArtifact, hostEvidence } from "./stage-b-report-evidence.ts";
 import {
@@ -205,6 +209,7 @@ function projectAttempt(
         observed_models?: string[];
         returned_service_tier?: unknown;
         terminal_cache_retention?: RetentionFrame;
+        legacy_echo_disposition?: "COMPATIBILITY_ECHO";
         invalid_long_write_count?: true;
       }
     | undefined;
@@ -236,6 +241,17 @@ function projectAttempt(
           terminal_cache_retention: details?.terminal_cache_retention ?? null,
           first_cache_anomaly: entry.pricing_drift?.cache_retention ?? null,
           invalid_long_write_count: details?.invalid_long_write_count === true,
+        }
+      : {}),
+    ...(physical.cache_retention_contract === echoContract
+      ? {
+          first_legacy_24h_echo: entry.legacy_echo ?? null,
+          legacy_echo_disposition: entry.legacy_echo
+            ? (details?.legacy_echo_disposition ??
+              (entry.pricing_drift ? "STOPPED" : "PENDING"))
+            : null,
+          legacy_echo_stop: entry.pricing_drift?.echo_stop ?? null,
+          legacy_echo_conflict: entry.pricing_drift?.conflicting_frame ?? null,
         }
       : {}),
     lane: lane.lane,
@@ -436,6 +452,14 @@ export function buildStageBReport(root: string) {
         : undefined) === freeze.retention_evidence_sha256,
       "STAGE_B_REPORT_RETENTION_BINDING",
     );
+    requireThat(
+      freeze.legacy_echo_price_basis ===
+        (freeze.inputs.providers["gpt-6-luna"].cache_retention_contract ===
+        echoContract
+          ? echoPriceBasis
+          : undefined),
+      "STAGE_B_REPORT_ECHO_PRICE_BASIS",
+    );
     validatePhysical(
       {
         schema: policySchema,
@@ -616,6 +640,12 @@ export function buildStageBReport(root: string) {
             ...(rule.cache_retention_contract
               ? {
                   cache_retention_contract: rule.cache_retention_contract,
+                  ...(rule.cache_retention_contract === echoContract
+                    ? {
+                        legacy_echo_price_basis:
+                          freeze?.legacy_echo_price_basis,
+                      }
+                    : {}),
                   retention_evidence_sha256:
                     freeze?.retention_evidence_sha256 ?? null,
                 }

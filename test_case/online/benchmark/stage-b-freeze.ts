@@ -1,3 +1,4 @@
+import { echoContract, echoPriceBasis } from "./stage-b-retention.ts";
 import path from "node:path";
 import fs from "node:fs";
 import { read, readJSON, writeJSON, requireThat, sha } from "./io.ts";
@@ -545,6 +546,9 @@ export function buildFreeze(root: string) {
     schema: "issue122-stage-b-freeze-v3",
     verified_facts: verifiedFacts,
     ...(retentionDigest ? { retention_evidence_sha256: retentionDigest } : {}),
+    ...(providers["gpt-6-luna"].cache_retention_contract === echoContract
+      ? { legacy_echo_price_basis: echoPriceBasis }
+      : {}),
     ...(tierSamples
       ? {
           explicit_tier_samples: tierSamples,

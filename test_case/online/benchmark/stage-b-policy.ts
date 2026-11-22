@@ -1,4 +1,8 @@
-import { retentionContract } from "./stage-b-retention.ts";
+import {
+  retentionContract,
+  echoContract,
+  type RetentionContract,
+} from "./stage-b-retention.ts";
 import { usesCapturedSchedule } from "./stage-b-capture.ts";
 import { requireThat } from "./io.ts";
 
@@ -47,7 +51,7 @@ export type ProviderRule = {
   publication_url: string;
   tier: "default";
   request_service_tier?: "default";
-  cache_retention_contract?: typeof retentionContract;
+  cache_retention_contract?: RetentionContract;
   cache_retention: "default";
   context_band: "all-admitted-input";
   context_upper_tokens: number;
@@ -136,7 +140,10 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
           rule.request_service_tier === rule.tier) &&
         (!retention ||
           model === flash ||
-          rule.cache_retention_contract === retentionContract) &&
+          ((rule.cache_retention_contract === retentionContract ||
+            rule.cache_retention_contract === echoContract) &&
+            rule.cache_retention_contract ===
+              policy.providers[luna].cache_retention_contract)) &&
         rule.cache_retention === "default" &&
         rule.context_band === "all-admitted-input" &&
         Number.isFinite(Date.parse(rule.checked_at)) &&
@@ -181,7 +188,7 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
   }
 }
 export type PhysicalBound = {
-  cache_retention_contract?: typeof retentionContract;
+  cache_retention_contract?: RetentionContract;
   requested_service_tier?: "default";
   input_bytes: number;
   output_tokens: number;

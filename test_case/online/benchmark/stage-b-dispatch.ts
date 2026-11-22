@@ -10,6 +10,7 @@ import {
 import {
   assertCampaignSource,
   createCampaign,
+  closePendingEchoes,
   ledger,
   loadCampaign,
 } from "./campaign.ts";
@@ -136,6 +137,12 @@ export function stageState(root: string) {
   return state;
 }
 export function firstLaneFailure(records: Entry[], lane: string) {
+  const orphan = records.find(
+    (r) =>
+      r.attempt.lane === lane &&
+      r.pricing_drift?.echo_stop === "ORPHANED_AT_BOUNDARY",
+  );
+  if (orphan) return result("HALTED", "PROVENANCE_CHANGE");
   for (const record of records
     .filter((r) => r.attempt.lane === lane && r.settled)
     .sort((a, b) => a.settled_sequence! - b.settled_sequence!)) {
@@ -171,9 +178,9 @@ export function beforeLane(
 ): Result | "PAUSE" | undefined {
   const decisions: Result[] = [];
   for (const record of records) {
-    if (record.pricing_drift)
+    if (record.pricing_drift || (record.legacy_echo && !record.settled))
       decisions.push({
-        at: record.pricing_drift.at,
+        at: record.pricing_drift?.at ?? record.legacy_echo_at!,
         status: "HALTED",
         reason: "PROVENANCE_CHANGE",
       });
@@ -500,6 +507,7 @@ async function runLane(
       }
     }
   }
+  await closePendingEchoes(root, lane.lane);
   const records = entries(root),
     failure = firstLaneFailure(records, lane.lane),
     late = deadline(records, lane.lane, Date.parse(outcome.at));
@@ -568,6 +576,7 @@ export async function dispatchStage(
     if (!table(state, previous.lane)[previous.lane]) {
       writeJSON(activeFile(root), { ...previous, state: "CLOSED" });
       if (previous.run) await domains.seal(previous.run);
+      await closePendingEchoes(root, previous.lane);
       complete(root, state, previous.lane, {
         ...(firstLaneFailure(entries(root), previous.lane) ??
           result("INCOMPLETE", "CONTROLLER_INTERRUPTED")),

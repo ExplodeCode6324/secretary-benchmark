@@ -1,4 +1,9 @@
 import {
+  echoContract,
+  echoScope,
+  echoConflict,
+  echoObservation,
+  confirmedEchoTerminal,
   defaultCacheRequest,
   retentionFrame,
   retentionFinding,
@@ -43,6 +48,7 @@ import {
   reserve,
   settle,
   recordPricingDrift,
+  recordLegacyEcho,
   loadCampaign,
   ledger,
 } from "./campaign.ts";
@@ -501,9 +507,14 @@ export function meteredFetch(
         decoder = new TextDecoder();
       const observedModels: string[] = [];
       const retention = physical?.cache_retention_contract;
+      let failureFrameSeen = false;
       let frameIndex = 0,
         invalidLongWriteCount = false;
       let terminalCache: RetentionFrame | undefined;
+      const allowEcho = retention === echoContract;
+      let firstEcho: RetentionFrame | undefined,
+        conflict: RetentionFrame | undefined,
+        terminalUsage: unknown;
       let terminalTier: ObservedTier | undefined;
       let pending = "",
         usage: unknown = null,
@@ -532,7 +543,14 @@ export function meteredFetch(
             const snapshot = retention
               ? retentionFrame(data, ++frameIndex)
               : null;
-            const finding = snapshot && retentionFinding(snapshot);
+            const newEcho =
+              allowEcho && snapshot && !firstEcho && echoScope(snapshot)
+                ? snapshot
+                : undefined;
+            if (newEcho) firstEcho = newEcho;
+            if (allowEcho && snapshot && !conflict && echoConflict(snapshot))
+              conflict = snapshot;
+            const finding = snapshot && retentionFinding(snapshot, allowEcho);
             if (
               snapshot &&
               (snapshot.frame.long_writes === "INVALID" ||
@@ -544,25 +562,56 @@ export function meteredFetch(
               : snapshot
                 ? finding?.reason
                 : policy && pricingDrift(data, options.model as StageModel);
-            if (drift && !tierChanged) {
-              tierChanged = true;
-              await recordPricingDrift(
-                options.root,
-                id,
-                drift,
-                expectedTier && mismatch
-                  ? { requested_tier: expectedTier, observed_tier: mismatch }
-                  : finding
-                    ? { cache_retention: finding.observation }
-                    : undefined,
-              );
-            }
             if (data.type === "response.completed") {
               completed = true;
               if (snapshot) terminalCache = snapshot;
+              if (allowEcho) terminalUsage = data.response?.usage;
               if (expectedTier)
                 terminalTier = publicTier(data.response?.service_tier);
             }
+            const failedFrame =
+              data.type === "response.failed" ||
+              data.type === "response.incomplete" ||
+              data.type === "error";
+            if (allowEcho && failedFrame) failureFrameSeen = true;
+            if (drift && !tierChanged) {
+              tierChanged = true;
+              await recordPricingDrift(options.root, id, drift, {
+                ...(newEcho ? { first_legacy_echo: newEcho } : {}),
+                ...(expectedTier && mismatch
+                  ? { requested_tier: expectedTier, observed_tier: mismatch }
+                  : finding
+                    ? { cache_retention: finding.observation }
+                    : {}),
+              });
+            } else if (
+              firstEcho &&
+              !tierChanged &&
+              (conflict ||
+                failureFrameSeen ||
+                (data.type === "response.completed" &&
+                  !confirmedEchoTerminal(
+                    snapshot ?? undefined,
+                    data.response?.usage,
+                  )))
+            ) {
+              await recordPricingDrift(options.root, id, "CACHE_RETENTION", {
+                ...(newEcho ? { first_legacy_echo: newEcho } : {}),
+                cache_retention: echoObservation(firstEcho),
+                ...(conflict
+                  ? {
+                      echo_stop: "CONFLICTING_METADATA",
+                      conflicting_frame: conflict,
+                    }
+                  : {
+                      echo_stop: failureFrameSeen
+                        ? "INCOMPLETE_STREAM"
+                        : "TERMINAL_ZERO_UNCONFIRMED",
+                    }),
+              });
+              tierChanged = true;
+            } else if (newEcho)
+              await recordLegacyEcho(options.root, id, newEcho);
             usage = data.usage ?? data.response?.usage ?? usage;
             if (physical && physicalViolation(physical, usage))
               firstUsageViolation ??= usage;
@@ -582,6 +631,28 @@ export function meteredFetch(
       const finish = async (outcome: string) => {
         if (done) return;
         done = true;
+        if (
+          firstEcho &&
+          !tierChanged &&
+          (outcome !== "RESPONSE_COMPLETE" ||
+            !confirmedEchoTerminal(terminalCache, terminalUsage) ||
+            (terminalCache &&
+              terminalCache.frame_index < firstEcho.frame_index) ||
+            firstUsageViolation)
+        ) {
+          await recordPricingDrift(options.root, id, "CACHE_RETENTION", {
+            cache_retention: echoObservation(firstEcho),
+            echo_stop: firstUsageViolation
+              ? "COMPONENT_OVERRUN"
+              : !completed || outcome !== "RESPONSE_COMPLETE"
+                ? "INCOMPLETE_STREAM"
+                : "TERMINAL_ZERO_UNCONFIRMED",
+          });
+          tierChanged = true;
+        }
+        const accountingUsage =
+          firstUsageViolation ??
+          (firstEcho && !tierChanged ? terminalUsage : usage);
         await settle(
           options.root,
           id,
@@ -594,8 +665,11 @@ export function meteredFetch(
                 : outcome,
           {
             provider: retention
-              ? safeRetentionUsage(firstUsageViolation ?? usage)
-              : (firstUsageViolation ?? usage),
+              ? safeRetentionUsage(accountingUsage)
+              : accountingUsage,
+            ...(firstEcho && !tierChanged
+              ? { legacy_echo_disposition: "COMPATIBILITY_ECHO" }
+              : {}),
             ...(terminalCache
               ? { terminal_cache_retention: terminalCache }
               : {}),
@@ -621,7 +695,7 @@ export function meteredFetch(
               outcome === "RESPONSE_COMPLETE"
               ? measuredEstimate(
                   policy.providers[options.model as StageModel],
-                  firstUsageViolation ?? usage,
+                  accountingUsage,
                   options.model as StageModel,
                 )
               : null

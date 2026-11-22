@@ -1,3 +1,8 @@
+import {
+  echoContract,
+  echoPriceBasis,
+  retentionFrame,
+} from "../../online/benchmark/stage-b-retention.ts";
 import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -76,7 +81,7 @@ function dossier(
   root: string,
   b: CalibrationBinding,
   legacy = false,
-  retention = false,
+  retention: boolean | typeof echoContract = false,
 ) {
   const providers = Object.fromEntries(
     stageModels.map((model) => {
@@ -86,13 +91,17 @@ function dossier(
       }
       if (retention && model !== "deepseek-flash") {
         rates.request_service_tier = "default";
-        rates.cache_retention_contract = "responses-ttl-30m-v1";
+        rates.cache_retention_contract =
+          retention === echoContract ? echoContract : "responses-ttl-30m-v1";
       }
       return [model, rates];
     }),
   );
   const cases = baselineCases(true);
   const freeze = {
+    ...(retention === echoContract
+      ? { legacy_echo_price_basis: echoPriceBasis }
+      : {}),
     schema: legacy
       ? "issue122-stage-b-freeze-v2"
       : "issue122-stage-b-freeze-v3",
@@ -751,4 +760,96 @@ test("probe projection retains the first cache anomaly and the separate terminal
   assert.deepEqual(report.probes[0].first_cache_anomaly, witness);
   assert.deepEqual(report.probes[0].terminal_cache_retention, terminal);
   assert.equal(report.slots[6].attempts[0].terminal_cache_retention, null);
+});
+
+test("the v2 report separates compatibility and first witness from priced terminal usage", async (t) => {
+  const root = facility(t),
+    bind = await prepareStageBCalibration(root),
+    hash = dossier(root, bind, false, echoContract);
+  const model = "gpt-6-luna",
+    id = randomUUID(),
+    frame = retentionFrame(
+      { type: "response.created", response: { prompt_cache_retention: "24h" } },
+      1,
+    );
+  const provider = {
+    input_tokens: 10,
+    output_tokens: 5,
+    input_tokens_details: {
+      cached_tokens: 0,
+      cache_write_tokens: 0,
+      cache_write_tokens_details: { ttl_30m_tokens: 0, ttl_12h_tokens: 0 },
+    },
+  };
+  const terminal = retentionFrame(
+    {
+      type: "response.completed",
+      response: { usage: provider, prompt_cache_retention: "24h" },
+    },
+    9,
+  );
+  const events = [
+    {
+      type: "RESERVE",
+      attempt: {
+        id,
+        model,
+        at: date(1),
+        lane: "probe--" + model,
+        episode: randomUUID(),
+        run: randomUUID(),
+        request_sha256: sha(id),
+        reserved_usd: 0.01,
+        physical: {
+          requested_service_tier: "default",
+          cache_retention_contract: echoContract,
+          freeze_sha256: hash,
+          input_bytes: 1000,
+          requested_output: 64,
+          output_tokens: 64,
+          role: "probe",
+        },
+      },
+    },
+    { type: "LEGACY_ECHO", id, at: date(1), witness: frame },
+    {
+      type: "SETTLE",
+      id,
+      at: date(2),
+      outcome: "RESPONSE_COMPLETE",
+      actual_usd: 0.000045,
+      usage: {
+        provider,
+        response_complete: true,
+        returned_model: model,
+        returned_service_tier: "default",
+        terminal_cache_retention: terminal,
+        legacy_echo_disposition: "COMPATIBILITY_ECHO",
+      },
+    },
+  ];
+  let previous = "0".repeat(64);
+  for (const [i, event] of events.entries()) {
+    const sequence = i + 1,
+      hash = sha(JSON.stringify(event) + previous + sequence);
+    appendJSON(path.join(root, "campaign/attempts.jsonl"), {
+      previous,
+      sequence,
+      hash,
+      event,
+    });
+    previous = hash;
+  }
+  const r = buildStageBReport(root),
+    row = r.probes[0];
+  assert.equal(row.legacy_echo_disposition, "COMPATIBILITY_ECHO");
+  assert.deepEqual(row.first_legacy_24h_echo, frame);
+  assert.deepEqual(row.terminal_cache_retention, terminal);
+  assert.equal(row.first_cache_anomaly, null);
+  assert.equal(row.usage_rate_estimate_usd, 0.000045);
+  assert.equal(
+    r.models.find((m) => m.model === model)?.price_provenance
+      ?.legacy_echo_price_basis,
+    echoPriceBasis,
+  );
 });

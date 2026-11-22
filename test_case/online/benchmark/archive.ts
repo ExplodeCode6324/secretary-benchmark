@@ -24,6 +24,7 @@ import {
 } from "./io.ts";
 import { controlID, pgRunning } from "./postgres.ts";
 import { assertCampaignClosed, loadCampaign } from "./campaign.ts";
+import { verifyTierSamples } from "./stage-b-tier-samples.ts";
 import { stageSlots, stageModels } from "./stage-b-policy.ts";
 
 export function archiveConfiguration(
@@ -148,6 +149,7 @@ function verifyPricingOriginals(
 function ownedStoppedRuns(d: Domains): Run[] {
   assertCampaignClosed(d.root);
   let dossier;
+  let verifiedTierSamples = false;
   if (fs.existsSync(path.join(d.root, "campaign/manifest.json"))) {
     const campaign = loadCampaign(d.root);
     if (campaign.physical_policy) {
@@ -184,8 +186,27 @@ function ownedStoppedRuns(d: Domains): Run[] {
           ) === JSON.stringify(dossier.inputs),
         "ARCHIVE_STAGE_B_INPUT_CHANGED",
       );
-      if (campaign.physical_policy.schema === "issue122-physical-v3")
+      if (campaign.physical_policy.schema === "issue122-physical-v3") {
         verifyPricingOriginals(d.root, dossier);
+        if (
+          campaign.physical_policy.providers["gpt-6-luna"].request_service_tier
+        ) {
+          requireThat(
+            campaign.source &&
+              JSON.stringify(dossier.source) ===
+                JSON.stringify(campaign.source) &&
+              JSON.stringify(
+                verifyTierSamples(
+                  d.root,
+                  campaign.physical_policy,
+                  campaign.source,
+                ),
+              ) === JSON.stringify(dossier.explicit_tier_samples),
+            "ARCHIVE_STAGE_B_TIER_SAMPLES_CHANGED",
+          );
+          verifiedTierSamples = true;
+        }
+      }
     }
   }
   const allowed = new Set([
@@ -211,6 +232,7 @@ function ownedStoppedRuns(d: Domains): Run[] {
       "ARCHIVE_UNKNOWN_TOP_LEVEL",
     );
   for (const name of childNames(d.root, "configs")) {
+    if (name === "stage-b-tier-samples.json" && verifiedTierSamples) continue;
     if (
       dossier &&
       [

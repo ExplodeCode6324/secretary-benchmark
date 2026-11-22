@@ -3,6 +3,11 @@ import test from "node:test";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import {
+  prepareTierSamples,
+  verifyTierSamples,
+} from "../../online/benchmark/stage-b-tier-samples.ts";
+import { fingerprint } from "../../online/benchmark/source.ts";
 import { Domains } from "../../online/benchmark/domain.ts";
 import {
   archiveFacility,
@@ -156,6 +161,13 @@ test("Closed probe-only Stage B facility archives exact frozen files and refuses
       > = {};
       const sources: Record<string, { url: string; sha256: string }[]> = {};
       for (const model of ["gpt-6-luna", "gpt-6.2-sol"] as const) {
+        Object.assign(bound.providers[model], {
+          request_service_tier: "default",
+          max_requested_output: 32768,
+          max_input_bytes: 32768,
+          context_upper_tokens: 32768,
+          billed_output: "REQUEST_CAP",
+        });
         const roles = {
           model: "models/" + model,
           usage_split: "guides/prompt-caching",
@@ -182,7 +194,11 @@ test("Closed probe-only Stage B facility archives exact frozen files and refuses
         providers: bound.providers,
         sources,
       });
+      const source = fingerprint();
+      await prepareTierSamples(root, bound);
       writeJSON(frozen, {
+        source,
+        explicit_tier_samples: verifyTierSamples(root, bound, source),
         schema: "issue122-stage-b-freeze-v3",
         inputs: readJSON(inputs),
         b0_sha256: sha(read(b0)),
@@ -225,6 +241,17 @@ test("Closed probe-only Stage B facility archives exact frozen files and refuses
       await domains.closeStoppedCampaign();
     });
     assert.equal((await archiveFacility(root, destination)).status, "DRY_RUN");
+    const receiptFile = path.join(root, "configs/stage-b-tier-samples.json");
+    const receipt = readJSON(receiptFile);
+    const original = read(receiptFile);
+    // Keep the sample internally consistent. The archived wire digest must still match the freeze.
+    receipt.samples[0].wire += " ";
+    writeJSON(receiptFile, receipt);
+    await assert.rejects(
+      archiveFacility(root, destination, true),
+      /ARCHIVE_STAGE_B_TIER_SAMPLES_CHANGED/,
+    );
+    fs.writeFileSync(receiptFile, original);
     const b0 = path.join(root, "configs/issue122-b0.json");
     writeJSON(b0, { fixture: "altered" });
     await assert.rejects(
@@ -269,6 +296,19 @@ test("Closed probe-only Stage B facility archives exact frozen files and refuses
     assert.equal(verifyArchive(archived.archive_directory), true);
     const manifest = readJSON<ArchiveManifest>(
       path.join(archived.archive_directory, "manifest.json"),
+    );
+    assert.equal(
+      manifest.entries.find(
+        (e) => e.path === "configs/stage-b-tier-samples.json",
+      )?.sha256,
+      sha(original),
+    );
+    assert.ok(
+      manifest.entries.some(
+        (e) =>
+          e.path.startsWith("inputs/tier-serialization/") &&
+          e.path.endsWith("/journal.jsonl"),
+      ),
     );
     for (const [digest, raw] of originals) {
       const relative = "inputs/official/" + digest + ".source";

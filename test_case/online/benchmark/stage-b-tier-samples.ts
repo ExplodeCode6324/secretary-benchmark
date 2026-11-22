@@ -33,7 +33,8 @@ const receiptFile = (root: string) =>
 // The pinned product delegates its fetch to this process. Never load credentials here.
 export async function prepareTierSamples(root: string, policy: PhysicalPolicy) {
   if (fs.existsSync(receiptFile(root))) return;
-  const parent = path.join(root, "evidence");
+  // The facility reserves evidence/ for registered workload run IDs.
+  const parent = path.join(root, "inputs", "tier-serialization");
   mkdir(parent);
   const evidence = fs.mkdtempSync(path.join(parent, "tier-wire-"));
   const store = await Store.open(path.join(evidence, "store"));

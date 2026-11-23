@@ -24,6 +24,8 @@ export function assertCombinedRehearsal(
   assert.equal(report.physical_sends, 0);
   const inputs = readJSON(path.join(root, "inputs/stage-c-preflight.json"));
   delete inputs.evidence_class;
+  delete inputs.rehearsal_scenario;
+  delete inputs.rehearsal_read;
   for (const c of stageCases())
     inputs.samples[c.id] ??= inputs.samples["C04-resident"];
   const projection = projectCampaign(inputs, frozen.providers);

@@ -388,3 +388,37 @@ test("raw source detection compares decoded quoted multiline text even without a
     ),
   );
 });
+
+import { bindCorrectionProbe } from "../../online/benchmark/live-model.ts";
+test("the armed C06 cutoff rejects an unrelated Main request before reservation", () => {
+  const records = [
+    {
+      record_type: "Input",
+      id: "i",
+      loop_id: "loop",
+      dedupe_key: "request",
+      payload: { sha256: sha("probe") },
+    },
+    {
+      record_type: "ModelCall",
+      id: "m",
+      context_id: "c",
+      request: { sha256: sha("body") },
+    },
+    {
+      record_type: "Context",
+      id: "c",
+      purpose: "MAIN",
+      loop_id: "loop",
+      input_ids: ["other"],
+    },
+  ] as any;
+  assert.throws(
+    () => bindCorrectionProbe(records, "request", sha("probe"), sha("body")),
+    /STAGE_C_PROBE_BINDING/,
+  );
+  records[2].input_ids = ["i"];
+  assert.doesNotThrow(() =>
+    bindCorrectionProbe(records, "request", sha("probe"), sha("body")),
+  );
+});

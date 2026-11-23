@@ -298,6 +298,38 @@ function networkOutcome(error: unknown) {
     : "NETWORK_UNCERTAIN";
 }
 /** Enforce origin/method/body before sending; reserve and fsync in this process. */
+export function bindCorrectionProbe(
+  records: ReturnType<typeof snapshot>["records"],
+  request: string,
+  digest: string,
+  ctxHash: string | undefined,
+) {
+  const input = records.find(
+    (r) => r.record_type === "Input" && r.dedupe_key === request,
+  );
+
+  const call = records.find(
+    (r) =>
+      r.record_type === "ModelCall" &&
+      r.request.sha256 === ctxHash &&
+      !r.completed_at,
+  );
+  const ctx =
+    call?.record_type === "ModelCall" &&
+    records.find(
+      (r) => r.record_type === "Context" && r.id === call.context_id,
+    );
+  requireThat(
+    input?.record_type === "Input" &&
+      input.payload.sha256 === digest &&
+      ctx &&
+      ctx.record_type === "Context" &&
+      ctx.purpose === "MAIN" &&
+      ctx.input_ids.includes(input.id) &&
+      ctx.loop_id === input.loop_id,
+    "STAGE_C_PROBE_BINDING",
+  );
+}
 export function meteredFetch(
   options: {
     root: string;
@@ -440,32 +472,11 @@ export function meteredFetch(
             path.join(options.root, "runs", options.run + ".json"),
           );
           const state = snapshot(path.join(run.active, "core"));
-          const input = state.records.find(
-            (r) =>
-              r.record_type === "Input" &&
-              r.dedupe_key === active.probe_request,
-          );
-          const ctxHash = attribution.getStore()?.context_sha256;
-          const call = state.records.find(
-            (r) =>
-              r.record_type === "ModelCall" &&
-              r.request.sha256 === ctxHash &&
-              !r.completed_at,
-          );
-          const ctx =
-            call?.record_type === "ModelCall" &&
-            state.records.find(
-              (r) => r.record_type === "Context" && r.id === call.context_id,
-            );
-          requireThat(
-            input?.record_type === "Input" &&
-              input.payload.sha256 === active.probe_sha256 &&
-              ctx &&
-              ctx.record_type === "Context" &&
-              ctx.purpose === "MAIN" &&
-              ctx.input_ids.includes(input.id) &&
-              ctx.loop_id === input.loop_id,
-            "STAGE_C_PROBE_BINDING",
+          bindCorrectionProbe(
+            state.records,
+            active.probe_request,
+            active.probe_sha256,
+            attribution.getStore()?.context_sha256,
           );
           firstProbe = true;
           cutoff = active.probe_deadline;

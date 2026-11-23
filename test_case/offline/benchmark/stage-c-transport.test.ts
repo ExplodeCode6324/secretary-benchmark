@@ -321,6 +321,28 @@ test(
         path.join(variant, "campaign/stage-c-dispatch.json"),
         stateCopy,
       );
+      if (visibility === "RESIDENT" && retention === "PASS") {
+        const first = await completionJudge(
+          variant,
+          "begin",
+          hash,
+          approval,
+          lane,
+        );
+        assert("packet_sha256" in first);
+        const mechanical = await completionJudge(
+          variant,
+          "finish",
+          hash,
+          approval,
+          lane,
+          {
+            mechanical: "INVALID_JSON",
+            evidence_sha256: sha("synthetic invalid reader JSON"),
+          },
+        );
+        assert("status" in mechanical && mechanical.status === "MECHANICAL");
+      }
       const attempt = await completionJudge(
         variant,
         "begin",

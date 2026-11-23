@@ -71,6 +71,14 @@ import { prepareRepository, repositoryPilot } from "./repository-replay.ts";
 import { worldPilot } from "./world-replay.ts";
 import { scoreDevelopment } from "./score.ts";
 import { exportPublicGrades, importPublicGrades } from "./public-grading.ts";
+import { baselinePlan, prepareBaseline } from "./baseline.ts";
+import { prepareB0 } from "./baseline-b0.ts";
+import {
+  prepareStageC,
+  readStageCReport,
+  prospectiveMatrix,
+} from "./stage-c.ts";
+import { stageCommand } from "./stage-b-cli.ts";
 
 async function main() {
   const [command, ...args] = process.argv.slice(2),
@@ -80,6 +88,7 @@ async function main() {
       [
         "--batch",
         "--attempt",
+        "--lane",
         "--transaction",
         "--sha256",
         "--run",
@@ -118,6 +127,8 @@ async function main() {
       "memory-repository-prepare",
       "memory-repository",
       "memory-world",
+      "baseline-prepare",
+      "baseline-b0",
     ].includes(command)
   )
     requireThat(
@@ -125,6 +136,73 @@ async function main() {
       "BENCHMARK_EXPLICIT_FACILITY_ROOT_REQUIRED",
     );
   deploymentGuard(repository, root);
+  if (command.startsWith("baseline-stage-c-")) {
+    if (command === "baseline-stage-c-plan") {
+      requireThat(Object.keys(options).length === 0, "STAGE_C_PLAN_NO_OPTIONS");
+      console.log(JSON.stringify(prospectiveMatrix()));
+      return;
+    }
+    requireThat(
+      ["baseline-stage-c-prepare", "baseline-stage-c-report"].includes(
+        command,
+      ) &&
+        Object.keys(options).length === 1 &&
+        options["--root"] &&
+        root !== path.join(repository, ".local/benchmark"),
+      "STAGE_C_OFFLINE_ONLY",
+    );
+    console.log(
+      JSON.stringify(
+        command === "baseline-stage-c-prepare"
+          ? await prepareStageC(root)
+          : readStageCReport(root),
+      ),
+    );
+    return;
+  }
+  if (command.startsWith("baseline-stage-b-")) {
+    requireThat(
+      !!options["--root"] && root !== path.join(repository, ".local/benchmark"),
+      "BENCHMARK_EXPLICIT_FACILITY_ROOT_REQUIRED",
+    );
+    console.log(
+      JSON.stringify(await stageCommand(command, root, options), null, 2),
+    );
+    return;
+  }
+  if (command === "baseline-b0") {
+    requireThat(
+      Object.keys(options).every((key) => key === "--root"),
+      "BASELINE_PREPARE_NO_LIVE_OPTIONS",
+    );
+    console.log(JSON.stringify(await prepareB0(root)));
+    return;
+  }
+  if (command === "baseline-plan") {
+    requireThat(Object.keys(options).length === 0, "BASELINE_PLAN_NO_OPTIONS");
+    console.log(JSON.stringify(baselinePlan(), null, 2));
+    return;
+  }
+  if (command === "baseline-prepare") {
+    requireThat(
+      Object.keys(options).every((k) => k === "--root"),
+      "BASELINE_PREPARE_NO_LIVE_OPTIONS",
+    );
+    const report = await prepareBaseline(root);
+    console.log(
+      JSON.stringify(
+        {
+          report: path.join(root, "reports", "issue122-stage-a.json"),
+          cases: report.cases.length,
+          forecasts: report.forecast.length,
+          physical_provider_sends: 0,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
   if (command === "archive") {
     requireThat(
       options["--root"] &&

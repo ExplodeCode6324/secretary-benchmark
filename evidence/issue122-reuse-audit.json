@@ -1,0 +1,47 @@
+{
+  "schema": "issue122-source-inspection-v1",
+  "date": "2026-11-18",
+  "archives": [
+    {
+      "kind": "lifecycle",
+      "archive_sha256": "61a2bddf01579576b82218b8527652503caa6fc28e55014b6989ec1323a5b8de",
+      "manifest_sha256": "94a821beb1536249a1e400ce1a7fda90c04ea975dd6612861ca69f1af8cece85",
+      "verified_entries": 11532,
+      "grade_packet_count": 3,
+      "raw_private_published": false,
+      "live_calls": 0,
+      "reuse": "same-identity DISPATCHED/RESULT_UNKNOWN/SUCCEEDED and one physical write in all three model trajectories",
+      "coverage": "partial host chain, historical scores unchanged",
+      "missing": [
+        "separately persisted contemporaneous OS exit witness"
+      ],
+      "C12b_required": true,
+      "limitation": "The historical audit command required a stopped worker but its output did not persist that observation. Registry RUNNING identity is not a stop receipt; no retrospective witness is manufactured."
+    },
+    {
+      "kind": "private-A",
+      "archive_sha256": "d9e4c6a6017430f16b22f738f1d465721be4ba909a2dfb7522de78ea55dbb888",
+      "manifest_sha256": "7ca3d9cc5b6c2ac5c4267ff8c1b285c264ebda8c4e2c5a39b0b7381ca50cef43",
+      "verified_entries": 25313,
+      "grade_packet_count": 12,
+      "raw_private_published": false,
+      "live_calls": 0,
+      "reuse": "archive integrity verified; report-only semantic reuse remains",
+      "limitation": "Packet structure/hash inspection only. Private timeline/oracle semantics were not regraded or exported."
+    },
+    {
+      "kind": "world",
+      "archive_sha256": "142c32ce2b3a1d045b61e8944f7601e1c6f2b4603feff2b31760a54a138a601b",
+      "manifest_sha256": "a129a8c5d720cfa402f0524e7f537e644748c0895ccc2338a6ce29a5c10b6e5b",
+      "verified_entries": 5622,
+      "grade_packet_count": 3,
+      "raw_private_published": false,
+      "live_calls": 0,
+      "restart_observed_in_historical_packets": 0,
+      "positive_world_coverage": 0,
+      "C05_W_required": true,
+      "limitation": "No backfill; marker absence verified in all three packets."
+    }
+  ],
+  "remaining": "Historical M1 and repository-B source archives not re-inspected; retained report labels/effect observations unchanged."
+}

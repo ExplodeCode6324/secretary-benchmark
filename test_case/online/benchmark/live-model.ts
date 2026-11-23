@@ -1,7 +1,34 @@
+import {
+  echoContract,
+  echoScope,
+  echoConflict,
+  echoObservation,
+  confirmedEchoTerminal,
+  defaultCacheRequest,
+  retentionFrame,
+  retentionFinding,
+  safeRetentionUsage,
+  type RetentionFrame,
+} from "./stage-b-retention.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import {
+  stageModels,
+  physicalBound,
+  physicalViolation,
+  chatUsageRequest,
+  measuredEstimate,
+  pricingDrift,
+  tierMismatch,
+  publicTier,
+  type ObservedTier,
+  reservationUSD,
+  providerFailure,
+  type StageModel,
+} from "./stage-b-policy.ts";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getModel } from "@earendil-works/pi-ai/compat";
 import {
@@ -17,7 +44,15 @@ import {
   sha,
   writeJSON,
 } from "./io.ts";
-import { reserve, settle } from "./campaign.ts";
+import {
+  reserve,
+  settle,
+  recordPricingDrift,
+  recordLegacyEcho,
+  loadCampaign,
+  ledger,
+} from "./campaign.ts";
+import { baselineReservation } from "./baseline-budget.ts";
 import { transportFailure } from "../../../sut/secretary/src/pi_secretary/src/model-retry.ts";
 
 /** Preserve the product's retry class without retaining provider error text. */
@@ -39,8 +74,12 @@ export const modelIDs = [
 ] as const;
 export type ModelID = (typeof modelIDs)[number];
 export type Profile = "RC" | "DEP";
-export function descriptor(id: ModelID): Model<Api> {
-  requireThat(modelIDs.includes(id), "MODEL_NOT_APPROVED");
+export const baselineModels = stageModels;
+export function descriptor(id: ModelID | "gpt-6.2-sol"): Model<Api> {
+  requireThat(
+    id === "gpt-6.2-sol" || modelIDs.includes(id),
+    "MODEL_NOT_APPROVED",
+  );
   if (id === "deepseek-flash") {
     const m = structuredClone(getModel("deepseek", "deepseek-flash"));
     requireThat(
@@ -55,8 +94,8 @@ export function descriptor(id: ModelID): Model<Api> {
       cost: { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0.3 },
     };
   }
-  const input = id === "gpt-6.1-sol" ? 2 : 0.1,
-    output = id === "gpt-6.1-sol" ? 10 : 0.5;
+  const input = id === "gpt-6-luna" ? 0.1 : 2,
+    output = id === "gpt-6-luna" ? 0.5 : 10;
   return {
     id,
     name: id,
@@ -70,8 +109,11 @@ export function descriptor(id: ModelID): Model<Api> {
     cost: { input, output, cacheRead: input, cacheWrite: input },
   };
 }
-export function credential(id: ModelID) {
-  const root = path.join(repository, ".local/test-credentials");
+export function credential(id: ModelID | StageModel, stageB = false) {
+  const owner = stageB
+    ? path.join(path.dirname(repository), "secretary-core")
+    : repository;
+  const root = path.join(owner, ".local/test-credentials");
   const file = path.join(
     root,
     id === "deepseek-flash"
@@ -79,6 +121,29 @@ export function credential(id: ModelID) {
       : ".env.secretary_test_openai",
   );
   noLinks(file);
+  if (stageB) {
+    requireThat(
+      execFileSync("git", ["-C", owner, "rev-parse", "--show-toplevel"], {
+        encoding: "utf8",
+      }).trim() === owner,
+      "CREDENTIAL_OWNER",
+    );
+    execFileSync(
+      "git",
+      ["-C", owner, "check-ignore", "-q", "--", path.relative(owner, file)],
+      { stdio: "ignore" },
+    );
+    requireThat(
+      execFileSync("git", [
+        "-C",
+        owner,
+        "ls-files",
+        "--",
+        path.relative(owner, file),
+      ]).length === 0,
+      "CREDENTIAL_TRACKED",
+    );
+  }
   for (const [p, mode] of [
     [root, 0o700],
     [file, 0o600],
@@ -105,22 +170,70 @@ export function credential(id: ModelID) {
   requireThat(key.length > 10 && !/[\r\n]/.test(key), "CREDENTIAL_INVALID");
   return key;
 }
-export function configureProfile(profile: Profile) {
-  requireThat(profile === "RC" || profile === "DEP", "UNKNOWN_PROFILE");
-  if (profile === "RC")
+export function configureProfile(profile: Profile | "RC98304") {
+  requireThat(["RC", "RC98304", "DEP"].includes(profile), "UNKNOWN_PROFILE");
+  if (profile !== "DEP")
     Object.assign(process.env, {
-      SECRETARY_MAIN_CONTEXT_WINDOW: "65536",
-      SECRETARY_TASK_CONTEXT_WINDOW: "65536",
+      SECRETARY_MAIN_CONTEXT_WINDOW: profile === "RC" ? "65536" : "98304",
+      SECRETARY_TASK_CONTEXT_WINDOW: profile === "RC" ? "65536" : "98304",
       SECRETARY_RECENT_INPUT_MAX_COUNT: "2",
       SECRETARY_RECENT_INPUT_BUDGET_RATIO: "0.05",
     });
 }
 type Attribution = { role: string; context_sha256: string };
 const attribution = new AsyncLocalStorage<Attribution>();
-export function liveRoles(id: ModelID, key: string, evidence: string) {
+export function benchmarkRoleModel(
+  model: Model<Api>,
+  key: string,
+  role: "main" | "task",
+  tier?: "default",
+) {
+  const base = roleModel(model, key, role);
+  if (!tier) return base;
+  requireThat(
+    model.api === "openai-responses" && model.provider === "openai",
+    "STAGE_B_PRICING_TIER",
+  );
+  const stream: StreamFn = (m, context, opts) => {
+    requireThat(
+      !opts || !("serviceTier" in opts) || opts.serviceTier === tier,
+      "STAGE_B_PRICING_TIER",
+    );
+    return base.stream(m, context, {
+      ...opts,
+      onPayload: async (payload, actualModel) => {
+        requireThat(
+          payload &&
+            typeof payload === "object" &&
+            !Array.isArray(payload) &&
+            (!("service_tier" in payload) || payload.service_tier === tier),
+          "STAGE_B_PRICING_TIER",
+        );
+        const configured = { ...payload, service_tier: tier };
+        const changed = await opts?.onPayload?.(configured, actualModel);
+        const final = changed === undefined ? configured : changed;
+        requireThat(
+          final &&
+            typeof final === "object" &&
+            "service_tier" in final &&
+            final.service_tier === tier,
+          "STAGE_B_PRICING_TIER",
+        );
+        return final;
+      },
+    });
+  };
+  return { model, stream };
+}
+export function liveRoles(
+  id: ModelID | StageModel,
+  key: string,
+  evidence: string,
+  tier?: "default",
+) {
   const model = descriptor(id);
   const role = (name: "main" | "task") => {
-    const config = roleModel(model, key, name);
+    const config = benchmarkRoleModel(model, key, name, tier);
     const stream: StreamFn = async (m, context, options) => {
       const raw = JSON.stringify(context);
       requireThat(!raw.includes(key), "CREDENTIAL_CONTEXT_LEAK");
@@ -147,14 +260,45 @@ export function usageCost(model: Model<Api>, usage: any): number | null {
     return null;
   return (input * model.cost.input + output * model.cost.output) / 1e6;
 }
+async function failureEvidence(model: StageModel, response: Response) {
+  const digest = createHash("sha256");
+  const chunks: Buffer[] = [];
+  let size = 0;
+  if (response.body)
+    for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+      size += chunk.length;
+      digest.update(chunk);
+      if (size <= 65536) chunks.push(Buffer.from(chunk));
+    }
+  const category = providerFailure(
+    model,
+    response.status,
+    size <= 65536 ? Buffer.concat(chunks) : Buffer.alloc(0),
+  );
+  return {
+    status: response.status,
+    error_sha256: digest.digest("hex"),
+    category,
+  };
+}
+function networkOutcome(error: unknown) {
+  const failure = error as { code?: string; cause?: { code?: string } } | null;
+  return /^(?:ERR_TLS_|ERR_SSL_|CERT_|UNABLE_TO_VERIFY_|DEPTH_ZERO_SELF_SIGNED_CERT)/.test(
+    failure?.cause?.code ?? failure?.code ?? "",
+  )
+    ? "TLS"
+    : "NETWORK_UNCERTAIN";
+}
 /** Enforce origin/method/body before sending; reserve and fsync in this process. */
 export function meteredFetch(
   options: {
     root: string;
     run: string;
     episode?: string;
+    lane?: string;
     evidence: string;
-    model: ModelID;
+    model: ModelID | StageModel;
+    stageFreeze?: string;
     key: string;
     maxSends: number;
     forbidden?: string[] | (() => string[]);
@@ -177,8 +321,13 @@ export function meteredFetch(
         request.url === endpoint && request.method === "POST",
         "PROVIDER_ENDPOINT_NOT_APPROVED",
       );
-      const body = await request.clone().text();
-      bodyHash = sha(body);
+      const serialized = Buffer.from(await request.clone().arrayBuffer());
+      bodyHash = sha(serialized);
+      const body = new TextDecoder("utf-8", { fatal: true }).decode(serialized);
+      requireThat(
+        Buffer.from(body).equals(serialized),
+        "PROVIDER_REQUEST_INVALID",
+      );
       phase = "PROVIDER_PAYLOAD_LEAK";
       const forbidden =
         typeof options.forbidden === "function"
@@ -214,10 +363,56 @@ export function meteredFetch(
           maxOutput <= model.maxTokens,
         "PROVIDER_OUTPUT_CAP_MISSING",
       );
+      const campaign = loadCampaign(options.root),
+        limits = campaign.baseline_limits,
+        policy = campaign.physical_policy;
+      requireThat(
+        policy?.freeze_sha256 === options.stageFreeze,
+        "STAGE_B_FREEZE_BINDING",
+      );
+      const expectedTier =
+        policy?.providers[options.model as StageModel].request_service_tier;
+      if (policy)
+        requireThat(
+          (expectedTier
+            ? payload.service_tier === expectedTier
+            : payload.service_tier === undefined ||
+              payload.service_tier === "default") &&
+            (options.model === "deepseek-flash"
+              ? payload.prompt_cache_retention === undefined
+              : defaultCacheRequest(payload)),
+          "STAGE_B_PRICING_TIER",
+        );
+      const requestedUsage = policy
+        ? chatUsageRequest(model.api, payload)
+        : null;
+      const role =
+        attribution.getStore()?.role ??
+        (options.lane?.startsWith("probe--") ? "probe" : "");
+      const physical = policy
+        ? physicalBound(
+            policy,
+            options.model as StageModel,
+            serialized.length,
+            maxOutput,
+            role,
+          )
+        : undefined;
+      const rates =
+        policy?.providers[options.model as StageModel] ??
+        limits?.models[options.model];
       const worst =
-        (Buffer.byteLength(body) * model.cost.input +
-          maxOutput * model.cost.output) /
-        1e6;
+        physical && policy
+          ? reservationUSD(
+              policy.providers[options.model as StageModel],
+              physical.input_bytes,
+              physical.output_tokens,
+            )
+          : limits
+            ? baselineReservation(body, maxOutput, limits.models[options.model])
+            : (Buffer.byteLength(body) * model.cost.input +
+                maxOutput * model.cost.output) /
+              1e6;
       phase = "CAMPAIGN_RESERVATION_REFUSED";
       const id = await reserve(
         options.root,
@@ -225,7 +420,12 @@ export function meteredFetch(
           model: options.model,
           run: options.run,
           episode: options.episode ?? options.run,
-          request_sha256: sha(body),
+          ...(options.lane ? { lane: options.lane } : {}),
+          ...(physical ? { physical } : {}),
+          ...(requestedUsage
+            ? { chat_stream_usage_requested: requestedUsage }
+            : {}),
+          request_sha256: bodyHash,
           reserved_usd: worst,
         },
         options.maxSends,
@@ -239,9 +439,31 @@ export function meteredFetch(
       });
       let response: Response;
       try {
-        response = await transport(new Request(request, { redirect: "error" }));
+        let signal = request.signal;
+        if (policy) {
+          const attempts = [...ledger(options.root).entries.values()].map(
+            (row) => row.attempt,
+          );
+          const laneStart = attempts.find((row) => row.lane === options.lane)!;
+          const expires = Math.min(
+            Date.parse(attempts[0].at) + 43200000,
+            Date.parse(laneStart.at) + 3600000,
+          );
+          const remaining = expires - Date.now();
+          requireThat(remaining > 0, "STAGE_B_LANE_TIME");
+          signal = AbortSignal.any([signal, AbortSignal.timeout(remaining)]);
+        }
+        response = await transport(
+          new Request(request, { redirect: "error", signal }),
+        );
       } catch (error) {
-        await settle(options.root, id, "NETWORK_UNCERTAIN", null, null);
+        await settle(
+          options.root,
+          id,
+          policy ? networkOutcome(error) : "NETWORK_UNCERTAIN",
+          null,
+          null,
+        );
         // Never propagate a provider exception that might contain request headers.
         throw safeTransportError(error);
       }
@@ -251,7 +473,17 @@ export function meteredFetch(
         at: new Date().toISOString(),
       });
       if (!response.ok || !response.body) {
-        await settle(options.root, id, `HTTP_${response.status}`, null, null);
+        let outcome = `HTTP_${response.status}`;
+        let failure: unknown = null;
+        if (policy) {
+          const observation = await failureEvidence(
+            options.model as StageModel,
+            response,
+          );
+          outcome = observation.category;
+          failure = observation;
+        }
+        await settle(options.root, id, outcome, failure, null);
         // Error bodies can echo input/headers; SDK only needs the category and status.
         return new Response(
           JSON.stringify({
@@ -273,11 +505,24 @@ export function meteredFetch(
       }
       const reader = response.body.getReader(),
         decoder = new TextDecoder();
+      const observedModels: string[] = [];
+      const retention = physical?.cache_retention_contract;
+      let failureFrameSeen = false;
+      let frameIndex = 0,
+        invalidLongWriteCount = false;
+      let terminalCache: RetentionFrame | undefined;
+      const allowEcho = retention === echoContract;
+      let firstEcho: RetentionFrame | undefined,
+        conflict: RetentionFrame | undefined,
+        terminalUsage: unknown;
+      let terminalTier: ObservedTier | undefined;
       let pending = "",
         usage: unknown = null,
         returnedModel: string | null = null,
-        done = false;
-      const observe = (chunk: Uint8Array) => {
+        firstUsageViolation: unknown = null,
+        completed = false,
+        tierChanged = false;
+      const observe = async (chunk: Uint8Array) => {
         const text = decoder.decode(chunk, { stream: true });
         requireThat(!text.includes(options.key), "CREDENTIAL_RESPONSE_LEAK");
         pending += text;
@@ -289,24 +534,193 @@ export function meteredFetch(
         pending = lines.pop()!;
         for (const rawLine of lines) {
           const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-          if (line.startsWith("data: ") && line !== "data: [DONE]") {
+          if (line === "data: [DONE]") {
+            if (!expectedTier) completed = true;
+          } else if (line.startsWith("data: ")) {
             const data = JSON.parse(line.slice(6));
+            const mismatch = expectedTier && tierMismatch(data, expectedTier);
+            const snapshot = retention
+              ? retentionFrame(data, ++frameIndex)
+              : null;
+            const newEcho =
+              allowEcho && snapshot && !firstEcho && echoScope(snapshot)
+                ? snapshot
+                : undefined;
+            if (newEcho) firstEcho = newEcho;
+            if (allowEcho && snapshot && !conflict && echoConflict(snapshot))
+              conflict = snapshot;
+            const finding = snapshot && retentionFinding(snapshot, allowEcho);
+            if (
+              snapshot &&
+              (snapshot.frame.long_writes === "INVALID" ||
+                snapshot.response.long_writes === "INVALID")
+            )
+              invalidLongWriteCount = true;
+            const drift = mismatch
+              ? "SERVICE_TIER"
+              : snapshot
+                ? finding?.reason
+                : policy && pricingDrift(data, options.model as StageModel);
+            if (data.type === "response.completed") {
+              completed = true;
+              if (snapshot) terminalCache = snapshot;
+              if (allowEcho) terminalUsage = data.response?.usage;
+              if (expectedTier)
+                terminalTier = publicTier(data.response?.service_tier);
+            }
+            const failedFrame =
+              data.type === "response.failed" ||
+              data.type === "response.incomplete" ||
+              data.type === "error";
+            if (allowEcho && failedFrame) failureFrameSeen = true;
+            if (drift && !tierChanged) {
+              tierChanged = true;
+              await recordPricingDrift(options.root, id, drift, {
+                ...(newEcho ? { first_legacy_echo: newEcho } : {}),
+                ...(expectedTier && mismatch
+                  ? { requested_tier: expectedTier, observed_tier: mismatch }
+                  : finding
+                    ? { cache_retention: finding.observation }
+                    : {}),
+              });
+            } else if (
+              firstEcho &&
+              !tierChanged &&
+              (conflict ||
+                failureFrameSeen ||
+                (data.type === "response.completed" &&
+                  !confirmedEchoTerminal(
+                    snapshot ?? undefined,
+                    data.response?.usage,
+                  )))
+            ) {
+              await recordPricingDrift(options.root, id, "CACHE_RETENTION", {
+                ...(newEcho ? { first_legacy_echo: newEcho } : {}),
+                cache_retention: echoObservation(firstEcho),
+                ...(conflict
+                  ? {
+                      echo_stop: "CONFLICTING_METADATA",
+                      conflicting_frame: conflict,
+                    }
+                  : {
+                      echo_stop: failureFrameSeen
+                        ? "INCOMPLETE_STREAM"
+                        : "TERMINAL_ZERO_UNCONFIRMED",
+                    }),
+              });
+              tierChanged = true;
+            } else if (newEcho)
+              await recordLegacyEcho(options.root, id, newEcho);
             usage = data.usage ?? data.response?.usage ?? usage;
-            returnedModel = data.model ?? data.response?.model ?? returnedModel;
+            if (physical && physicalViolation(physical, usage))
+              firstUsageViolation ??= usage;
+            const modelID = data.model ?? data.response?.model;
+            if (typeof modelID === "string" && modelID.length) {
+              returnedModel = modelID;
+              if (
+                policy &&
+                observedModels.length < 2 &&
+                !observedModels.includes(modelID)
+              )
+                observedModels.push(modelID);
+            }
           }
         }
       };
-      const finish = async (outcome: string) => {
-        if (done) return;
-        done = true;
+      const commitSettlement = async (outcome: string) => {
+        if (
+          firstEcho &&
+          !tierChanged &&
+          (outcome !== "RESPONSE_COMPLETE" ||
+            !confirmedEchoTerminal(terminalCache, terminalUsage) ||
+            (terminalCache &&
+              terminalCache.frame_index < firstEcho.frame_index) ||
+            firstUsageViolation)
+        ) {
+          await recordPricingDrift(options.root, id, "CACHE_RETENTION", {
+            cache_retention: echoObservation(firstEcho),
+            echo_stop: firstUsageViolation
+              ? "COMPONENT_OVERRUN"
+              : !completed || outcome !== "RESPONSE_COMPLETE"
+                ? "INCOMPLETE_STREAM"
+                : "TERMINAL_ZERO_UNCONFIRMED",
+          });
+          tierChanged = true;
+        }
+        const accountingUsage =
+          firstUsageViolation ??
+          (firstEcho && !tierChanged ? terminalUsage : usage);
         await settle(
           options.root,
           id,
-          outcome,
-          { provider: usage, returned_model: returnedModel },
-          usageCost(model, usage),
+          !policy
+            ? outcome
+            : tierChanged
+              ? "PROVENANCE_CHANGE"
+              : outcome === "RESPONSE_COMPLETE" && !completed
+                ? "STREAM_UNCERTAIN"
+                : outcome,
+          {
+            provider: retention
+              ? safeRetentionUsage(accountingUsage)
+              : accountingUsage,
+            ...(firstEcho && !tierChanged
+              ? { legacy_echo_disposition: "COMPATIBILITY_ECHO" }
+              : {}),
+            ...(terminalCache
+              ? { terminal_cache_retention: terminalCache }
+              : {}),
+            ...(invalidLongWriteCount
+              ? { invalid_long_write_count: true }
+              : {}),
+            returned_model: returnedModel,
+            ...(policy
+              ? {
+                  response_complete:
+                    completed && outcome === "RESPONSE_COMPLETE",
+                  observed_models: observedModels,
+                  ...(terminalTier
+                    ? { returned_service_tier: terminalTier }
+                    : {}),
+                }
+              : {}),
+          },
+          policy
+            ? completed &&
+              !tierChanged &&
+              !invalidLongWriteCount &&
+              outcome === "RESPONSE_COMPLETE"
+              ? measuredEstimate(
+                  policy.providers[options.model as StageModel],
+                  accountingUsage,
+                  options.model as StageModel,
+                )
+              : null
+            : usageCost(
+                rates
+                  ? {
+                      ...model,
+                      cost: {
+                        ...model.cost,
+                        input: rates.input_rate,
+                        output: rates.output_rate,
+                      },
+                    }
+                  : model,
+                usage,
+              ),
         );
       };
+      let observing: Promise<void> = Promise.resolve();
+      let settlement: Promise<void> | undefined;
+      let cancelling = false;
+      // Cancel wakes an outstanding reader.read(). Both paths must await the
+      // same commit, including a frame whose ledger write is still in flight.
+      const finish = (outcome: string) =>
+        (settlement ??= observing.then(
+          () => commitSettlement(cancelling ? "CANCELLED_UNCERTAIN" : outcome),
+          () => commitSettlement("STREAM_UNCERTAIN"),
+        ));
       return new Response(
         new ReadableStream<Uint8Array>({
           async pull(controller) {
@@ -314,10 +728,11 @@ export function meteredFetch(
               const chunk = await reader.read();
               if (chunk.done) {
                 await finish("RESPONSE_COMPLETE");
-                controller.close();
+                if (!cancelling) controller.close();
               } else {
-                observe(chunk.value);
-                controller.enqueue(chunk.value);
+                observing = observe(chunk.value);
+                await observing;
+                if (!cancelling) controller.enqueue(chunk.value);
               }
             } catch (error) {
               await finish("STREAM_UNCERTAIN");
@@ -326,6 +741,7 @@ export function meteredFetch(
             }
           },
           async cancel() {
+            cancelling = true;
             try {
               await reader.cancel();
             } finally {
@@ -344,7 +760,9 @@ export function meteredFetch(
           "CAMPAIGN_BUDGET_EXHAUSTED",
         ];
         const reason =
-          error instanceof Error && known.includes(error.message)
+          error instanceof Error &&
+          (known.includes(error.message) ||
+            /^STAGE_B_[A-Z_]+$/.test(error.message))
             ? error.message
             : phase;
         writeJSON(path.join(options.evidence, `refused-${randomUUID()}.json`), {
@@ -354,6 +772,27 @@ export function meteredFetch(
           request_sha256: bodyHash,
           physical_send: false,
         });
+        if (
+          options.stageFreeze &&
+          [
+            "EPISODE_SEND_LIMIT",
+            "STAGE_B_REQUEST_LIMIT",
+            "STAGE_B_BODY_BOUND",
+            "STAGE_B_LANE_TIME",
+            "STAGE_B_CAMPAIGN_TIME",
+          ].includes(reason)
+        ) {
+          appendJSON(
+            path.join(options.root, "campaign", "physical-refusals.jsonl"),
+            {
+              at: new Date().toISOString(),
+              freeze_sha256: options.stageFreeze,
+              lane: options.lane,
+              episode: options.episode,
+              reason,
+            },
+          );
+        }
         throw Error(reason);
       }
       throw error;

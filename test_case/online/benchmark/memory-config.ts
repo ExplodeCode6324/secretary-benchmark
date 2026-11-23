@@ -1,5 +1,6 @@
 import { requireThat } from "./io.ts";
 import { modelIDs, type ModelID, type Profile } from "./live-model.ts";
+import { stageLane, type StageModel } from "./stage-b-policy.ts";
 export type LiveConfiguration = {
   version: 1;
   mode: "live";
@@ -12,7 +13,40 @@ export type LiveConfiguration = {
   fault_injection?: "write-after-fsync";
   fault_path?: string;
 };
-export function validateLiveConfiguration(c: LiveConfiguration) {
+export type StageConfiguration = Omit<
+  LiveConfiguration,
+  "version" | "track" | "model" | "profile" | "fault_injection" | "fault_path"
+> & {
+  version: 2;
+  track: "issue122";
+  model: StageModel;
+  profile: "DEP" | "RC98304";
+  lane: string;
+  freeze_sha256: string;
+  fault_injection?: never;
+  fault_path?: never;
+};
+export function validateLiveConfiguration(
+  c: LiveConfiguration | StageConfiguration,
+) {
+  if (c.version === 2) {
+    const lane = stageLane(c.lane);
+    requireThat(
+      Object.keys(c).sort().join(",") ===
+        "case_id,freeze_sha256,lane,max_sends,mode,model,profile,seed,track,version" &&
+        c.track === "issue122" &&
+        c.mode === "live" &&
+        lane &&
+        lane.scenario === c.case_id &&
+        lane.model === c.model &&
+        lane.profile === c.profile &&
+        lane.cap === c.max_sends &&
+        Number.isSafeInteger(c.seed) &&
+        /^[a-f0-9]{64}$/.test(c.freeze_sha256),
+      "STAGE_B_CONFIG_BINDING",
+    );
+    return;
+  }
   const keys = [
     "version",
     "mode",

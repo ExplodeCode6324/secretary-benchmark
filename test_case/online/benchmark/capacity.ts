@@ -21,7 +21,11 @@ import { configureProfile, descriptor, modelIDs } from "./live-model.ts";
 import { sha, readJSON, requireThat } from "./io.ts";
 
 /** Actual initial product prompts/tools; forecast sources are explicitly synthetic. No model send. */
-export function capacityForecast(app: App) {
+export function capacityForecast(
+  app: App,
+  profiles: readonly ("RC" | "DEP" | "RC98304_CANDIDATE")[] = ["RC", "DEP"],
+  models: readonly Parameters<typeof descriptor>[0][] = modelIDs,
+) {
   const context = (app.host as unknown as { context: HostContext }).context;
   const tools = context.tools("benchmark-offline-capacity");
   const system = assembleMainSystem(
@@ -38,10 +42,14 @@ export function capacityForecast(app: App) {
   const saved = keys.map((k) => process.env[k]);
   const results = [];
   try {
-    for (const profile of ["RC", "DEP"] as const) {
+    for (const profile of profiles) {
       keys.forEach((k) => delete process.env[k]);
-      configureProfile(profile);
-      for (const id of modelIDs) {
+      if (profile === "RC98304_CANDIDATE") {
+        configureProfile("RC");
+        process.env.SECRETARY_MAIN_CONTEXT_WINDOW = "98304";
+        process.env.SECRETARY_TASK_CONTEXT_WINDOW = "98304";
+      } else configureProfile(profile);
+      for (const id of models) {
         const model = descriptor(id),
           agent = new Agent({
             streamFn: () => {
@@ -88,6 +96,23 @@ export function capacityForecast(app: App) {
           model: id,
           profile,
           budget,
+          task_budget: requestBudget(model, agent.state.messages, {
+            role: "task",
+          }),
+          effective_policy: budgetConfig(),
+          main_system_bytes: Buffer.byteLength(system),
+          tool_schema_bytes: Buffer.byteLength(
+            JSON.stringify(
+              tools.map((t) => ({
+                name: t.name,
+                description: t.description,
+                parameters: t.parameters,
+              })),
+            ),
+          ),
+          initial_messages_bytes: Buffer.byteLength(
+            JSON.stringify(agent.state.messages),
+          ),
           window,
           recent_input_byte_allowance: Math.min(
             budget.usable_input_tokens * window.ratio,

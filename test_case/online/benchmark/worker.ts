@@ -1,3 +1,5 @@
+import { installStageCFault } from "./stage-c-fault.ts";
+import { loadCampaign } from "./campaign.ts";
 import { forbiddenPayload } from "./payload-guard.ts";
 // Owned fixture/live entry. A detached sender owns its durable campaign accounting.
 import fs from "node:fs";
@@ -19,8 +21,14 @@ import type {
 import { appendJSON, readJSON, requireThat, writeJSON, read } from "./io.ts";
 import { completedFileWrite } from "./effect-proof.ts";
 import { validateConfiguration, type WorkerPermit } from "./domain.ts";
-import { configureProfile, liveRoles, meteredFetch } from "./live-model.ts";
+import {
+  baselineModels,
+  configureProfile,
+  liveRoles,
+  meteredFetch,
+} from "./live-model.ts";
 import { capacityForecast } from "./capacity.ts";
+import type { HostContext } from "../../../sut/secretary/src/pi_secretary/src/host-context.ts";
 
 process.umask(0o077);
 let permitted = false;
@@ -58,6 +66,9 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         root: run.live.facility,
         run: run.id,
         episode: run.lineage,
+        ...(run.config.version === 2
+          ? { lane: run.config.lane, stageFreeze: run.config.freeze_sha256 }
+          : {}),
         evidence: run.evidence,
         model: run.config.model,
         key: run.live.key,
@@ -127,7 +138,8 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
           [{ type: "toolCall", id: randomUUID(), name, arguments: args }],
           m,
         );
-      const continued = packet.includes("BENCHMARK_CONTINUE");
+      const noteRead = packet.includes("BENCHMARK_NOTE_READ");
+      const continued = packet.includes("BENCHMARK_CONTINUE") || noteRead;
       const escape = packet.includes("BENCHMARK_ESCAPE");
       if (!results.length && (continued || escape))
         return tool("read", {
@@ -144,7 +156,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
           JSON.stringify(results[0]).includes("alpha"),
           "CONTINUATION_READ_FAILED",
         );
-      if (!escape && results.length < (continued ? 2 : 1))
+      if (!escape && !noteRead && results.length < (continued ? 2 : 1))
         return tool("write", {
           path: "continuity.txt",
           content: packet.includes("BENCHMARK_INTERRUPTED_WRITE")
@@ -172,7 +184,16 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
     app = await App.open(
       path.join(run.active, "core"),
       run.config.mode === "live"
-        ? liveRoles(run.config.model, run.live!.key, run.evidence)
+        ? liveRoles(
+            run.config.model,
+            run.live!.key,
+            run.evidence,
+            run.config.version === 2
+              ? loadCampaign(run.live!.facility).physical_policy?.providers[
+                  run.config.model
+                ].request_service_tier
+              : undefined,
+          )
         : { model: fixtureModel, stream },
       run.core_dsn,
       {
@@ -206,6 +227,21 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
       path.join(run.evidence, "capacity-forecast.json"),
       capacityForecast(app),
     );
+    if (run.config.mode === "fixture") {
+      const rows = capacityForecast(
+        app,
+        ["DEP", "RC98304_CANDIDATE"],
+        ["gpt-6.1-sol", ...baselineModels],
+      );
+      writeJSON(
+        path.join(run.evidence, "issue122-capacity-candidates.json"),
+        rows.filter((row) => row.model !== "gpt-6.2-sol"),
+      );
+      writeJSON(
+        path.join(run.evidence, "issue122-b0-capacity.json"),
+        rows.filter((row) => row.model !== "gpt-6.1-sol"),
+      );
+    }
     const finish = app.authorization.finish.bind(app.authorization);
     app.authorization.finish = ((id, receipt, outcome) => {
       const operation = app.store.get<Operation>("Operation", id);
@@ -274,6 +310,8 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
       }
       return finish(id, receipt, outcome);
     }) as typeof app.authorization.finish;
+    if (run.config.version === 3 && run.config.case_id === "C12b")
+      installStageCFault(app, run);
     requireThat(app.world?.ready && app.world.configured, "WORLD_NOT_READY");
     const role = (
       await app.world.pool.query(
@@ -298,6 +336,25 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         pushes: app.store.all("PushDispatch"),
         tasks: app.store.all("TaskPlan"),
         model_calls: calls,
+        maintenance_due: (
+          app.host as unknown as { context: HostContext }
+        ).context.memoryDue(),
+        maintenance_running: !!(app.host as unknown as { context: HostContext })
+          .context.maintenance,
+        summary_pending: !!(
+          app.host as unknown as { context: HostContext }
+        ).context.pendingSummary(),
+        last_handled_sequence:
+          app.store
+            .events("input.handled")
+            .filter((e) => e.scope.session_id === app.host.sessionID)
+            .at(-1)?.sequence ?? 0,
+        consciousness: app.store.all("Consciousness"),
+        sessions: app.store.all("Session"),
+        input_records: app.store.all("Input"),
+        calls: app.store.all("ModelCall"),
+        compactions: app.store.all("CompactionJob"),
+        extractions: app.store.all("MemoryExtractionJob"),
         ...(run.config.mode === "live"
           ? {
               sessions: app.store.all("Session"),

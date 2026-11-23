@@ -55,7 +55,6 @@ export function correctionBoundary(
       covered: memory.covered_event_sequence,
       source,
       items_sha256: sha(JSON.stringify(memory.items)),
-      items: memory.items,
     };
   }
   return null;
@@ -255,6 +254,24 @@ export async function exerciseCorrection(
     bHandled.sequence,
     deadline,
   );
+  if (live && boundary) {
+    const memory = state.transactions[boundary.index].records.find(
+      (r) =>
+        r.record_type === "Consciousness" &&
+        r.last_job_id === boundary.job &&
+        r.revision === boundary.revision,
+    );
+    requireThat(
+      memory?.record_type === "Consciousness" &&
+        sha(JSON.stringify(memory.items)) === boundary.items_sha256,
+      "C06_PRIVATE_BOUNDARY_ITEMS",
+    );
+    writeJSON(path.join(run.evidence, "stage-c-boundary-items.json"), {
+      job: boundary.job,
+      revision: boundary.revision,
+      items: memory.items,
+    });
+  }
   const inputs = {
     a,
     b,

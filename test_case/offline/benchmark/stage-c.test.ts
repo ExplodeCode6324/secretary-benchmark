@@ -579,11 +579,16 @@ test("C12b requires the independent old exit and refuses a checkpoint substituti
     kind: "CHECKPOINT_RESTORE" | "DIRECT_SAME_DOMAIN",
     missing = false,
     restored = false,
+    foreignProcess = false,
   ) => {
     const stopped = doc(oldId, state);
     return verifyDirectRecovery(
-      domain,
-      { ...domain, restoredFrom: restored ? "snapshot" : null },
+      { ...domain, process: oldId },
+      {
+        ...domain,
+        process: foreignProcess ? process(3) : newId,
+        restoredFrom: restored ? "snapshot" : null,
+      },
       "d",
       {
         kind,
@@ -599,6 +604,10 @@ test("C12b requires the independent old exit and refuses a checkpoint substituti
       },
     );
   };
+  assert.throws(
+    () => check("STOPPED", "DIRECT_SAME_DOMAIN", false, false, true),
+    /C12B_RESTART_DOMAIN/,
+  );
   assert.equal(
     check("STOPPED", "DIRECT_SAME_DOMAIN").kind,
     "DIRECT_SAME_DOMAIN",

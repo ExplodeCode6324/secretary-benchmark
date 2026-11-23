@@ -167,6 +167,21 @@ function trialPacket(root: string, lane: string, scenario: string) {
   const special = trial.observations.find(
     (o: any) => o.host_assisted || (o.inputs && o.status),
   );
+  if (special?.boundary) {
+    const v = readJSON(
+      path.join(root, "evidence", p.run, "stage-c-boundary-items.json"),
+    );
+    requireThat(
+      v.job === special.boundary.job &&
+        v.revision === special.boundary.revision &&
+        sha(JSON.stringify(v.items)) === special.boundary.items_sha256,
+      "STAGE_C_PRIVATE_ITEMS_CHANGED",
+    );
+    add(
+      "Working memory at the committed correction boundary",
+      JSON.stringify(v.items),
+    );
+  }
   if (special)
     add(
       "Specialized observation",

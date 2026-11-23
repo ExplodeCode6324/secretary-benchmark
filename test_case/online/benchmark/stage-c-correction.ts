@@ -52,7 +52,7 @@ export function correctionBoundary(
       revision: memory.revision,
       covered: memory.covered_event_sequence,
       source,
-      items: memory.items,
+      items_sha256: sha(JSON.stringify(memory.items)),
     };
   }
   return null;
@@ -125,7 +125,7 @@ export function checkReader(
   );
 }
 
-export async function fixtureMessage(run: Run, text: string, deadline: number) {
+async function sendFixtureInput(run: Run, text: string, deadline: number) {
   requireThat(Date.now() < deadline, "C06_INPUT_DEADLINE");
   const request_id = randomUUID();
   const receipt = await new CoreClient(run.endpoint!).command("messages", {
@@ -139,6 +139,9 @@ export async function fixtureMessage(run: Run, text: string, deadline: number) {
       id,
     "C06_INPUT_BINDING",
   );
+  return id;
+}
+async function waitHandled(run: Run, id: string, deadline: number) {
   const observed = () => readJSON(path.join(run.evidence, "observed.json"));
   await until(
     () =>
@@ -147,7 +150,29 @@ export async function fixtureMessage(run: Run, text: string, deadline: number) {
       ),
     Math.max(1, deadline - Date.now()),
   );
+}
+export async function fixtureMessage(run: Run, text: string, deadline: number) {
+  const id = await sendFixtureInput(run, text, deadline);
+  await waitHandled(run, id, deadline);
   return id;
+}
+
+export function jobsAtCap(frames: Frame[], session: string, deadline: number) {
+  const latest = new Map<string, any>();
+  for (const frame of frames) {
+    for (const r of frame.records) {
+      if (
+        r.record_type === "CompactionJob" &&
+        r.mode === "WORKING_MEMORY" &&
+        r.session_id === session &&
+        Date.parse(r.updated_at) <= deadline
+      )
+        latest.set(r.id, r);
+    }
+  }
+  return [...latest.values()].sort(
+    (a, b) => Date.parse(a.updated_at) - Date.parse(b.updated_at),
+  );
 }
 export async function exerciseCorrection(run: Run) {
   const core = path.join(run.active, "core");
@@ -172,8 +197,14 @@ export async function exerciseCorrection(run: Run) {
   let prefix = 0;
   for (const text of fillerTexts(fixturePrefix)) {
     if (Date.now() >= deadline) break;
-    await fixtureMessage(run, text, deadline);
-    prefix++;
+    try {
+      await fixtureMessage(run, text, deadline);
+      prefix++;
+    } catch (error) {
+      if (String(error) === "Error: WAIT_TIMEOUT" && Date.now() >= deadline)
+        break;
+      throw error;
+    }
   }
   const source = stableID("main.input.message:" + b);
   while (
@@ -207,7 +238,7 @@ export async function exerciseCorrection(run: Run) {
   };
   if (!boundary || Date.now() >= deadline || prefix !== fixturePrefix.count) {
     const status = maintenanceBoundary(
-      observe().compactions.filter((j: any) => j.mode === "WORKING_MEMORY"),
+      jobsAtCap(state.transactions, session, deadline),
       source,
       bHandled.sequence,
       {
@@ -224,7 +255,13 @@ export async function exerciseCorrection(run: Run) {
       physical_provider_sends: 0,
     };
   }
-  const probe = await fixtureMessage(run, coldCase.probe, deadline);
+  const probe = await sendFixtureInput(run, coldCase.probe, deadline);
+  try {
+    await waitHandled(run, probe, deadline);
+  } catch (error) {
+    if (String(error) !== "Error: WAIT_TIMEOUT") throw error;
+    // Preserve the accepted input and any captured first send at the cutoff.
+  }
   const final = snapshot(core),
     loop = observe().input_records.find((i: any) => i.id === probe)?.loop_id;
   const sends = correctionSends(

@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { baselineCases } from "./baseline-scenarios.ts";
-import { timeline, visibleInputs } from "./baseline-timeline.ts";
+import { fillerTexts, timeline, visibleInputs } from "./baseline-timeline.ts";
 import { baselineModels } from "./live-model.ts";
 import { Domains, type Run } from "./domain.ts";
 import {
   correctionControls,
+  fixturePrefix,
   exerciseCorrection,
   fixtureMessage,
 } from "./stage-c-correction.ts";
@@ -50,6 +51,24 @@ export function prospectiveMatrix(measured: Record<string, BodySample[]> = {}) {
     const disposition =
       c.id === "C16-combined" ? "DEFERRED_BY_DECISION" : c.status;
     const steps = timeline(c);
+    const fixtureInputs =
+      c.id === "C12b"
+        ? [
+            {
+              route: "task-requests",
+              goal: delivery.goal,
+              acceptance: delivery.acceptance,
+            },
+          ]
+        : c.id === "C06-stale-cold"
+          ? [...c.setup, ...fillerTexts(fixturePrefix), c.probe]
+          : [
+                additionalControl.id,
+                "C04-irrelevant",
+                "C04-nonexistent",
+              ].includes(c.id)
+            ? [...c.setup, c.probe]
+            : null;
     return baselineModels.flatMap((model) =>
       Array.from(
         { length: disposition === "READY_FOR_OFFLINE_VALIDATION" ? 3 : 1 },
@@ -69,9 +88,13 @@ export function prospectiveMatrix(measured: Record<string, BodySample[]> = {}) {
               : null,
             pair: c.pair,
             assertions: c.assertions,
-            source_inputs_sha256: sha(JSON.stringify(visibleInputs(steps))),
+            template_inputs_sha256: sha(JSON.stringify(visibleInputs(steps))),
             template_timeline_sha256: sha(JSON.stringify(steps)),
-            oracle_sha256: sha(JSON.stringify(c.oracle)),
+            template_oracle_sha256: sha(JSON.stringify(c.oracle)),
+            offline_fixture_inputs_sha256: fixtureInputs
+              ? sha(JSON.stringify(fixtureInputs))
+              : null,
+            offline_fixture_inputs: fixtureInputs?.length ?? null,
             template_inputs: visibleInputs(steps).length,
             restart: c.restart,
             maintenance_cycles: c.maintenance_cycles,

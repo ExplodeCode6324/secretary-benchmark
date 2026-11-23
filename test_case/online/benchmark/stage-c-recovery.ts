@@ -6,6 +6,7 @@ import { type Domains, type Run } from "./domain.ts";
 import { identityHash } from "./process-witness.ts";
 import {
   processStatus,
+  stopOwned,
   read,
   readJSON,
   requireThat,
@@ -16,7 +17,7 @@ import {
 import { snapshot } from "./snapshot.ts";
 import { lines } from "./stage-b-scenarios-evidence.ts";
 import { delivery, deliveryRequest } from "./stage-c-fault.ts";
-import { verifyRestart } from "./baseline-evidence.ts";
+import { type RestartEvidence, verifyRestart } from "./baseline-evidence.ts";
 
 const windows = {
   target_ms: 20000,
@@ -83,6 +84,26 @@ export function requireLostAck(
     "C12B_OLD_RESULT_ALREADY_PERSISTED_OR_DISPATCH_MISSING",
   );
 }
+export function verifyDirectRecovery(
+  old: Run,
+  fresh: Run,
+  domain: string,
+  evidence: RestartEvidence,
+  bytes: (p: string) => Buffer,
+) {
+  requireThat(
+    evidence.kind === "DIRECT_SAME_DOMAIN" &&
+      !fresh.parent &&
+      !fresh.restoredFrom &&
+      fresh.id === old.id &&
+      fresh.lineage === old.lineage &&
+      fresh.directoryIdentity === old.directoryIdentity &&
+      fresh.active === old.active &&
+      fresh.endpoint?.data_domain_id === domain,
+    "C12B_RESTART_DOMAIN",
+  );
+  return verifyRestart(evidence, bytes);
+}
 export async function exerciseRecovery(d: Domains, old: Run) {
   const file = (name: string) => path.join(old.evidence, name);
   const core = path.join(old.active, "core");
@@ -91,15 +112,34 @@ export async function exerciseRecovery(d: Domains, old: Run) {
   const accepted = await client.command("task-requests", {
     request_id: request,
     goal: delivery.goal,
-    acceptance: ["One exact local write"],
+    acceptance: delivery.acceptance,
   });
   requireThat(
     accepted.acceptance === "ACCEPTED" && accepted.request_id === request,
     "C12B_REQUEST",
   );
-  await until(
+  const waitForFault = async (
+    check: () => boolean,
+    ms: number,
+    missing: string,
+  ) => {
+    try {
+      await until(check, ms);
+    } catch (error) {
+      if (String(error) !== "Error: WAIT_TIMEOUT") throw error;
+      // A parked sync finish hook cannot service Core commands. Signal only
+      // this run's independently identified worker; a forced exit earns no credit.
+      requireThat(
+        (await stopOwned(old.process)) === "STOPPED",
+        "C12B_SUPERVISOR_STOP_UNCONFIRMED",
+      );
+      throw Error(missing);
+    }
+  };
+  await waitForFault(
     () => fs.existsSync(file("stage-c-barrier.json")),
     windows.target_ms,
+    "C12B_FAULT_PREREQUISITE_NOT_REACHED",
   );
   const bound: Occurrence = readJSON(file("stage-c-barrier.json"));
   requireThat(
@@ -111,28 +151,25 @@ export async function exerciseRecovery(d: Domains, old: Run) {
       bound.expected_hash === sha(delivery.bytes),
     "C12B_BINDING",
   );
-  await until(() => processStatus(old.process) === "STOPPED", windows.exit_ms);
+  await waitForFault(
+    () => processStatus(old.process) === "STOPPED",
+    windows.exit_ms,
+    "C12B_SELF_EXIT_UNCONFIRMED",
+  );
   await d.stop(old.id);
   const before = snapshot(core);
   requireLostAck(before.operationHistory.get(bound.operation) ?? []);
   const fresh = await d.start(old.id);
-  requireThat(
-    !fresh.parent &&
-      !fresh.restoredFrom &&
-      fresh.id === old.id &&
-      fresh.lineage === old.lineage &&
-      fresh.directoryIdentity === old.directoryIdentity &&
-      fresh.active === old.active &&
-      fresh.endpoint?.data_domain_id === bound.domain,
-    "C12B_RESTART_DOMAIN",
-  );
   const oldHash = identityHash(old.process),
     newHash = identityHash(fresh.process);
   const witness = (hash: string, state: string) => {
     const p = file("host-process-" + hash + "-" + state + ".json");
     return { path: p, sha256: sha(read(p)) };
   };
-  const restart = verifyRestart(
+  const restart = verifyDirectRecovery(
+    old,
+    fresh,
+    bound.domain,
     {
       kind: "DIRECT_SAME_DOMAIN",
       restart_observed: true,

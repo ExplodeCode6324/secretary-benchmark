@@ -14,13 +14,22 @@ import { appendJSON, read, requireThat, sha, writeJSON } from "./io.ts";
 
 export const delivery = {
   name: "continuity.txt",
+  acceptance: ["One exact local write"],
   bytes: "alpha",
   goal: 'Write exactly the five UTF-8 bytes "alpha" to continuity.txt once. Do not send it.',
 };
 export const deliveryRequest = (run: string) =>
   stableID("issue122:C12b:" + run);
 
-export function installStageCFault(app: App, run: WorkerPermit) {
+function parkWorker(): never {
+  const latch = new Int32Array(new SharedArrayBuffer(4));
+  for (;;) Atomics.wait(latch, 0, 0);
+}
+export function installStageCFault(
+  app: App,
+  run: WorkerPermit,
+  park = parkWorker,
+) {
   const auth = app.authorization;
   const dispatch = auth.dispatch.bind(auth);
   const finish = auth.finish.bind(auth);
@@ -66,33 +75,36 @@ export function installStageCFault(app: App, run: WorkerPermit) {
     return dispatch(id, extra);
   };
   auth.finish = (id, receipt, outcome) => {
-    const op = app.store.get<Operation>("Operation", id);
-    const proof = receipt as any;
-    if (
-      completedFileWrite(
-        op,
-        receipt,
-        outcome,
-        () => read(op.action.resource),
-        () => app.store.bytes(proof.evidence),
-      )
-    ) {
-      // Never let an evidence I/O error unwind into applyWrite's UNKNOWN catch.
-      try {
+    // applyWrite converts thrown errors into durable UNKNOWN receipts. Hold the
+    // synchronous finish hook on evidence errors until the supervisor stops it.
+    try {
+      const op = app.store.get<Operation>("Operation", id);
+      if (
+        op.action.action === "file.write" &&
+        op.state === "DISPATCHED" &&
+        outcome !== "UNKNOWN"
+      ) {
+        const proof = receipt as any;
         requireThat(
-          proof.evidence.sha256 === sha(delivery.bytes),
-          "C12B_BYTES",
+          completedFileWrite(
+            op,
+            receipt,
+            outcome,
+            () => read(op.action.resource),
+            () => app.store.bytes(proof.evidence),
+          ) && proof.evidence.sha256 === sha(delivery.bytes),
+          "C12B_WRITE_PROOF",
         );
         const record = { ...fields(op), observed_hash: proof.evidence.sha256 };
         appendJSON(writes, record);
         if (!fs.existsSync(barrier)) {
           writeJSON(barrier, record);
           process.kill(process.pid, "SIGKILL");
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
+          return park();
         }
-      } catch {
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
       }
+    } catch {
+      return park();
     }
     return finish(id, receipt, outcome);
   };

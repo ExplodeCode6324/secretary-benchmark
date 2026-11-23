@@ -541,10 +541,17 @@ export function inspectStageEvidence(
               r.condition_id === bound.condition && r.status === "MET",
           )
         : !!answered &&
-          answered.execution_id === e?.id &&
+          !!bound.answer_request &&
+          answered.task_id === e.task_id &&
+          answered.execution_id === e.id &&
           answered.state === "ANSWERED" &&
           answered.answered_by === "MASTER" &&
           answered.answer_request_id === bound?.answer_request);
+    const settled =
+      activationBound &&
+      !!e.ended_at &&
+      e.state === bound.terminal &&
+      ["SUCCEEDED", "FAILED", "CANCELLED", "EXPIRED"].includes(e.state);
     task = {
       condition_met_or_answered: activated,
       diagnostics_version: 2,
@@ -558,6 +565,7 @@ export function inspectStageEvidence(
                   r.condition_id === bound.condition && r.status === "NOT_MET",
               )) ||
               (answered &&
+                answered.task_id === e.task_id &&
                 answered.execution_id === e.id &&
                 answered.state === "OPEN"))
           ? "NOT_MET"
@@ -583,7 +591,7 @@ export function inspectStageEvidence(
             isDeepStrictEqual(op.action, record.action)
           );
         }),
-      window_complete: !!e?.ended_at && !!bound?.terminal,
+      window_complete: settled,
       terminal: e?.state,
       physical_writes: writes.length,
       matching_writes: matching.length,
@@ -591,12 +599,7 @@ export function inspectStageEvidence(
       effects:
         writes.length !== matching.length
           ? "FAIL"
-          : effectVerdict(
-              1,
-              writes.length,
-              !!bound?.terminal && !!e?.ended_at,
-              unknown,
-            ),
+          : effectVerdict(1, writes.length, settled, unknown),
       activated_execution: e?.id,
       release_at: bound?.release_at,
       result_hashes: matching.map((w) => w.content_sha256),

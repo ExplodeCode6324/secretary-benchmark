@@ -17,6 +17,7 @@ import {
   correctionBoundary,
   correctionSends,
   correctionControls,
+  jobsAtCap,
   checkReader,
 } from "../../online/benchmark/stage-c-correction.ts";
 import {
@@ -26,7 +27,10 @@ import {
 import {
   countRecoveryWrites,
   requireLostAck,
+  verifyDirectRecovery,
 } from "../../online/benchmark/stage-c-recovery.ts";
+import { identityHash } from "../../online/benchmark/process-witness.ts";
+import { installStageCFault } from "../../online/benchmark/stage-c-fault.ts";
 import { prospectiveMatrix } from "../../online/benchmark/stage-c.ts";
 
 test("C05-W pins all product change properties and permits the sole annotation only within full approval binding", () => {
@@ -137,6 +141,126 @@ test("C05-W pins all product change properties and permits the sole annotation o
   );
 });
 
+test("corrected B with explanatory notes binds untouched parameters and display hashes", () => {
+  const source = randomUUID(),
+    batch_id = randomUUID();
+  const batch = {
+    version: 1,
+    batch_id,
+    changes: [
+      {
+        intent: "CREATE_ENTITY",
+        local_ref: "$fern",
+        entity_kind: "PROJECT",
+        display_name: "Fern",
+        source_event_ids: [source],
+        source_note: "description only",
+      },
+      {
+        intent: "ASSERT",
+        subject: "$fern",
+        predicate: "entity.note",
+        topic: "current_context",
+        value:
+          "Fern pickup is Saturday. Only redacted copies may be collected.",
+        keywords: [],
+        source_event_ids: [source],
+        source_note: "correction description",
+      },
+    ],
+  };
+  const param = { sha256: sha(JSON.stringify(batch)) };
+  const scope = { session_id: "s", execution_id: null };
+  const check = (parameterHash: string, displayHash?: string) => {
+    const action = {
+      action: "world.change",
+      parameters_ref: param,
+      parameters_hash: parameterHash,
+      intent_id: batch_id,
+      resource: "world/batch/" + batch_id,
+    };
+    const preview = { scope, action, parameters: batch };
+    const display = { sha256: sha(JSON.stringify(preview)) };
+    const a = {
+      id: "a",
+      operation_id: "op",
+      state: "PENDING",
+      scope,
+      action,
+      display_ref: display,
+      display_hash: displayHash ?? display.sha256,
+    };
+    const op = {
+      id: "op",
+      scope,
+      action,
+      state: "WAIT_AUTH",
+      authorization_id: a.id,
+    };
+    return checkedWorld(
+      { object: (ref: any) => (ref === param ? batch : preview) } as any,
+      { session_id: "s", authorizations: [a], operations: [op] } as any,
+      source,
+      true,
+    );
+  };
+  assert.equal(check(param.sha256)?.op.id, "op");
+  assert(!exactWorld(batch, source, false));
+  assert.throws(() => check(sha("altered note")), /WORLD_BINDING/);
+  assert.throws(
+    () => check(param.sha256, sha("altered display")),
+    /WORLD_BINDING/,
+  );
+});
+
+test("independent C10 answer activates only with the bound Master answer, question, execution and task", () => {
+  const task = {
+    execution: "e",
+    task: "t",
+    question: "q",
+    answer_request: "answer",
+    release_at: "now",
+  };
+  const exec = {
+    record_type: "Execution",
+    id: "e",
+    task_id: "t",
+    state: "RUNNING",
+    condition_results: [],
+  };
+  const answer = {
+    record_type: "DecisionRequest",
+    id: "q",
+    execution_id: "e",
+    task_id: "t",
+    state: "ANSWERED",
+    answered_by: "MASTER",
+    answer_request_id: "answer",
+  };
+  const audit = (changes: object) =>
+    inspectStageEvidence(
+      "C10-answer",
+      { inputs: [], decisions: [], cycles: [], task } as any,
+      [{ events: [], records: [exec, { ...answer, ...changes }] }],
+      () => ({}),
+      [],
+      [],
+      "main",
+    );
+  const yes = audit({});
+  assert.equal(yes.task?.activation, "OBSERVED");
+  assert.deepEqual(yes.requirements, ["TASK_TERMINAL_MISSING"]);
+  for (const mismatch of [
+    { id: "else" },
+    { execution_id: "else" },
+    { task_id: "else" },
+    { answered_by: "MAIN" },
+    { answer_request_id: "else" },
+    { state: "OPEN" },
+  ]) {
+    assert(audit(mismatch).requirements.includes("TASK_ACTIVATION_MISSING"));
+  }
+});
 test("C10 settlement and authorization diagnostics require the original task, execution and pending operation", () => {
   const bound = {
     execution: "e",
@@ -185,6 +309,14 @@ test("C10 settlement and authorization diagnostics require the original task, ex
       task: hostEvidence({ proof, failures: proof.requirements }).task,
     };
   };
+  assert.equal(
+    audit(
+      { ...exec, state: "FAILED", ended_at: "now" },
+      { ...bound, terminal: "SUCCEEDED" },
+      [],
+    ).task?.window_complete,
+    false,
+  );
   const result = audit(exec, bound, [auth]);
   assert.deepEqual(result.requirements, ["TASK_TERMINAL_MISSING"]);
   assert.equal(result.task?.wait_reason, "PENDING_AUTHORIZATION");
@@ -272,6 +404,21 @@ test("C06 first covering ordinary revision, first probe and independent correcte
     4,
   );
   assert.equal(correctionSends(frames, 1, 5, session, "i", "p").first, null);
+  const at = (ms: number) => new Date(ms).toISOString();
+  const lateCommit = [
+    {
+      events: [],
+      records: [{ ...job, state: "SUMMARIZING", updated_at: at(10) }],
+    },
+    {
+      events: [],
+      records: [
+        { ...job, updated_at: at(30) },
+        { ...job, session_id: "elsewhere", updated_at: at(5) },
+      ],
+    },
+  ];
+  assert.equal(jobsAtCap(lateCommit, session, 20)[0].state, "SUMMARIZING");
   const controls = correctionControls();
   assert(!JSON.stringify(controls.reader).includes('"expected":'));
   const answers = controls.key.map((k) => ({
@@ -359,6 +506,115 @@ test("C12b rules reject an acknowledged write and count repeated identical physi
   assert.equal(
     countRecoveryWrites([record], [record], record, true),
     "UNRESOLVED",
+  );
+});
+test("C12b holds finish on target evidence I/O failure before any product result", () => {
+  let finished = false;
+  const auth = {
+    dispatch() {},
+    finish(_id: string, _receipt: unknown, _outcome: string) {
+      finished = true;
+    },
+  };
+  const operation = {
+    state: "DISPATCHED",
+    action: {
+      action: "file.write",
+      resource: path.join(
+        repository,
+        ".local/benchmark/tests",
+        randomUUID(),
+        "unavailable",
+      ),
+    },
+  };
+  installStageCFault(
+    { authorization: auth, store: { get: () => operation } } as any,
+    { evidence: repository } as any,
+    () => {
+      throw Error("PARKED_FOR_SUPERVISOR");
+    },
+  );
+  assert.throws(
+    () =>
+      auth.finish(
+        "operation",
+        { result: {}, evidence: { sha256: sha("alpha") } },
+        "APPLIED",
+      ),
+    /PARKED_FOR_SUPERVISOR/,
+  );
+  assert.equal(finished, false);
+});
+test("C12b requires the independent old exit and refuses a checkpoint substitution", () => {
+  const process = (pid: number) => ({
+    pid,
+    machine: "machine",
+    boot: "boot",
+    start: String(pid),
+    token: "run",
+  });
+  const oldId = process(1),
+    newId = process(2);
+  const doc = (identity: typeof oldId, observed: string) =>
+    Buffer.from(
+      JSON.stringify({
+        schema: "benchmark-process-witness-v1",
+        identity,
+        identity_sha256: identityHash(identity),
+        observed,
+        at: new Date(1000).toISOString(),
+      }),
+    );
+  const running = doc(newId, "RUNNING");
+  const domain = {
+    id: "r",
+    lineage: "l",
+    directoryIdentity: "dir",
+    active: "active",
+    endpoint: { data_domain_id: "d" },
+  } as any;
+  const check = (
+    state: string,
+    kind: "CHECKPOINT_RESTORE" | "DIRECT_SAME_DOMAIN",
+    missing = false,
+    restored = false,
+  ) => {
+    const stopped = doc(oldId, state);
+    return verifyDirectRecovery(
+      domain,
+      { ...domain, restoredFrom: restored ? "snapshot" : null },
+      "d",
+      {
+        kind,
+        restart_observed: true,
+        old_identity: identityHash(oldId),
+        new_identity: identityHash(newId),
+        old_exit: { path: "old", sha256: sha(stopped) },
+        new_start: { path: "new", sha256: sha(running) },
+      },
+      (p) => {
+        if (p === "old" && missing) throw Error("MISSING_EXIT");
+        return p === "old" ? stopped : running;
+      },
+    );
+  };
+  assert.equal(
+    check("STOPPED", "DIRECT_SAME_DOMAIN").kind,
+    "DIRECT_SAME_DOMAIN",
+  );
+  assert.throws(
+    () => check("STOPPED", "DIRECT_SAME_DOMAIN", true),
+    /MISSING_EXIT/,
+  );
+  assert.throws(
+    () => check("UNCONFIRMED", "DIRECT_SAME_DOMAIN"),
+    /RESTART_WITNESS/,
+  );
+  assert.throws(() => check("STOPPED", "CHECKPOINT_RESTORE"), /RESTART_DOMAIN/);
+  assert.throws(
+    () => check("STOPPED", "DIRECT_SAME_DOMAIN", false, true),
+    /RESTART_DOMAIN/,
   );
 });
 test("preparation refuses all live or old approvals and keeps all controls and exclusions", () => {
@@ -517,6 +773,27 @@ test(
     assert(c.transition_call);
     assert.equal(c.samples.length, 3);
     assert.equal(c.natural_use, "UNRESOLVED");
+    assert(!Object.hasOwn(c.boundary, "items"));
+    const scenarios = [
+      ["C06-stale-cold", c],
+      ["C12b", r],
+      ...report.controls.map((v: any) => [v.observations.id, v.observations]),
+    ];
+    for (const [scenario, observations] of scenarios) {
+      assert.equal(observations.samples.length, 3);
+      for (const sample of observations.samples) {
+        const rows = report.matrix.rows.filter(
+          (row: any) => row.scenario === scenario && row.model === sample.model,
+        );
+        assert.equal(rows.length, 3);
+        for (const row of rows)
+          assert.deepEqual(row.measured_fixture_request, {
+            bytes: sample.bytes,
+            body_sha256: sample.sha256,
+            output_cap: sample.output_cap,
+          });
+      }
+    }
     const ids = [
       report.recovery.run,
       report.correction.run,

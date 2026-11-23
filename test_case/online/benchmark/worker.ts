@@ -66,6 +66,10 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
     if (run.config.mode === "live") {
       requireThat(run.live?.key && run.live.facility, "LIVE_PERMIT_REQUIRED");
       configureProfile(run.config.profile);
+      const readMode =
+        run.live.rehearsal &&
+        readJSON(path.join(run.live.facility, "inputs/stage-c-preflight.json"))
+          .rehearsal_read;
       globalThis.fetch = meteredFetch(
         {
           root: run.live.facility,
@@ -80,7 +84,17 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
           maxSends: run.config.max_sends,
           forbidden: () => forbiddenPayload(run.live!.facility, run.lineage),
         },
-        run.live.rehearsal ? rehearsalFetch() : globalThis.fetch,
+        run.live.rehearsal
+          ? rehearsalFetch(
+              readMode
+                ? {
+                    evidence: run.evidence,
+                    probe: caseDefinition("C16-combined").probe,
+                    mode: readMode,
+                  }
+                : undefined,
+            )
+          : globalThis.fetch,
       );
     } else
       globalThis.fetch = async (input) => {

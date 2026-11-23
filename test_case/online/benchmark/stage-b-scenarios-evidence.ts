@@ -48,6 +48,29 @@ function resultText(message: any): string {
     .join("\n");
 }
 /** Direct byte observations only. Four-surface paraphrase review always remains a separate judgment. */
+export function rawSourceOnWire(payload: any, source: string) {
+  const messages = payload.messages ?? payload.input;
+  return (
+    Array.isArray(messages) &&
+    messages.some((m) => {
+      if (m.role !== "user") return false;
+      const text =
+        typeof m.content === "string"
+          ? m.content
+          : Array.isArray(m.content)
+            ? m.content
+                .filter((v: any) => ["text", "input_text"].includes(v.type))
+                .map((v: any) => v.text)
+                .join("")
+            : "";
+      return (
+        !text.startsWith(
+          "Working memory (source history remains queryable):",
+        ) && text.includes(source)
+      );
+    })
+  );
+}
 export function wireVisibility(payload: any) {
   const messages = payload.input ?? payload.messages;
   const markers = ["LIME-427", "Saturday", "redacted", "Thursday"];
@@ -524,14 +547,7 @@ export function inspectStageEvidence(
       const projected = raw.some(
         (m: any) => m.secretary_input?.input_id === source.id,
       );
-      const onWire = (send.payload.messages ?? send.payload.input).some(
-        (m: any) =>
-          m.role === "user" &&
-          !JSON.stringify(m).includes(
-            "Working memory (source history remains queryable):",
-          ) &&
-          JSON.stringify(m.content).includes(originalText),
-      );
+      const onWire = rawSourceOnWire(send.payload, originalText);
       return {
         ...v,
         original_projection_exit:

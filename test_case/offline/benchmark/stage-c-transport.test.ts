@@ -187,6 +187,23 @@ test(
     assert(report.rows.some((r: any) => r.spans_observed_identity_strata));
     const c16 = report.rows.find((r: any) => r.scenario === "C16-combined");
     assert.equal(c16.c16.gate, "OPEN");
+    const natural = readJSON(
+      path.join(
+        root,
+        "evidence",
+        state.terminals[c16.source_lineage].run,
+        "stage-c-trial.json",
+      ),
+    );
+    const cold = natural.observations.find((o: any) => o.physical).physical
+      .cold;
+    assert.deepEqual(
+      [
+        cold.pre_restart.original_projection_exit,
+        cold.probe.original_projection_exit,
+      ],
+      ["STILL_PRESENT", "STILL_PRESENT"],
+    );
     // Local synthetic reader receipts exercise all branches without sending a packet to a model.
     const judge = { model: "Opus 5.5", effort: "Extra" },
       approval = completionApproval(hash, true);

@@ -1,7 +1,8 @@
 // A rehearsal has an immutable, in-memory transport and a non-secret test credential.
 // Only the three protocol trajectories below enter this separate measurement class.
 import { randomUUID } from "node:crypto";
-import { requireThat } from "./io.ts";
+import path from "node:path";
+import { readJSON, requireThat } from "./io.ts";
 export const rehearsalCases = [
   "C04-irrelevant",
   "C04-resident",
@@ -9,7 +10,11 @@ export const rehearsalCases = [
   "C16-combined",
 ] as const;
 export const rehearsalKey = "offline-completion-sse";
-export function rehearsalFetch(): typeof fetch {
+export function rehearsalFetch(reader?: {
+  evidence: string;
+  probe: string;
+  mode: "ORIGINAL_OFFSET" | "OTHER_EVENT";
+}): typeof fetch {
   let number = 0;
   return async (input, init) => {
     const req = new Request(input, init);
@@ -73,24 +78,46 @@ export function rehearsalFetch(): typeof fetch {
       body.tools.find((t: any) =>
         [name, "tool_" + name].includes(t.function?.name),
       )?.function?.name;
-    const name = task && choose(hasWrite ? "submit_result" : "write");
-    const args =
+    let name = task && choose(hasWrite ? "submit_result" : "write");
+    let args =
       name &&
       (hasWrite
         ? {
             outcome: "SUCCEEDED",
             summary: "Synthetic write observed",
-            criteria: JSON.parse(
-              packet.content,
-            ).assignment.acceptance_criteria.map((c: any) => ({
-              id: c.id,
-              met: true,
-              evidence: "synthetic",
-            })),
+            criteria: JSON.parse(packet).assignment.acceptance_criteria.map(
+              (c: any) => ({
+                id: c.id,
+                met: true,
+                evidence: "synthetic",
+              }),
+            ),
             artifacts: [],
             limitations: [],
           }
         : { path: "continuity.txt", content: "alpha" });
+    const latest = body.messages.at(-1);
+    if (
+      reader &&
+      latest?.role === "user" &&
+      textOf(latest.content) === reader.probe
+    ) {
+      const source = readJSON(
+        path.join(reader.evidence, "stage-c-original.json"),
+      );
+      const event =
+        reader.mode === "ORIGINAL_OFFSET"
+          ? source.event
+          : readJSON(
+              path.join(reader.evidence, "stage-c-trail.json"),
+            ).inputs.find(
+              (i: any) => i.source_event && i.source_event !== source.event,
+            )?.source_event;
+      requireThat(event, "REHEARSAL_EVENT_MISSING");
+      name = choose("memory_read");
+      requireThat(name, "REHEARSAL_READ_TOOL_MISSING");
+      args = { source: "log", event_id: event, offset: 4, length: 30 };
+    }
     const frames = [
       {
         ...common,

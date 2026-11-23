@@ -358,3 +358,33 @@ test("a hung recovery command stops only its owned restarted process and keeps t
   );
   assert.deepEqual(fs.readFileSync(file), first);
 });
+
+import { rawSourceOnWire } from "../../online/benchmark/stage-b-scenarios-evidence.ts";
+test("raw source detection compares decoded quoted multiline text even without a journal input tag", () => {
+  const source = 'first "quote"\nsecond \\ part';
+  assert(
+    rawSourceOnWire({ messages: [{ role: "user", content: source }] }, source),
+  );
+  assert(
+    rawSourceOnWire(
+      {
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: source.slice(0, 5) },
+              { type: "text", text: source.slice(5) },
+            ],
+          },
+        ],
+      },
+      source,
+    ),
+  );
+  assert(
+    !rawSourceOnWire(
+      { messages: [{ role: "assistant", content: source }] },
+      source,
+    ),
+  );
+});

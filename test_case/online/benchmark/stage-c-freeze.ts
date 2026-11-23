@@ -36,6 +36,7 @@ type Capacity = ReturnType<typeof capacityForecast>[number];
 type Sample = { bytes: number; output_cap: number; sha256: string };
 export type Preflight = {
   evidence_class?: "OFFLINE_SSE";
+  rehearsal_read?: "ORIGINAL_OFFSET" | "OTHER_EVENT";
   rehearsal_scenario?: "C16-combined" | "C06-stale-cold" | "C12b";
   models: StageModel[];
   reader_timing: {
@@ -140,6 +141,13 @@ export function projectCampaign(
   inputs: Preflight,
   providers: Record<string, ProviderRule>,
 ) {
+  requireThat(
+    !inputs.rehearsal_read ||
+      (inputs.evidence_class === "OFFLINE_SSE" &&
+        inputs.rehearsal_scenario === "C16-combined" &&
+        ["ORIGINAL_OFFSET", "OTHER_EVENT"].includes(inputs.rehearsal_read)),
+    "STAGE_C_REHEARSAL_READ_MODE",
+  );
   const models = inputs.models;
   const rehearsal = inputs.evidence_class === "OFFLINE_SSE";
   requireThat(

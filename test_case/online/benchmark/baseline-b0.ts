@@ -123,7 +123,10 @@ export function b0Matrix(rows: Capacity[]) {
   );
 }
 
-export async function captureBodies(context: Parameters<StreamFn>[1]) {
+export async function captureBodies(
+  context: Parameters<StreamFn>[1],
+  observe?: (model: string, bytes: Buffer) => void,
+) {
   const original = globalThis.fetch;
   const samples = [];
   try {
@@ -152,6 +155,7 @@ export async function captureBodies(context: Parameters<StreamFn>[1]) {
             cap > 0,
           "B0_SERIALIZATION_INVALID",
         );
+        observe?.(id, bytes);
         captured.push({
           chat_stream_usage_requested: chatUsageRequest(model.api, payload),
           bytes: bytes.length,

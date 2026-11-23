@@ -73,6 +73,11 @@ import { scoreDevelopment } from "./score.ts";
 import { exportPublicGrades, importPublicGrades } from "./public-grading.ts";
 import { baselinePlan, prepareBaseline } from "./baseline.ts";
 import { prepareB0 } from "./baseline-b0.ts";
+import {
+  prepareStageC,
+  readStageCReport,
+  prospectiveMatrix,
+} from "./stage-c.ts";
 import { stageCommand } from "./stage-b-cli.ts";
 
 async function main() {
@@ -131,6 +136,30 @@ async function main() {
       "BENCHMARK_EXPLICIT_FACILITY_ROOT_REQUIRED",
     );
   deploymentGuard(repository, root);
+  if (command.startsWith("baseline-stage-c-")) {
+    if (command === "baseline-stage-c-plan") {
+      requireThat(Object.keys(options).length === 0, "STAGE_C_PLAN_NO_OPTIONS");
+      console.log(JSON.stringify(prospectiveMatrix()));
+      return;
+    }
+    requireThat(
+      ["baseline-stage-c-prepare", "baseline-stage-c-report"].includes(
+        command,
+      ) &&
+        Object.keys(options).length === 1 &&
+        options["--root"] &&
+        root !== path.join(repository, ".local/benchmark"),
+      "STAGE_C_OFFLINE_ONLY",
+    );
+    console.log(
+      JSON.stringify(
+        command === "baseline-stage-c-prepare"
+          ? await prepareStageC(root)
+          : readStageCReport(root),
+      ),
+    );
+    return;
+  }
   if (command.startsWith("baseline-stage-b-")) {
     requireThat(
       !!options["--root"] && root !== path.join(repository, ".local/benchmark"),

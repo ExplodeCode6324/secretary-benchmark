@@ -97,6 +97,19 @@ export type Configuration =
   | LiveConfiguration
   | StageConfiguration
   | {
+      version: 3;
+      mode: "fixture";
+      track: "issue122";
+      case_id:
+        | "C06-stale-cold"
+        | "C12b"
+        | "C06-resident-B"
+        | "C04-irrelevant"
+        | "C04-nonexistent";
+      seed: 122;
+      fault_injection?: never;
+    }
+  | {
       version: 1;
       mode: "fixture";
       track: "correctness";
@@ -104,7 +117,10 @@ export type Configuration =
       seed: number;
       fault_injection?: "write-after-fsync";
     };
-export const configuration: Extract<Configuration, { mode: "fixture" }> = {
+export const configuration: Extract<
+  Configuration,
+  { mode: "fixture"; version: 1 }
+> = {
   version: 1,
   mode: "fixture",
   track: "correctness",
@@ -113,6 +129,24 @@ export const configuration: Extract<Configuration, { mode: "fixture" }> = {
 };
 export function validateConfiguration(config: Configuration) {
   if (config.mode === "live") return validateLiveConfiguration(config);
+  if (config.version === 3) {
+    requireThat(
+      Object.keys(config).sort().join(",") ===
+        "case_id,mode,seed,track,version" &&
+        config.mode === "fixture" &&
+        config.track === "issue122" &&
+        config.seed === 122 &&
+        [
+          "C06-stale-cold",
+          "C12b",
+          "C06-resident-B",
+          "C04-irrelevant",
+          "C04-nonexistent",
+        ].includes(config.case_id),
+      "STAGE_C_FIXTURE_ONLY",
+    );
+    return;
+  }
   requireThat(
     JSON.stringify(
       Object.keys(config)

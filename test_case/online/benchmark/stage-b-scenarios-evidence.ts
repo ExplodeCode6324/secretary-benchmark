@@ -532,17 +532,57 @@ export function inspectStageEvidence(
     ).length;
     const answered =
       bound?.question && latest("DecisionRequest", bound.question);
-    const activated = bound?.condition
-      ? !!e?.condition_results.some(
-          (r: any) => r.condition_id === bound.condition && r.status === "MET",
-        )
-      : !!answered &&
-        answered.execution_id === e?.id &&
-        answered.state === "ANSWERED" &&
-        answered.answered_by === "MASTER" &&
-        answered.answer_request_id === bound?.answer_request;
+    const activationBound = !!bound && !!e && e.task_id === bound.task;
+    const activated =
+      activationBound &&
+      (bound?.condition
+        ? !!e?.condition_results.some(
+            (r: any) =>
+              r.condition_id === bound.condition && r.status === "MET",
+          )
+        : !!answered &&
+          answered.execution_id === e?.id &&
+          answered.state === "ANSWERED" &&
+          answered.answered_by === "MASTER" &&
+          answered.answer_request_id === bound?.answer_request);
     task = {
       condition_met_or_answered: activated,
+      diagnostics_version: 2,
+      activation: activated
+        ? "OBSERVED"
+        : activationBound &&
+            e &&
+            ((bound?.condition &&
+              e.condition_results.some(
+                (r: any) =>
+                  r.condition_id === bound.condition && r.status === "NOT_MET",
+              )) ||
+              (answered &&
+                answered.execution_id === e.id &&
+                answered.state === "OPEN"))
+          ? "NOT_MET"
+          : "UNKNOWN",
+      pending_authorization_bound:
+        e?.state === "WAIT_AUTH" &&
+        records.some((record) => {
+          if (
+            record.record_type !== "AuthorizationRequest" ||
+            latest(record.record_type, record.id) !== record
+          )
+            return false;
+          const op = latest("Operation", record.operation_id);
+          return (
+            record.state === "PENDING" &&
+            record.scope.execution_id === e.id &&
+            record.scope.task_id === e.task_id &&
+            e.task_id === bound?.task &&
+            e.waiting_request_ids.includes(record.id) &&
+            op?.state === "WAIT_AUTH" &&
+            op.authorization_id === record.id &&
+            isDeepStrictEqual(op.scope, record.scope) &&
+            isDeepStrictEqual(op.action, record.action)
+          );
+        }),
       window_complete: !!e?.ended_at && !!bound?.terminal,
       terminal: e?.state,
       physical_writes: writes.length,
@@ -566,8 +606,8 @@ export function inspectStageEvidence(
       observed_condition: bound?.condition,
       observed_question: bound?.question,
     };
-    if (!activated || !task.window_complete)
-      requirements.push("TASK_ACTIVATION_MISSING");
+    if (!activated) requirements.push("TASK_ACTIVATION_MISSING");
+    if (!task.window_complete) requirements.push("TASK_TERMINAL_MISSING");
   }
   return { requirements, outcome, world, maintenance, cold, task, excerpts };
 }

@@ -15,6 +15,7 @@ const requirements = [
   "TWO_MAINTENANCE_COMMITS_MISSING",
   "COLD_OBSERVATION_MISSING",
   "TASK_ACTIVATION_MISSING",
+  "TASK_TERMINAL_MISSING",
 ];
 export type TrialBinding = {
   id: string;
@@ -38,7 +39,10 @@ export function trialArtifact(root: string, b: TrialBinding) {
   requireThat(sha(bytes) === b.evidence, "STAGE_B_EVIDENCE_CHANGED");
   const packet = JSON.parse(bytes.toString());
   requireThat(
-    packet.schema === "issue122-stage-scenario-evidence-v1" &&
+    [
+      "issue122-stage-scenario-evidence-v1",
+      "issue122-stage-scenario-evidence-v2",
+    ].includes(packet.schema) &&
       packet.episode === b.episode &&
       packet.lane === b.lane &&
       packet.freeze_sha256 === b.freeze &&
@@ -67,6 +71,17 @@ export function hostEvidence(packet: ReturnType<typeof trialArtifact>) {
       digest(proof?.outcome?.probe_payload),
     world: w
       ? {
+          ...(packet.schema === "issue122-stage-scenario-evidence-v2"
+            ? {
+                source_notes: (packet.trail?.decisions ?? []).map((d: any) =>
+                  (d.notes ?? []).map((n: any) => ({
+                    present: n.present === true,
+                    length: safeCount(n.length),
+                    sha256: digest(n.sha256) ? n.sha256 : null,
+                  })),
+                ),
+              }
+            : {}),
           commit_sequence: safeCount(w.commit_sequence),
           first_eligible_sequence: safeCount(w.first_eligible_sequence),
           receipt_sha256: digest(w.receipt_sha256) ? w.receipt_sha256 : null,
@@ -111,6 +126,35 @@ export function hostEvidence(packet: ReturnType<typeof trialArtifact>) {
       : null,
     task: t
       ? {
+          ...(t.diagnostics_version === 2
+            ? {
+                activation: ["OBSERVED", "NOT_MET"].includes(t.activation)
+                  ? t.activation
+                  : "UNKNOWN",
+                last_execution_state: [
+                  "CREATED",
+                  "CANCEL_REQUESTED",
+                  "DISPATCHING",
+                  "READY",
+                  "RUNNING",
+                  "WAIT_PRECONDITION",
+                  "WAIT_DECISION",
+                  "WAIT_AUTH",
+                  "RESULT_UNKNOWN",
+                  "SUCCEEDED",
+                  "FAILED",
+                  "CANCELLED",
+                  "EXPIRED",
+                ].includes(t.terminal)
+                  ? t.terminal
+                  : "UNKNOWN",
+                wait_reason:
+                  t.terminal === "WAIT_AUTH" &&
+                  t.pending_authorization_bound === true
+                    ? "PENDING_AUTHORIZATION"
+                    : null,
+              }
+            : {}),
           condition_met_or_answered: t.condition_met_or_answered === true,
           window_complete: t.window_complete === true,
           physical_writes: safeCount(t.physical_writes),

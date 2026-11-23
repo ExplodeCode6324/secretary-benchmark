@@ -79,6 +79,7 @@ export type ScenarioTrail = {
     decision: string;
     parameters_sha256: string;
     display_sha256: string;
+    notes?: ReturnType<typeof worldNoteMetadata>[];
   }[];
   cycles: {
     job: string;
@@ -141,6 +142,13 @@ export function validateScenario(id: string, steps: TimelineStep[]) {
   lintTimeline(steps);
 }
 
+function worldNoteMetadata(change: Record<string, unknown>) {
+  const note = change.source_note;
+  return typeof note === "string"
+    ? { present: true, length: Array.from(note).length, sha256: sha(note) }
+    : { present: false, length: null, sha256: null };
+}
+
 export function exactWorld(batch: any, source: string, corrected: boolean) {
   const ref = batch?.changes?.[0]?.local_ref;
   if (
@@ -159,22 +167,38 @@ export function exactWorld(batch: any, source: string, corrected: boolean) {
   const value = corrected
     ? "Fern pickup is Saturday. Only redacted copies may be collected."
     : "Fern pickup is Thursday.";
-  return isDeepStrictEqual(batch, {
-    version: 1,
-    batch_id: batch.batch_id,
-    changes: [
-      entity,
-      {
-        intent: "ASSERT",
-        subject: ref,
-        predicate: "entity.note",
-        topic: "current_context",
-        value,
-        keywords: [],
-        source_event_ids: [source],
-      },
-    ],
-  });
+  if (!Array.isArray(batch.changes) || batch.changes.length !== 2) return false;
+  const changes = [];
+  for (const change of batch.changes) {
+    if (!change || typeof change !== "object" || Array.isArray(change))
+      return false;
+    const { source_note, ...semantic } = change;
+    if (
+      Object.hasOwn(change, "source_note") &&
+      (typeof source_note !== "string" || Array.from(source_note).length > 2000)
+    )
+      return false;
+    changes.push(semantic);
+  }
+  return isDeepStrictEqual(
+    { ...batch, changes },
+    {
+      version: 1,
+      batch_id: batch.batch_id,
+      changes: [
+        entity,
+        {
+          intent: "ASSERT",
+          subject: ref,
+          predicate: "entity.note",
+          topic: "current_context",
+          value,
+          keywords: [],
+          source_event_ids: [source],
+        },
+      ],
+    },
+  );
 }
 export function checkedWorld(
   host: ScenarioHost,
@@ -212,7 +236,13 @@ export function checkedWorld(
       }),
     "SCENARIO_WORLD_BATCH",
   );
-  return { a, op };
+  return {
+    a,
+    op,
+    notes: batch.changes.map(worldNoteMetadata) as ReturnType<
+      typeof worldNoteMetadata
+    >[],
+  };
 }
 function idle(o: ScenarioObservation) {
   return (
@@ -422,8 +452,9 @@ export async function playStageScenario(
     } else if (s.action === "MASTER_AUTHORIZATION") {
       const corrected = s.payload!.decision === "APPROVE",
         source = lastInput!.source_event!;
-      const { a, op } = await wait("SCENARIO_WORLD_PROPOSAL_MISSING", (o) =>
-        checkedWorld(h, o, source, corrected),
+      const { a, op, notes } = await wait(
+        "SCENARIO_WORLD_PROPOSAL_MISSING",
+        (o) => checkedWorld(h, o, source, corrected),
       );
       await command("authorizations/" + a.id + "/decision", {
         expected_revision: String(a.revision),
@@ -437,6 +468,7 @@ export async function playStageScenario(
         decision: String(s.payload!.decision),
         parameters_sha256: op.action.parameters_hash,
         display_sha256: a.display_hash,
+        notes,
       });
       h.record(t);
       await wait("SCENARIO_WORLD_DECISION_UNSETTLED", (o) => {

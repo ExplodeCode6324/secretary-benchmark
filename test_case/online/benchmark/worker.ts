@@ -1,3 +1,4 @@
+import { installStageCFault } from "./stage-c-fault.ts";
 import { loadCampaign } from "./campaign.ts";
 import { forbiddenPayload } from "./payload-guard.ts";
 // Owned fixture/live entry. A detached sender owns its durable campaign accounting.
@@ -309,6 +310,8 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
       }
       return finish(id, receipt, outcome);
     }) as typeof app.authorization.finish;
+    if (run.config.version === 3 && run.config.case_id === "C12b")
+      installStageCFault(app, run);
     requireThat(app.world?.ready && app.world.configured, "WORLD_NOT_READY");
     const role = (
       await app.world.pool.query(

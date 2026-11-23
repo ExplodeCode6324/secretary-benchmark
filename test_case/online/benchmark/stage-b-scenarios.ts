@@ -212,7 +212,7 @@ export async function executeStageScenario(
   });
   writeJSON(packet, {
     excerpts_sha256: sha(read(selected)),
-    schema: "issue122-stage-scenario-evidence-v1",
+    schema: "issue122-stage-scenario-evidence-v2",
     episode: run.lineage,
     lane: run.config.lane,
     freeze_sha256: run.config.freeze_sha256,

@@ -82,6 +82,30 @@ export function c16Disposition(
   };
 }
 
+function toolResultOnWire(payload: any, toolCall: string, digest: string) {
+  const messages = payload?.messages ?? payload?.input;
+  return (
+    Array.isArray(messages) &&
+    messages.some((m) => {
+      if (
+        (m.tool_call_id ?? m.call_id) !== toolCall ||
+        !(m.role === "tool" || m.type === "function_call_output")
+      )
+        return false;
+      const value = m.content ?? m.output;
+      const text =
+        typeof value === "string"
+          ? value
+          : Array.isArray(value)
+            ? value
+                .filter((p) => p.type === "text" || p.type === "output_text")
+                .map((p) => p.text)
+                .join("\n")
+            : null;
+      return text !== null && sha(text) === digest;
+    })
+  );
+}
 // Journal and CAS witnesses are separate from any semantic interpretation of the text.
 export function trialWitness(
   id: string,
@@ -245,7 +269,8 @@ export function trialWitness(
                       ?.filter((n: any) => n.type === "text")
                       .map((n: any) => n.text)
                       .join("\n");
-                    return text === memo
+                    return text === memo &&
+                      toolResultOnWire(wire.payload, p.id, sha(text))
                       ? [
                           {
                             tool_call: p.id,
@@ -265,30 +290,7 @@ export function trialWitness(
     const chainCall = chain.find((x) => x?.call === r.delivered_to);
     return chainCall?.wires.some((id) => {
       const payload = sends.find((s) => s.id === id)?.payload;
-      const messages = payload?.messages ?? payload?.input;
-      return (
-        Array.isArray(messages) &&
-        messages.some((m) => {
-          if (
-            (m.tool_call_id ?? m.call_id) !== r.tool_call_id ||
-            !(m.role === "tool" || m.type === "function_call_output")
-          )
-            return false;
-          const value = m.content ?? m.output;
-          const text =
-            typeof value === "string"
-              ? value
-              : Array.isArray(value)
-                ? value
-                    .filter(
-                      (p) => p.type === "text" || p.type === "output_text",
-                    )
-                    .map((p) => p.text)
-                    .join("\n")
-                : null;
-          return text !== null && sha(text) === r.tool_text_sha256;
-        })
-      );
+      return toolResultOnWire(payload, r.tool_call_id, r.tool_text_sha256);
     });
   });
   const structural_gaps: string[] = [];

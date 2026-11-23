@@ -156,11 +156,27 @@ export async function completionCommand(
           Date.parse(state.started_at) + policy.batch_seconds * 1000,
           Date.parse(policy.providers[l.model].checked_at) + 86400000,
         );
-        requireThat(
-          Date.now() + l.seconds * 1000 <= until,
-          "STAGE_C_BATCH_OR_SOURCE_WINDOW",
-        );
-        await publication();
+        let hold: string | undefined;
+        if (Date.now() + l.seconds * 1000 > until)
+          hold = "BATCH_OR_SOURCE_WINDOW";
+        else
+          try {
+            await publication();
+          } catch (error) {
+            hold =
+              error instanceof Error
+                ? error.message
+                : "PUBLICATION_UNAVAILABLE";
+          }
+        if (hold) {
+          for (const remaining of batch)
+            state.terminals[remaining.lane.lane] ??= {
+              status: "UNRUN",
+              reason: hold,
+            };
+          writeJSON(stateFile, state);
+          break;
+        }
         const desc = describeTrial(
           l.scenario,
           l.repeat,

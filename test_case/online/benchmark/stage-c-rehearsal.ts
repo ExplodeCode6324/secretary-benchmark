@@ -49,18 +49,70 @@ export function rehearsalFetch(): typeof fetch {
       object: "chat.completion.chunk",
       system_fingerprint: "stub-" + (++number % 2),
     };
+    const packet = body.messages.findLast(
+      (m: any) =>
+        m.role === "user" &&
+        typeof m.content === "string" &&
+        m.content.includes('"secretary.agent-task.v1"'),
+    );
+    const task = packet && sys.includes("TASK_EXECUTOR");
+    const hasWrite = body.messages.some((m: any) =>
+      m.tool_calls?.some(
+        (c: any) =>
+          c.function?.name === "tool_write" || c.function?.name === "write",
+      ),
+    );
+    const choose = (name: string) =>
+      body.tools.find((t: any) =>
+        [name, "tool_" + name].includes(t.function?.name),
+      )?.function?.name;
+    const name = task && choose(hasWrite ? "submit_result" : "write");
+    const args =
+      name &&
+      (hasWrite
+        ? {
+            outcome: "SUCCEEDED",
+            summary: "Synthetic write observed",
+            criteria: JSON.parse(
+              packet.content,
+            ).assignment.acceptance_criteria.map((c: any) => ({
+              id: c.id,
+              met: true,
+              evidence: "synthetic",
+            })),
+            artifacts: [],
+            limitations: [],
+          }
+        : { path: "continuity.txt", content: "alpha" });
     const frames = [
       {
         ...common,
         choices: [
           {
             index: 0,
-            delta: { role: "assistant", content: message },
+            delta: name
+              ? {
+                  role: "assistant",
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: "call_" + randomUUID().replaceAll("-", ""),
+                      type: "function",
+                      function: { name, arguments: JSON.stringify(args) },
+                    },
+                  ],
+                }
+              : { role: "assistant", content: message },
             finish_reason: null,
           },
         ],
       },
-      { ...common, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+      {
+        ...common,
+        choices: [
+          { index: 0, delta: {}, finish_reason: name ? "tool_calls" : "stop" },
+        ],
+      },
       {
         ...common,
         choices: [],

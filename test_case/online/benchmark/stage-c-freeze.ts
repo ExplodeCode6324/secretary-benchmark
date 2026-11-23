@@ -36,6 +36,7 @@ type Capacity = ReturnType<typeof capacityForecast>[number];
 type Sample = { bytes: number; output_cap: number; sha256: string };
 export type Preflight = {
   evidence_class?: "OFFLINE_SSE";
+  rehearsal_scenario?: "C16-combined" | "C06-stale-cold" | "C12b";
   models: StageModel[];
   reader_timing: {
     manifest_sha256: string;
@@ -142,7 +143,12 @@ export function projectCampaign(
   const models = inputs.models;
   const rehearsal = inputs.evidence_class === "OFFLINE_SSE";
   requireThat(
-    inputs.evidence_class === undefined || rehearsal,
+    (inputs.evidence_class === undefined || rehearsal) &&
+      (!inputs.rehearsal_scenario ||
+        (rehearsal &&
+          ["C16-combined", "C06-stale-cold", "C12b"].includes(
+            inputs.rehearsal_scenario,
+          ))),
     "STAGE_C_TRANSPORT",
   );
   requireThat(
@@ -167,7 +173,10 @@ export function projectCampaign(
     (c) =>
       c.status === "READY_FOR_OFFLINE_VALIDATION" &&
       c.pair?.position !== "B" &&
-      (!rehearsal || rehearsalCases.some((id) => c.id === id)),
+      (!rehearsal ||
+        (inputs.rehearsal_scenario
+          ? c.id === inputs.rehearsal_scenario
+          : rehearsalCases.some((id) => c.id === id))),
   );
   const lanes = [];
   for (const c of sources)
@@ -179,17 +188,18 @@ export function projectCampaign(
       );
       requireThat(capacity && providers[model], "STAGE_C_CAPACITY_REQUIRED");
       const plan = fillerPlan(capacity, c.requires_cold);
-      const recipe = rehearsal
-        ? { count: 8, bytes_each: 256 }
-        : plan
-          ? {
-              count:
-                c.id === "C06-stale-cold"
-                  ? Math.min(8, plan.count)
-                  : plan.count,
-              bytes_each: plan.bytes_each,
-            }
-          : undefined;
+      const recipe =
+        rehearsal && !inputs.rehearsal_scenario
+          ? { count: 8, bytes_each: 256 }
+          : plan
+            ? {
+                count:
+                  c.id === "C06-stale-cold"
+                    ? Math.min(8, plan.count)
+                    : plan.count,
+                bytes_each: plan.bytes_each,
+              }
+            : undefined;
       for (let repeat = 1; repeat <= (rehearsal ? 1 : 3); repeat++) {
         const spec = describeTrial(c.id, repeat, model, "BASELINE", recipe);
         const b =
@@ -362,8 +372,16 @@ export function projectCampaign(
         rehearsalCases.findIndex((id) => id === b.lane.scenario),
     );
   const batches: (typeof lanes)[] = [];
-  let cost = 0;
+  // The first-contact batch uses an existing short control. The comparison denominator stays fixed.
+  const firstContact =
+    !rehearsal &&
+    lanes.find(
+      (r) => r.lane.scenario === "C04-resident" && r.lane.repeat === 1,
+    );
+  if (firstContact) batches.push([firstContact]);
+  let cost = firstContact ? 43200 : 0;
   for (const row of lanes) {
+    if (row === firstContact) continue;
     if (!batches.length || cost + row.lane.seconds > 43200) {
       batches.push([]);
       cost = 0;
@@ -478,7 +496,11 @@ export function loadCompletion(root: string, hash: string, approval: string) {
   );
   const projection = projectCampaign(inputs, { "deepseek-flash": rule });
   requireThat(
-    JSON.stringify(inputs.source) === JSON.stringify(source) &&
+    JSON.stringify(roleSettings(inputs)) ===
+      JSON.stringify(frozen.role_model) &&
+      frozen.identity_stratum ===
+        "PER_SEND_RETURNED_MODEL_AND_PROVIDER_FINGERPRINT" &&
+      JSON.stringify(inputs.source) === JSON.stringify(source) &&
       JSON.stringify(frozen.grade) === JSON.stringify(inputs.calibration) &&
       Number.isSafeInteger(frozen.batch_index) &&
       frozen.batch_index >= 1 &&
@@ -502,6 +524,31 @@ export function loadCompletion(root: string, hash: string, approval: string) {
   };
   validatePhysical(policy);
   return { frozen, inputs, policy, batch: frozen.batch as FrozenBatch };
+}
+function roleSettings(inputs: Preflight) {
+  const model = descriptor("deepseek-flash");
+  return {
+    main: model.id,
+    task: model.id,
+    provider: model.provider,
+    api: model.api,
+    base_url: model.baseUrl,
+    effective_limits_by_profile: inputs.capacities.map((c) => ({
+      profile: c.profile,
+      main: c.budget,
+      task: c.task_budget,
+      window: c.window,
+    })),
+    reasoning_capable: model.reasoning,
+    temperature: "ADAPTER_DEFAULT",
+    max_requested_output: model.maxTokens,
+    sdk_retries: 0,
+    output_policy:
+      "roleModel resolves the requested output against the role budget on every send",
+    experiment_seed:
+      "Host lineage and recipe identifier; the paired branches share it",
+    provider_seed: "UNAVAILABLE",
+  };
 }
 export function freezeBatch(root: string, index: number, checked: string) {
   deploymentGuard(repository, root);
@@ -538,7 +585,6 @@ export function freezeBatch(root: string, index: number, checked: string) {
   const projection = projectCampaign(inputs, providers),
     batch = projection.batches[index - 1];
   requireThat(batch, "STAGE_C_BATCH_INDEX");
-  const model = descriptor("deepseek-flash");
   const document = {
     schema: "issue122-completion-freeze-v1",
     evidence_class: inputs.evidence_class ?? "LIVE",
@@ -548,28 +594,7 @@ export function freezeBatch(root: string, index: number, checked: string) {
     inputs_sha256: sha(read(inputFile)),
     batch_index: index,
     batch,
-    role_model: {
-      main: model.id,
-      task: model.id,
-      provider: model.provider,
-      api: model.api,
-      base_url: model.baseUrl,
-      effective_limits_by_profile: inputs.capacities.map((c) => ({
-        profile: c.profile,
-        main: c.budget,
-        task: c.task_budget,
-        window: c.window,
-      })),
-      reasoning_capable: model.reasoning,
-      temperature: "ADAPTER_DEFAULT",
-      max_requested_output: model.maxTokens,
-      sdk_retries: 0,
-      output_policy:
-        "roleModel resolves the requested output against the role budget on every send",
-      experiment_seed:
-        "Host lineage and recipe identifier; the paired branches share it",
-      provider_seed: "UNAVAILABLE",
-    },
+    role_model: roleSettings(inputs),
     identity_stratum: "PER_SEND_RETURNED_MODEL_AND_PROVIDER_FINGERPRINT",
     grade: inputs.calibration,
     projection_sha256: sha(JSON.stringify(projection)),

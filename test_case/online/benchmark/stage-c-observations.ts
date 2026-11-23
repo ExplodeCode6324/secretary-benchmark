@@ -150,14 +150,15 @@ export function trialWitness(
     !!last &&
     last.stopReason === "stop" &&
     last.content?.some((v: any) => v.type === "text" && v.text?.trim());
-  const original = t.inputs[0];
+  const sourceIndex = id === "C06-stale-cold" ? 1 : 0;
+  const original = t.inputs[sourceIndex];
   const sourceReadsObserved =
-    original && c.setup[0]
+    original && c.setup[sourceIndex]
       ? sourceReads(
           events.find((e) => e.event_id === original.source_event)?.scope
             .session_id,
           original.id,
-          c.setup[0],
+          c.setup[sourceIndex],
           events,
           chain.flatMap((x) =>
             x && x.wires.length && x.sequence

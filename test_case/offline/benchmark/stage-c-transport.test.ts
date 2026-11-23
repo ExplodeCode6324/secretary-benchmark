@@ -1,3 +1,16 @@
+import {
+  ledger,
+  loadCampaign,
+  reserve,
+} from "../../online/benchmark/campaign.ts";
+import {
+  physicalBound,
+  reservationUSD,
+} from "../../online/benchmark/stage-b-policy.ts";
+import {
+  completionJudge,
+  completedBatchReport,
+} from "../../online/benchmark/stage-c-grading.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -21,7 +34,7 @@ import os from "node:os";
 
 test(
   "completion CLI rehearses metered transport, shared source, C16 and sealed archive",
-  { timeout: 600000 },
+  { timeout: 1100000 },
   async () => {
     const root = path.join(
       repository,
@@ -45,7 +58,7 @@ test(
           {
             cwd: repository,
             encoding: "utf8",
-            timeout: 450000,
+            timeout: 870000,
             stdio: ["ignore", "pipe", "pipe"],
           },
         ),
@@ -120,7 +133,38 @@ test(
         fs.writeFileSync(inputFile, origInputs);
       }
     }
-    command("start", ...approved);
+    const started = command("start", ...approved);
+    const first = f.batch[0].lane,
+      episode = randomUUID(),
+      policy = loadCampaign(root).physical_policy!;
+    const active = {
+      lane: first.lane,
+      model: first.model,
+      episode,
+      run: episode,
+      state: "OPEN",
+      freeze_sha256: hash,
+      deadline: Date.now() + 60000,
+    };
+    const dispatchFile = path.join(root, "campaign/stage-c-dispatch.json");
+    writeJSON(dispatchFile, { ...started, current: first.lane });
+    writeJSON(path.join(root, "campaign/active-stage-c.json"), active);
+    const physical = physicalBound(policy, "deepseek-flash", 1000, 128, "main");
+    const reserved = reservationUSD(
+      policy.providers["deepseek-flash"],
+      physical.input_bytes,
+      physical.output_tokens,
+    );
+    const orphan = await reserve(root, {
+      model: first.model,
+      run: episode,
+      episode,
+      lane: first.lane,
+      request_sha256: sha("in flight"),
+      reserved_usd: reserved,
+      physical,
+    });
+
     const state = command("dispatch", ...approved);
     assert.equal(state.ended, true);
     assert.deepEqual(
@@ -128,15 +172,151 @@ test(
         r.status,
         r.reason ?? null,
       ]),
-      Array(3).fill(["COMPLETED", null]),
+      [
+        ["INCOMPLETE", "INTERRUPTED_TRAJECTORY"],
+        ...Array(3).fill(["COMPLETED", null]),
+      ],
     );
     const report = command("results", "--sha256", hash);
     assert.equal(report.physical_sends, 0);
     assert(report.metered_attempts > 10);
-    assert.equal(report.rows.length, 4);
+    assert.equal(report.rows.length, 5);
+    const interrupted = ledger(root).entries.get(orphan)!;
+    assert.equal(interrupted.outcome, "INTERRUPTED_IN_FLIGHT");
+    assert.equal(interrupted.charged_usd, reserved);
     assert(report.rows.some((r: any) => r.spans_observed_identity_strata));
     const c16 = report.rows.find((r: any) => r.scenario === "C16-combined");
     assert.equal(c16.c16.gate, "OPEN");
+    // Local synthetic reader receipts exercise all branches without sending a packet to a model.
+    const judge = { model: "Opus 5.5", effort: "Extra" },
+      approval = completionApproval(hash, true);
+    const prepare = await completionJudge(
+      root,
+      "begin",
+      hash,
+      approval,
+      "calibration",
+    );
+    const key = readJSON(
+      path.join(root, "oracles/completion/calibration/key.json"),
+    );
+    const calibrated = await completionJudge(
+      root,
+      "finish",
+      hash,
+      approval,
+      "calibration",
+      {
+        judge,
+        packet_sha256: "packet_sha256" in prepare ? prepare.packet_sha256 : "",
+        labels: key.map((k: any) => ({ id: k.id, verdict: k.expected })),
+      },
+    );
+    assert("status" in calibrated);
+    assert.equal(calibrated.status, "PASSED");
+    const lane = c16.source_lineage,
+      terminal = state.terminals[lane];
+    for (const [visibility, retention, verdict] of [
+      ["RESIDENT", "PASS", "PASS"],
+      ["COLD", "PASS", "FAIL"],
+      ["RESIDENT", "FAIL", "FAIL"],
+      ["OPAQUE", "PASS", "UNRESOLVED"],
+      ["RESIDENT", "UNRESOLVED", "UNRESOLVED"],
+    ]) {
+      // Copy the necessary synthetic evidence into a separate owned test facility. Preserve the original trial and its grade store.
+      const variant = path.join(
+        repository,
+        ".local/benchmark/tests",
+        "reader-variant-" + randomUUID(),
+      );
+      const take = (rel: string) => {
+        const dest = path.join(variant, rel);
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.cpSync(path.join(root, rel), dest, { recursive: true });
+      };
+      for (const rel of [
+        "configs/stage-c-freeze.json",
+        "inputs",
+        "reports/stage-c-projection.json",
+        "campaign/attempts.jsonl",
+        "campaign/stage-c-dispatch.json",
+        "oracles",
+      ])
+        take(rel);
+      const trialRel = "evidence/" + terminal.run + "/stage-c-trial.json";
+      take(trialRel);
+      const trialFile = path.join(variant, trialRel),
+        trial = readJSON(trialFile);
+      const observed = trial.observations.find((v: any) => v.physical);
+      take(
+        "evidence/" +
+          observed.run +
+          "/send-" +
+          observed.physical.outcome.probe_send +
+          ".json",
+      );
+      // This counterfactual has an exited original projection. The unmodified short rehearsal may retain it.
+      for (const surface of [
+        observed.physical.cold.pre_restart,
+        observed.physical.cold.probe,
+      ])
+        surface.original_projection_exit = "SOURCE_EXIT";
+      trial.synthetic_reader_fixture = true;
+      trial.observations.find(
+        (v: any) => v.mechanism === "HOST_PRODUCT_READ_LOG",
+      ).result = retention;
+      writeJSON(trialFile, trial);
+      const stateCopy = structuredClone(state);
+      stateCopy.terminals[lane].report_sha256 = sha(read(trialFile));
+      // Other lane artifacts are outside this synthetic reader fixture.
+      for (const [other, value] of Object.entries(stateCopy.terminals))
+        if (other !== lane)
+          stateCopy.terminals[other] = {
+            status: "UNRUN",
+            reason: "READER_FIXTURE",
+          };
+      writeJSON(
+        path.join(variant, "campaign/stage-c-dispatch.json"),
+        stateCopy,
+      );
+      const attempt = await completionJudge(
+        variant,
+        "begin",
+        hash,
+        approval,
+        lane,
+      );
+      assert("packet" in attempt);
+      const packet = attempt.packet;
+      const accepted = await completionJudge(
+        variant,
+        "finish",
+        hash,
+        approval,
+        lane,
+        {
+          judge,
+          packet_sha256: attempt.packet_sha256,
+          visibility,
+          assertions: packet.assertions.map((a: string) => ({
+            assertion: a,
+            verdict: "PASS",
+            rationale: "Synthetic grade for the reporting contract.",
+            evidence: [packet.evidence[0].id],
+          })),
+        },
+      );
+      assert("status" in accepted);
+      assert.equal(accepted.status, "ACCEPTED");
+      const final = completedBatchReport(variant, hash).rows.find(
+        (r) => r.scenario === "C16-combined",
+      )!;
+      assert.equal(final.c16?.verdict, verdict, JSON.stringify(final.c16));
+      assert.equal(
+        final.c16?.gate,
+        verdict === "UNRESOLVED" ? "OPEN" : "CLOSED",
+      );
+    }
     const output = fs.realpathSync(
       fs.mkdtempSync(path.join(os.tmpdir(), "completion-sse-archive-")),
     );

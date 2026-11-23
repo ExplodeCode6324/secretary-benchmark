@@ -1,3 +1,4 @@
+import { judgeCorrection } from "./stage-c-reader.ts";
 import { ledger } from "./campaign.ts";
 import fs from "node:fs";
 import path from "node:path";
@@ -244,6 +245,10 @@ export async function completionJudge(
     const packet = readOwnedGradeJSON(root, dir + "/blind.json"),
       digest = binding(root, dir);
     if (mode === "begin") {
+      requireThat(
+        attemptHistory(root, dir).length < inputs.calibration.max_attempts,
+        "STAGE_C_JUDGE_ATTEMPT_LIMIT",
+      );
       const a = reserveJudgeAttempt(d, dir, digest, 1, calibration);
       return { ...a, packet };
     }
@@ -391,6 +396,36 @@ export function completedBatchReport(root: string, hash: string) {
                 grades[g.assertion] = g.verdict;
             }
           }
+          if (s.id === "C06-stale-cold") {
+            const correction = trial.observations.find(
+              (x: any) => x.inputs && x.status,
+            );
+            if (correction?.status !== "CAPTURED")
+              grades.use_current = correction?.probe
+                ? "UNRESOLVED"
+                : "NOT_TESTED";
+            else if (end?.status === "ACCEPTED") {
+              const side = readOwnedGradeJSON(root, dir + "/binding.json");
+              const g = judgeCorrection({
+                maintenance: "UNKNOWN",
+                visibility:
+                  side.surfaceComplete &&
+                  ["COLD", "RESIDENT"].includes(end.submission.visibility)
+                    ? end.submission.visibility
+                    : "UNKNOWN",
+                resident_old: null,
+                source_delivered: obs.witness.probe_chain.original_delivered,
+                supported_use:
+                  grades.use_current === "PASS"
+                    ? true
+                    : grades.use_current === "FAIL"
+                      ? false
+                      : null,
+                reached: true,
+              });
+              grades.use_current = g.use;
+            }
+          }
           if (s.id === "C16-combined") {
             const ref = trial.observations.find(
               (x: any) => x.mechanism === "HOST_PRODUCT_READ_LOG",
@@ -420,8 +455,17 @@ export function completedBatchReport(root: string, hash: string) {
                   }
                 : undefined,
               obs.witness.probe_chain,
-              true,
+              charged.some(
+                (e) =>
+                  e.attempt.id === obs.physical.outcome.probe_send &&
+                  e.outcome === "RESPONSE_COMPLETE",
+              ),
             );
+          }
+          if (obs.witness.structural_gaps.length) {
+            for (const a of s.assertions)
+              if (!["PASS", "FAIL"].includes(obs.witness.assertions[a]))
+                grades[a] = "UNRESOLVED";
           }
           if (s.id === "C12b") {
             const recovery = trial.observations.find(
@@ -445,6 +489,7 @@ export function completedBatchReport(root: string, hash: string) {
           };
         } | null;
         return {
+          send: e.attempt.id,
           at: e.attempt.at,
           outcome: e.outcome ?? "UNSETTLED",
           returned_model: usage?.returned_model ?? null,
@@ -481,6 +526,7 @@ export function completedBatchReport(root: string, hash: string) {
         identity_scope: "PUBLICATION_WINDOW_IMMUTABLE_BACKEND_UNKNOWN",
         physical_attempts_on_shared_lineage: charged.length,
         status: terminal?.status ?? "NOT_RUN",
+        reason: terminal?.reason ?? null,
         protocol_gaps: protocol,
         grades,
         c16,
@@ -494,8 +540,48 @@ export function completedBatchReport(root: string, hash: string) {
       };
     });
   });
+  const excluded = stageCases()
+    .filter((c) => c.status !== "READY_FOR_OFFLINE_VALIDATION")
+    .map((c) => ({
+      scenario: c.id,
+      family: c.family,
+      disposition: c.status,
+      route: c.route,
+      reason:
+        c.id === "C12a"
+          ? "Archived checkpoint evidence; original OS process witness unavailable"
+          : c.id.startsWith("C15")
+            ? "Clock-dependent evaluation tracked in #125"
+            : c.status,
+    }));
+  const families = Object.fromEntries(
+    ["M1", "M2", "M3", "M4", "M5", "M6"].map((family) => {
+      const group = rows.filter((r) => r.family === family);
+      return [
+        family,
+        {
+          observations: group.length,
+          lineages: new Set(group.map((r) => r.source_lineage)).size,
+          unrun: group.filter((r) => r.status !== "COMPLETED").length,
+          assertions: Object.fromEntries(
+            ["PASS", "FAIL", "UNRESOLVED", "NOT_TESTED"].map((v) => [
+              v,
+              group.reduce(
+                (n, r) =>
+                  n + Object.values(r.grades).filter((x) => x === v).length,
+                0,
+              ),
+            ]),
+          ),
+          exclusions: excluded.filter((r) => r.family === family).length,
+        },
+      ];
+    }),
+  );
   return {
     schema: "issue122-completion-results-v1",
+    families,
+    excluded,
     freeze_sha256: hash,
     batch_closed: state.ended,
     rows,

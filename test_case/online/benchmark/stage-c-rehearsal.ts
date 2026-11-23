@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { requireThat } from "./io.ts";
 export const rehearsalCases = [
+  "C04-irrelevant",
   "C04-resident",
   "C02-incidental",
   "C16-combined",

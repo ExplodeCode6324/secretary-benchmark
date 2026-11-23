@@ -106,6 +106,44 @@ export function verifyDirectRecovery(
   );
   return verifyRestart(evidence, bytes);
 }
+/** Stop only the recorded incarnation; retain the first diagnosis even when cleanup fails. */
+export async function superviseRecovery<T>(
+  run: Pick<Run, "process">,
+  failure: string,
+  timeout: number,
+  action: () => Promise<T>,
+) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(Error("C12B_SUPERVISOR_TIMEOUT")),
+        timeout,
+      );
+    });
+    return await Promise.race([action(), deadline]);
+  } catch (error) {
+    const errors = [error];
+    try {
+      if (!fs.existsSync(failure))
+        writeJSON(failure, { error: String(error), process: run.process });
+    } catch (persist) {
+      errors.push(persist);
+    }
+    try {
+      requireThat(
+        (await stopOwned(run.process)) === "STOPPED",
+        "C12B_SUPERVISOR_STOP_UNCONFIRMED",
+      );
+    } catch (cleanup) {
+      errors.push(cleanup);
+    }
+    if (errors.length > 1) throw new AggregateError(errors, String(error));
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 export async function exerciseRecovery(
   d: Domains,
   old: Run,
@@ -117,25 +155,17 @@ export async function exerciseRecovery(
   const core = path.join(old.active, "core");
   const client = new CoreClient(old.endpoint!);
   const request = deliveryRequest(old.id);
-  async function supervise<T>(run: Run, action: () => Promise<T>) {
-    try {
-      return await action();
-    } catch (error) {
-      const failure = file("stage-c-supervisor-failure.json");
-      try {
-        if (!fs.existsSync(failure))
-          writeJSON(failure, { error: String(error), process: run.process });
-      } finally {
-        const state = await stopOwned(run.process);
-        if (state !== "STOPPED")
-          throw new AggregateError(
-            [error, Error("C12B_SUPERVISOR_STOP_UNCONFIRMED")],
-            String(error),
-          );
-      }
-      throw error;
-    }
-  }
+  const supervise = <T>(
+    run: Run,
+    action: () => Promise<T>,
+    timeout = windows.target_ms,
+  ) =>
+    superviseRecovery(
+      run,
+      file("stage-c-supervisor-failure.json"),
+      timeout,
+      action,
+    );
   const waitForFault = (check: () => boolean, ms: number, missing: string) =>
     supervise(old, async () => {
       try {
@@ -210,69 +240,86 @@ export async function exerciseRecovery(
   let probeInput: string | null = null;
   let recoveryFailure: string | null = null;
   try {
-    await supervise(fresh, async () => {
-      await until(
-        () =>
-          observed().operations.some(
-            (op: any) =>
-              op.id === bound.operation &&
-              op.state === "RESULT_UNKNOWN" &&
-              op.effect === "UNKNOWN",
-          ),
-        windows.recovery_ms,
-      );
-      const unknown = snapshot(core);
-      requireThat(
-        unknown.operationHistory.get(bound.operation)?.at(-1)?.state ===
-          "RESULT_UNKNOWN",
-        "C12B_UNKNOWN_HISTORY",
-      );
-      unknownDigest = unknown.digest;
-      verify = await new CoreClient(fresh.endpoint!).command(
-        "operations/" + bound.operation + "/verify-write",
-        { request_id: verifyID },
-      );
-      requireThat(
-        verify.request_id === verifyID && verify.acceptance === "ACCEPTED",
-        "C12B_VERIFY_RECEIPT",
-      );
-      await until(
-        () =>
-          observed().operations.some(
-            (op: any) =>
-              op.id === bound.operation &&
-              op.state === "SUCCEEDED" &&
-              op.effect === "APPLIED",
-          ),
-        windows.recovery_ms,
-      );
-      if (probe) {
-        guard?.([]);
-        const request_id = randomUUID();
-        const r = await new CoreClient(fresh.endpoint!).command("messages", {
-          request_id,
-          text: probe,
-        });
-        const input = r.resource_ids.find((i) => i.type === "Input")?.id;
-        requireThat(
-          r.acceptance === "ACCEPTED" && r.request_id === request_id && input,
-          "C12B_PROBE_BINDING",
-        );
-        probeInput = input;
+    await supervise(
+      fresh,
+      async () => {
         await until(
           () =>
-            observed().input_records.some(
-              (i: any) => i.id === input && i.state === "HANDLED",
+            observed().operations.some(
+              (op: any) =>
+                op.id === bound.operation &&
+                op.state === "RESULT_UNKNOWN" &&
+                op.effect === "UNKNOWN",
             ),
           windows.recovery_ms,
         );
-      }
-      await new Promise((resolve) =>
-        setTimeout(resolve, windows.post_verify_ms),
-      );
-      await d.stop(old.id);
-      reconciled = true;
-    });
+        const unknown = snapshot(core);
+        requireThat(
+          unknown.operationHistory.get(bound.operation)?.at(-1)?.state ===
+            "RESULT_UNKNOWN",
+          "C12B_UNKNOWN_HISTORY",
+        );
+        unknownDigest = unknown.digest;
+        verify = await supervise(
+          fresh,
+          () =>
+            new CoreClient(fresh.endpoint!).command(
+              "operations/" + bound.operation + "/verify-write",
+              { request_id: verifyID },
+            ),
+          windows.recovery_ms,
+        );
+        requireThat(
+          verify.request_id === verifyID && verify.acceptance === "ACCEPTED",
+          "C12B_VERIFY_RECEIPT",
+        );
+        await until(
+          () =>
+            observed().operations.some(
+              (op: any) =>
+                op.id === bound.operation &&
+                op.state === "SUCCEEDED" &&
+                op.effect === "APPLIED",
+            ),
+          windows.recovery_ms,
+        );
+        if (probe) {
+          guard?.([]);
+          const request_id = randomUUID();
+          const r = await supervise(
+            fresh,
+            () =>
+              new CoreClient(fresh.endpoint!).command("messages", {
+                request_id,
+                text: probe,
+              }),
+            windows.recovery_ms,
+          );
+          const input = r.resource_ids.find((i) => i.type === "Input")?.id;
+          requireThat(
+            r.acceptance === "ACCEPTED" && r.request_id === request_id && input,
+            "C12B_PROBE_BINDING",
+          );
+          probeInput = input;
+          await until(
+            () =>
+              observed().input_records.some(
+                (i: any) => i.id === input && i.state === "HANDLED",
+              ),
+            windows.recovery_ms,
+          );
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, windows.post_verify_ms),
+        );
+        await supervise(fresh, () => d.stop(old.id), windows.exit_ms + 30000);
+        reconciled = true;
+      },
+      windows.recovery_ms * 5 +
+        windows.post_verify_ms +
+        windows.exit_ms +
+        31000,
+    );
   } catch (e) {
     requireThat(
       processStatus(fresh.process) === "STOPPED",

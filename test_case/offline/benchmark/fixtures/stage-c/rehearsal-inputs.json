@@ -54,10 +54,7 @@
       "recent_input_byte_allowance": 141271.19999999998,
       "summary": {
         "status": "PLANNABLE",
-        "outputs": [
-          16384,
-          32768
-        ],
+        "outputs": [16384, 32768],
         "segment_count": 4,
         "prior_input_bytes": 23464,
         "metadata_bytes": 6624
@@ -120,10 +117,7 @@
       "recent_input_byte_allowance": 4259.8,
       "summary": {
         "status": "PLANNABLE",
-        "outputs": [
-          16384,
-          32768
-        ],
+        "outputs": [16384, 32768],
         "segment_count": 4,
         "prior_input_bytes": 23464,
         "metadata_bytes": 6624
@@ -145,9 +139,7 @@
       "expected_output_tokens": 256
     }
   },
-  "models": [
-    "deepseek-flash"
-  ],
+  "models": ["deepseek-flash"],
   "samples": {
     "C04-resident": {
       "deepseek-flash": [
@@ -175,6 +167,15 @@
           "output_cap": 2048
         }
       ]
+    },
+    "C04-irrelevant": {
+      "deepseek-flash": [
+        {
+          "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+          "bytes": 15000,
+          "output_cap": 2048
+        }
+      ]
     }
   },
   "evidence_class": "OFFLINE_SSE",
@@ -186,6 +187,19 @@
       "longest_seconds": 0.1,
       "workload_responses": 1,
       "ledger_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+    }
+  },
+  "reader_timing": {
+    "manifest_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "calibration": {
+      "n": 1,
+      "median_seconds": 1,
+      "max_seconds": 1
+    },
+    "batch": {
+      "n": 2,
+      "median_seconds": 1,
+      "max_seconds": 2
     }
   }
 }

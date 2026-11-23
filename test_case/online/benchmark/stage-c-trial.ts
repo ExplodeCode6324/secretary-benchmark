@@ -112,6 +112,8 @@ export async function executeTrial(
           (e) => e.attempt.episode === run.lineage,
         ).length
       : 0;
+  const rehearsal =
+    live && entry && "rehearsal" in entry && entry.rehearsal === true;
   const signal = live
     ? AbortSignal.timeout(
         Math.max(1, readJSON(activeFile).deadline - Date.now()),
@@ -128,7 +130,13 @@ export async function executeTrial(
     source,
     run: run.id,
     descriptor,
-    memory_performance: live ? "AWAITING_ADJUDICATION" : "NOT_TESTED",
+    evidence_class: rehearsal
+      ? "OFFLINE_SSE"
+      : live
+        ? "LIVE"
+        : "OFFLINE_FIXTURE",
+    memory_performance:
+      live && !rehearsal ? "AWAITING_ADJUDICATION" : "NOT_TESTED",
     physical_provider_sends: 0,
     trail,
     observations: [] as unknown[],
@@ -387,19 +395,19 @@ export async function executeTrial(
       await d.stop(run.id);
       report.observations.push(await capture(run));
     }
-    report.physical_provider_sends = sends();
+    report.physical_provider_sends = rehearsal ? 0 : sends();
     writeJSON(reportFile, report);
     return {
       run: run.id,
       scenario: id,
-      physical_provider_sends: sends(),
+      physical_provider_sends: rehearsal ? 0 : sends(),
       report_sha256: sha(read(reportFile)),
     };
   } catch (e) {
     first = e;
     writeJSON(reportFile, {
       ...report,
-      physical_provider_sends: sends(),
+      physical_provider_sends: rehearsal ? 0 : sends(),
       first_failure: String(e),
     });
     throw e;

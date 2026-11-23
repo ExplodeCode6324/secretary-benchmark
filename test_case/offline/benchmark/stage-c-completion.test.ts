@@ -312,3 +312,49 @@ test("schedule prices weekend usage exactly and bounds potential weekday peak bi
     null,
   );
 });
+
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import {
+  processIdentity,
+  processStatus,
+  stopOwned,
+} from "../../online/benchmark/io.ts";
+import { superviseRecovery } from "../../online/benchmark/stage-c-recovery.ts";
+test("a hung recovery command stops only its owned restarted process and keeps the first error", async (t) => {
+  const dir = fs.mkdtempSync(
+    path.join(fs.realpathSync(os.tmpdir()), "completion-supervisor-"),
+  );
+  const file = path.join(dir, "failure.json"),
+    token = randomUUID();
+  const child = spawn(
+    process.execPath,
+    ["-e", "setInterval(()=>{},1000)", "--", "--run", token],
+    { detached: true, stdio: "ignore" },
+  );
+  const owned = processIdentity(child.pid!, token);
+  t.after(async () => {
+    await stopOwned(owned);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  await assert.rejects(
+    () =>
+      superviseRecovery(
+        { process: owned },
+        file,
+        35,
+        () => new Promise(() => {}),
+      ),
+    /C12B_SUPERVISOR_TIMEOUT/,
+  );
+  assert.equal(processStatus(owned), "STOPPED");
+  const first = fs.readFileSync(file);
+  await assert.rejects(
+    () =>
+      superviseRecovery({ process: owned }, file, 100, async () => {
+        throw Error("subsequent");
+      }),
+    /subsequent/,
+  );
+  assert.deepEqual(fs.readFileSync(file), first);
+});

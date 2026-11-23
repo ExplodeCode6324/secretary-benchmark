@@ -37,6 +37,11 @@ type Sample = { bytes: number; output_cap: number; sha256: string };
 export type Preflight = {
   evidence_class?: "OFFLINE_SSE";
   models: StageModel[];
+  reader_timing: {
+    manifest_sha256: string;
+    calibration: { n: number; median_seconds: number; max_seconds: number };
+    batch: { n: number; median_seconds: number; max_seconds: number };
+  };
   measured_tokens: Record<
     string,
     {
@@ -155,7 +160,7 @@ export function projectCampaign(
       ) &&
       grade.packet_sha256 !== grade.key_sha256 &&
       Number.isSafeInteger(grade.max_attempts) &&
-      grade.max_attempts > 0,
+      grade.max_attempts === 3,
     "STAGE_C_GRADER_FREEZE",
   );
   const sources = stageCases().filter(
@@ -309,6 +314,7 @@ export function projectCampaign(
           model,
         };
         lanes.push({
+          rehearsal,
           lane,
           recipe,
           trial: {
@@ -365,8 +371,41 @@ export function projectCampaign(
     batches.at(-1)!.push(row);
     cost += row.lane.seconds;
   }
+  const timing = inputs.reader_timing;
+  requireThat(
+    timing &&
+      digest(timing.manifest_sha256) &&
+      [timing.batch, timing.calibration].every(
+        (t) =>
+          Number.isSafeInteger(t.n) &&
+          t.n > 0 &&
+          t.median_seconds > 0 &&
+          t.max_seconds >= t.median_seconds,
+      ),
+    "STAGE_C_READER_TIMING",
+  );
+  const observationCount = lanes.length + lanes.filter((l) => l.pair).length;
+  const expectedReader =
+    batches.length * timing.calibration.median_seconds +
+    observationCount * timing.batch.median_seconds;
+  const readerEnvelope =
+    grade.max_attempts *
+    (batches.length * timing.calibration.max_seconds +
+      observationCount * timing.batch.max_seconds);
   return {
     schema: "issue122-completion-projection-v1",
+    reader_wall: {
+      historical_source: timing.manifest_sha256,
+      semantic_observations: observationCount,
+      calibrations: batches.length,
+      historical_attempts: timing,
+      expected_seconds: Math.ceil(expectedReader),
+      three_attempts_at_historical_max_seconds: Math.ceil(readerEnvelope),
+      source_recheck_timeout_seconds: 20,
+      source_checks: batches.length + lanes.length,
+      operator_approval_wait: "UNBOUNDED",
+      reader_latency: "ESTIMATE_ONLY",
+    },
     models,
     estimated_lineages: lanes.length,
     candidate_observations: lanes.length + lanes.filter((l) => l.pair).length,
@@ -515,7 +554,20 @@ export function freezeBatch(root: string, index: number, checked: string) {
       provider: model.provider,
       api: model.api,
       base_url: model.baseUrl,
+      effective_limits_by_profile: inputs.capacities.map((c) => ({
+        profile: c.profile,
+        main: c.budget,
+        task: c.task_budget,
+        window: c.window,
+      })),
+      reasoning_capable: model.reasoning,
       temperature: "ADAPTER_DEFAULT",
+      max_requested_output: model.maxTokens,
+      sdk_retries: 0,
+      output_policy:
+        "roleModel resolves the requested output against the role budget on every send",
+      experiment_seed:
+        "Host lineage and recipe identifier; the paired branches share it",
       provider_seed: "UNAVAILABLE",
     },
     identity_stratum: "PER_SEND_RETURNED_MODEL_AND_PROVIDER_FINGERPRINT",

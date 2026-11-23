@@ -32,15 +32,24 @@ The offline manifest is an implementation draft, not an approved live freeze. B0
 
 中文：本阶段只完成离线准备与证据合同。新增 live 矩阵未运行，模型 ID/价格/计费上界与 RC 路线尚待冻结审批。历史 C12a 保留同一操作对账及一次写入结论，但缺少独立旧进程退出回执，按 S4 必补 C12b。Fixture 只证明工具和隔离协议，不证明模型记忆表现。所有首次失败、历史标签及缺口保留。
 
-
 R3 corrections: fully covered and revision-identical paired starts; correct RC recent-input policy; route-specific, answer-free SUT timelines and deterministic filler; STALE/partial/in-flight guards and durable output-bound violations. Pair snapshots now come from the stopped checkpoint, B blocks frozen A inputs, and cleanup cannot replace the first failure. Dev controls also cover a correct guess without retrieval and separate maintenance/use judgments. Freeze generated control packet/key exactly once; randomness does not create held-out status. Before Stage B, derive cold surfaces/read-use from the same captured request and lineage rather than trusting manually supplied flags. Wall-time dispatch limits remain conservative; offline/review time before first send is excluded, and C16 scheduling/cap risk must be explicit in the live freeze.
 
 The archive ownership checker recognizes only versioned pair receipts bound to registered runs, lineage and checkpoint. Unknown pair identities still refuse archival. This fixes the original `ARCHIVE_UNKNOWN_TOP_LEVEL` refusal for the newly introduced `pairs/` directory; the initial failed attempts remain in private receipts.
 
-## Stage C offline preparation
+## Historical Stage C offline preparation
 
 Run `npm run benchmark -- baseline-stage-c-prepare --root <fresh-owned-facility>` from the standalone benchmark checkout. It creates five isolated scripted fixture domains, records the C12b interrupted write and direct restart, captures C06 and control request bodies through the actual serializers with network disabled, and seals the runs. Export using `baseline-stage-c-report --root <same-facility>`. The report distinguishes fixture effects from ungraded memory semantics. The reader packet and its private key are separate. The entry accepts no provider credentials, approval or live lane.
 
 `baseline-stage-c-plan` prints the prospective single-profile inventory. The dedicated resident-B control adds nine source lineages to the original 261. The unrelated and nonexistent-event controls reuse their independent C04 rows. Costs, live row caps, provider versions and the final freeze remain pending. Three C16 lanes remain deferred.
 
 The prospective rows retain parent-template input, timeline and oracle hashes. Rows with measured fixtures separately identify the actual scripted inputs and a single serialized body per model. The resident-B control uses the natural-access assertion with its own corrected-day and redaction oracle. A future freeze must bind these assertions, the calibrated reader, provider identity and fresh price evidence, and per-lane request, retry, token and time limits. The 1.5-second post-verification window applies only to the scripted C12b fixture.
+
+## Completion baseline
+
+The default cohort fixes DeepSeek Flash across 33 observations per repeat, with a fresh source lineage for each independent scenario. C02 and C05 have one source and two probe branches each. Three repeats produce 99 observations on 93 lineages. C16 runs early on RC98304. The other rows use DEP. The archived three-model matrices and their original first failures remain available using the historical report reader.
+
+Use `npm run benchmark -- baseline-stage-c-plan` for the inventory. To exercise one source through a native Secretary worker without a provider, use `baseline-stage-c-trial --root <fresh-facility> --case <source-case>` through the same npm entry point. Start pairs at branch A. The fixture uses shorter filler recipes. Its serializer captures, host process receipts and read-only original-event diagnostic are program evidence.
+
+The completion freeze binds the runner and both product gitlinks, case recipes, native samples, provider source, per-role settings and blinded grading controls. A separate approval binds each batch to its SHA-256. The run and scoring commands require that approval. A closed C16 repeat needs advancing ordinary maintenance, original raw-context exit in metered requests before and after the same-domain restart, a conclusive direct lookup and an adjudicated observed probe. The three repeats have separate dispositions.
+
+The pricing projection uses peak rates for reservations. A physical send with metered components entirely outside a potential peak interval uses the published off-peak rate. A weekday peak interval with unknown holiday treatment retains a bounded estimate. Comparison across future architectures requires matched external recipes and model identity evidence as described in the Core plan.

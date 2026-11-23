@@ -305,7 +305,7 @@ export function inspectStageEvidence(
     )
       requirements.push("WORLD_BOUNDARY_MISSING");
   }
-  if (id === "C08-inference" || id === "C16-combined") {
+  if (["C08-inference", "C09-finished", "C16-combined"].includes(id)) {
     const samples = t.cycles.flatMap((cycle) => {
       const f = frames.find((f) =>
         f.records.some(
@@ -338,7 +338,17 @@ export function inspectStageEvidence(
           }),
           source_sha256: job.candidate_ref.sha256,
         });
-      return [memorySample(c, job, id === "C08-inference" ? "Orchid" : "Fern")];
+      return [
+        memorySample(
+          c,
+          job,
+          id === "C08-inference"
+            ? "Orchid"
+            : id === "C09-finished"
+              ? "Maple"
+              : "Fern",
+        ),
+      ];
     });
     const attempts = records
       .filter(
@@ -502,7 +512,7 @@ export function inspectStageEvidence(
     if (!preSend || !initial || !cold.restart_observed)
       requirements.push("COLD_OBSERVATION_MISSING");
   }
-  if (id.startsWith("C10-")) {
+  if (["C10-condition", "C10-answer", "C10-model-created"].includes(id)) {
     const bound = t.task,
       e = bound && latest("Execution", bound.execution);
     const ops = new Map(
@@ -618,7 +628,12 @@ export function inspectStageEvidence(
   return { requirements, outcome, world, maintenance, cold, task, excerpts };
 }
 
-export function auditStageRun(root: string, run: Run, t: ScenarioTrail) {
+export function auditStageRun(
+  root: string,
+  run: Run,
+  t: ScenarioTrail,
+  scenario?: string,
+) {
   const core = path.join(run.active, "core"),
     state = snapshot(core),
     object = (r: Ref) => cas(core, r);
@@ -627,7 +642,10 @@ export function auditStageRun(root: string, run: Run, t: ScenarioTrail) {
     .readdirSync(run.evidence)
     .filter((f) => /^send-[a-f0-9-]+\.json$/.test(f))
     .map((f) => readJSON<Send>(path.join(run.evidence, f)));
-  requireThat(run.config.version === 2, "SCENARIO_AUDIT_CONFIG");
+  requireThat(
+    run.config.version === 2 || run.config.version === 5,
+    "SCENARIO_AUDIT_CONFIG",
+  );
   const { entries } = ledger(root);
   for (const send of sends) {
     const a = entries.get(send.id)?.attempt;
@@ -641,7 +659,7 @@ export function auditStageRun(root: string, run: Run, t: ScenarioTrail) {
   }
   const session = readJSON(path.join(run.evidence, "observed.json")).session_id;
   const proof = inspectStageEvidence(
-    run.config.case_id,
+    scenario ?? run.config.case_id,
     t,
     state.transactions,
     object,

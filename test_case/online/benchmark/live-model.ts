@@ -1,3 +1,4 @@
+import { readJSON } from "./io.ts";
 import {
   echoContract,
   echoScope,
@@ -10,7 +11,12 @@ import {
   safeRetentionUsage,
   type RetentionFrame,
 } from "./stage-b-retention.ts";
-import { wireIdentity } from "./stage-c-identity.ts";
+import {
+  physicalTimes,
+  activeFile,
+  completionPolicy,
+} from "./stage-b-policy.ts";
+import { wireIdentity, flashBilling } from "./stage-c-identity.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -414,6 +420,34 @@ export function meteredFetch(
             : (Buffer.byteLength(body) * model.cost.input +
                 maxOutput * model.cost.output) /
               1e6;
+      let firstProbe = false,
+        cutoff: number | undefined;
+      if (policy && completionPolicy(policy)) {
+        const active = readJSON(
+          path.join(options.root, "campaign", activeFile(policy)),
+        );
+        if (
+          active.probe_deadline &&
+          role === "main" &&
+          ![...ledger(options.root).entries.values()].some(
+            (e) =>
+              e.attempt.episode === options.episode &&
+              e.attempt.correction_probe_first,
+          )
+        ) {
+          // Bind only the current user turn. Maintenance roles and tool continuations do not acquire the first-probe receipt.
+          const last = (payload.messages ?? payload.input ?? []).at(-1);
+          if (
+            last?.role === "user" &&
+            JSON.stringify(last.content).includes(
+              "Draft a current pickup instruction for Fern here, without sending it.",
+            )
+          ) {
+            firstProbe = true;
+            cutoff = active.probe_deadline;
+          }
+        }
+      }
       phase = "CAMPAIGN_RESERVATION_REFUSED";
       const id = await reserve(
         options.root,
@@ -423,6 +457,7 @@ export function meteredFetch(
           episode: options.episode ?? options.run,
           ...(options.lane ? { lane: options.lane } : {}),
           ...(physical ? { physical } : {}),
+          ...(firstProbe ? { correction_probe_first: true as const } : {}),
           ...(requestedUsage
             ? { chat_stream_usage_requested: requestedUsage }
             : {}),
@@ -432,6 +467,7 @@ export function meteredFetch(
         options.maxSends,
       );
       phase = "SENT_OR_RESERVED";
+      const reservedAt = Date.now();
       writeJSON(path.join(options.evidence, `send-${id}.json`), {
         id,
         attribution: attribution.getStore() ?? { role: "component-or-probe" },
@@ -446,14 +482,24 @@ export function meteredFetch(
             (row) => row.attempt,
           );
           const laneStart = attempts.find((row) => row.lane === options.lane)!;
+          const limits = physicalTimes(policy, options.lane!);
+          const active = completionPolicy(policy)
+            ? readJSON(path.join(options.root, "campaign", activeFile(policy)))
+            : undefined;
           const expires = Math.min(
-            Date.parse(attempts[0].at) + 43200000,
-            Date.parse(laneStart.at) + 3600000,
+            limits.source,
+            active?.deadline ?? Infinity,
+            Date.parse(attempts[0].at) + limits.batch,
+            Date.parse(laneStart.at) + limits.lane,
           );
           const remaining = expires - Date.now();
           requireThat(remaining > 0, "STAGE_B_LANE_TIME");
           signal = AbortSignal.any([signal, AbortSignal.timeout(remaining)]);
         }
+        requireThat(
+          cutoff === undefined || Date.now() < cutoff,
+          "STAGE_C_PROBE_CUTOFF",
+        );
         response = await transport(
           new Request(request, { redirect: "error", signal }),
         );
@@ -653,6 +699,25 @@ export function meteredFetch(
         const accountingUsage =
           firstUsageViolation ??
           (firstEcho && !tierChanged ? terminalUsage : usage);
+        const upper =
+          policy &&
+          completed &&
+          !tierChanged &&
+          !invalidLongWriteCount &&
+          outcome === "RESPONSE_COMPLETE"
+            ? measuredEstimate(
+                policy.providers[options.model as StageModel],
+                accountingUsage,
+                options.model as StageModel,
+              )
+            : null;
+        const flashSchedule =
+          policy &&
+          completionPolicy(policy) &&
+          options.model === "deepseek-flash" &&
+          upper !== null
+            ? flashBilling(upper, reservedAt, Date.now())
+            : null;
         await settle(
           options.root,
           id,
@@ -677,6 +742,7 @@ export function meteredFetch(
               ? { invalid_long_write_count: true }
               : {}),
             returned_model: returnedModel,
+            ...(flashSchedule ? { scheduled_cost_usd: flashSchedule } : {}),
             ...(policy
               ? {
                   response_complete:
@@ -692,16 +758,9 @@ export function meteredFetch(
               : {}),
           },
           policy
-            ? completed &&
-              !tierChanged &&
-              !invalidLongWriteCount &&
-              outcome === "RESPONSE_COMPLETE"
-              ? measuredEstimate(
-                  policy.providers[options.model as StageModel],
-                  accountingUsage,
-                  options.model as StageModel,
-                )
-              : null
+            ? flashSchedule
+              ? flashSchedule.exact
+              : upper
             : usageCost(
                 rates
                   ? {

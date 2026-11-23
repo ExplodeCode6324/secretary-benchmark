@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import { ledger } from "./campaign.ts";
 import { sourceReads, judgeCorrection } from "./stage-c-reader.ts";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -178,10 +180,26 @@ export async function exerciseCorrection(
   run: Run,
   recipe = fixturePrefix,
   models: Parameters<typeof captureBodies>[2] = ["deepseek-flash"],
+  hooks?: {
+    guard: (future: string[]) => void;
+    arm: (deadline: number) => void;
+  },
 ) {
   const core = path.join(run.active, "core");
+  const live = run.config.version === 5;
+  const root = path.dirname(path.dirname(run.evidence));
+  const attempts = () =>
+    live
+      ? [...ledger(root).entries.values()].filter(
+          (e) => e.attempt.run === run.id,
+        )
+      : [];
+  const physical = () => attempts().length;
   const observe = () => readJSON(path.join(run.evidence, "observed.json"));
+  const prefixTexts = fillerTexts(recipe);
+  hooks?.guard([coldCase.setup[1], ...prefixTexts, coldCase.probe]);
   const a = await fixtureMessage(run, coldCase.setup[0], Date.now() + 30000);
+  hooks?.guard([...prefixTexts, coldCase.probe]);
   const b = await fixtureMessage(run, coldCase.setup[1], Date.now() + 30000);
   const session = observe().session_id;
   const handled = (frames: Frame[], input: string) =>
@@ -199,7 +217,8 @@ export async function exerciseCorrection(
   requireThat(aHandled && bHandled, "C06_HANDLED_BOUNDARY");
   const deadline = Date.parse(bHandled.occurred_at) + capMs;
   let prefix = 0;
-  for (const text of fillerTexts(recipe)) {
+  for (const [index, text] of prefixTexts.entries()) {
+    hooks?.guard([...prefixTexts.slice(index + 1), coldCase.probe]);
     if (Date.now() >= deadline) break;
     try {
       await fixtureMessage(run, text, deadline);
@@ -256,12 +275,20 @@ export async function exerciseCorrection(
       boundary,
       status,
       use: "NOT_TESTED",
-      physical_provider_sends: 0,
+      physical_provider_sends: physical(),
     };
   }
+  hooks?.guard([]);
+  hooks?.arm(deadline);
   const probe = await sendFixtureInput(run, coldCase.probe, deadline);
   try {
-    await waitHandled(run, probe, deadline);
+    await waitHandled(
+      run,
+      probe,
+      live
+        ? readJSON(path.join(root, "campaign", "active-stage-c.json")).deadline
+        : deadline,
+    );
   } catch (error) {
     if (String(error) !== "Error: WAIT_TIMEOUT") throw error;
     // Preserve the accepted input and any captured first send at the cutoff.
@@ -299,22 +326,56 @@ export async function exerciseCorrection(
       references,
       status: call ? "FIRST_SEND_AFTER_CUTOFF" : "FIRST_SEND_MISSING",
       use: "UNRESOLVED",
-      physical_provider_sends: 0,
+      physical_provider_sends: physical(),
     };
   const visibility: Record<string, ReturnType<typeof wireVisibility>> = {};
-  const samples = await captureBodies(
-    cas(core, call.request),
-    (model, bytes) => {
-      const payload = JSON.parse(bytes.toString());
-      visibility[model] = wireVisibility(payload);
-      writeJSON(path.join(run.evidence, "c06-" + model + "-body.json"), {
-        encoded: bytes.toString("base64"),
-        sha256: sha(bytes),
-        call: call.id,
-      });
-    },
-    models,
-  );
+  const samples = live
+    ? []
+    : await captureBodies(
+        cas(core, call.request),
+        (model, bytes) => {
+          const payload = JSON.parse(bytes.toString());
+          visibility[model] = wireVisibility(payload);
+          writeJSON(path.join(run.evidence, "c06-" + model + "-body.json"), {
+            encoded: bytes.toString("base64"),
+            sha256: sha(bytes),
+            call: call.id,
+          });
+        },
+        models,
+      );
+  if (live && run.config.version === 5) {
+    const wire = attempts()
+      .flatMap(({ attempt }) => {
+        const file = path.join(run.evidence, "send-" + attempt.id + ".json");
+        if (!fs.existsSync(file)) return [];
+        const send = readJSON(file);
+        requireThat(
+          send.id === attempt.id &&
+            sha(JSON.stringify(send.payload)) === attempt.request_sha256,
+          "C06_SEND_BINDING",
+        );
+        return attempt.correction_probe_first &&
+          send.attribution?.role === "main" &&
+          send.attribution.context_sha256 === call.request.sha256 &&
+          send.at >= call.started_at &&
+          (!call.completed_at || send.at <= call.completed_at)
+          ? [send]
+          : [];
+      })
+      .sort((x, y) => x.at.localeCompare(y.at))[0];
+    if (!wire || Date.parse(wire.at) >= deadline)
+      return {
+        inputs,
+        boundary,
+        references,
+        probe,
+        status: wire ? "FIRST_SEND_AFTER_CUTOFF" : "FIRST_SEND_MISSING",
+        use: "UNRESOLVED",
+        physical_provider_sends: physical(),
+      };
+    visibility[run.config.model] = wireVisibility(wire.payload);
+  }
   const events = final.transactions.flatMap((f) => f.events);
   const calls = sends.chain.flatMap((ctx) => {
     const record = final.records.find(
@@ -367,8 +428,10 @@ export async function exerciseCorrection(
     request_sha256: call.request.sha256,
     samples,
     visibility,
-    evidence_class: "OFFLINE_SERIALIZER_CAPTURE",
-    physical_provider_sends: 0,
+    evidence_class: live
+      ? "METERED_PHYSICAL_SEND"
+      : "OFFLINE_SERIALIZER_CAPTURE",
+    physical_provider_sends: physical(),
     maintenance_semantics: "UNRESOLVED",
     natural_use: "UNRESOLVED",
     reader_status: "AWAITING_LIVE_GRADING_DECISION",

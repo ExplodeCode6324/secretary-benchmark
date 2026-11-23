@@ -18,6 +18,9 @@ import {
   physicalViolation,
   returnedIdentity,
   checkAdmission,
+  activeFile,
+  dispatchFile,
+  completionPolicy,
   type PhysicalBound,
   type PhysicalPolicy,
   type StageModel,
@@ -77,6 +80,7 @@ export type Attempt = {
   reserved_usd: number;
   physical?: PhysicalBound;
   chat_stream_usage_requested?: true;
+  correction_probe_first?: true;
   at: string;
   pid: number;
 };
@@ -573,9 +577,7 @@ export async function reserve(
         policy && bound && details.lane && details.episode,
         "STAGE_B_PHYSICAL_REQUIRED",
       );
-      const active = readJSON(
-        path.join(directory(root), "active-stage-b.json"),
-      );
+      const active = readJSON(path.join(directory(root), activeFile(policy)));
       requireThat(
         active.lane === details.lane &&
           active.episode === details.episode &&
@@ -584,6 +586,23 @@ export async function reserve(
           active.state === "OPEN",
         "STAGE_B_LANE_NOT_ACTIVE",
       );
+      if (completionPolicy(policy)) {
+        requireThat(
+          details.run === active.run && active.deadline > Date.now(),
+          "STAGE_C_RUN_OR_DEADLINE",
+        );
+        if (details.correction_probe_first)
+          requireThat(
+            bound.role === "main" &&
+              Date.now() < active.probe_deadline &&
+              ![...current.entries.values()].some(
+                (e) =>
+                  e.attempt.episode === active.episode &&
+                  e.attempt.correction_probe_first,
+              ),
+            "STAGE_C_PROBE_CUTOFF",
+          );
+      }
       const model = details.model as StageModel;
       requireThat(
         JSON.stringify(
@@ -631,7 +650,7 @@ export async function reserve(
         "STAGE_B_IDENTITY_HOLD",
       );
       const dispatch = readJSON(
-        path.join(directory(root), "stage-b-dispatch.json"),
+        path.join(directory(root), dispatchFile(policy)),
       );
       requireThat(
         !dispatch.ended &&
@@ -870,6 +889,38 @@ export async function settle(
         prior?.returned_model,
         observedModels,
       );
+      if (completionPolicy(campaign.physical_policy!)) {
+        const select = (value: unknown) => {
+          const wire = (
+            value as {
+              wire_identity?: {
+                fingerprint_status: string;
+                system_fingerprints: string[];
+              };
+            } | null
+          )?.wire_identity;
+          if (
+            !wire ||
+            !["PRESENT", "ABSENT", "NULL"].includes(wire.fingerprint_status)
+          )
+            return null;
+          return JSON.stringify([
+            wire.fingerprint_status,
+            wire.system_fingerprints,
+          ]);
+        };
+        const baseline = [...entries.values()].find(
+          (e) =>
+            e.attempt.model === item.attempt.model &&
+            e.outcome === "RESPONSE_COMPLETE",
+        );
+        const current = select(usage);
+        if (
+          outcome === "RESPONSE_COMPLETE" &&
+          (!current || (baseline && select(baseline.usage) !== current))
+        )
+          outcome = "VERSION_TRANSITION";
+      }
       usage = { ...(usage as object), identity_status: identity };
       if (
         outcome !== "PROVENANCE_CHANGE" &&

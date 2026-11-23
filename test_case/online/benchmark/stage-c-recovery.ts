@@ -109,6 +109,7 @@ export async function exerciseRecovery(
   old: Run,
   windows = fixtureWindows,
   probe?: string,
+  guard?: (future: string[]) => void,
 ) {
   const file = (name: string) => path.join(old.evidence, name);
   const core = path.join(old.active, "core");
@@ -142,6 +143,7 @@ export async function exerciseRecovery(
         throw e;
       }
     });
+  guard?.(probe ? [probe] : []);
   const accepted = await supervise(old, async () => {
     const receipt = await client.command("task-requests", {
       request_id: request,
@@ -243,6 +245,7 @@ export async function exerciseRecovery(
         windows.recovery_ms,
       );
       if (probe) {
+        guard?.([]);
         const request_id = randomUUID();
         const r = await new CoreClient(fresh.endpoint!).command("messages", {
           request_id,

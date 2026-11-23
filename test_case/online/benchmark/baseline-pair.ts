@@ -93,6 +93,7 @@ export async function baselinePair(
   options: {
     id: string;
     a_effectful: boolean;
+    beforeStart?: (run: Run) => void;
     future_a: string[];
     future_b: string[];
     deadline: number;
@@ -208,6 +209,7 @@ export async function baselinePair(
     setFutureInputs(d.root, current.lineage, [
       ...new Set([...options.future_b, ...actualInputs]),
     ]);
+    options.beforeStart?.(current);
     current = await d.start(current.id);
     const bObserved = await baselineQuiescence(current, options.deadline);
     receipt.b.process = current.process;

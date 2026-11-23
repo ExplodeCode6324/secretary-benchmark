@@ -56,3 +56,27 @@ export function wireIdentity(headers: Headers, secret: string) {
     },
   };
 }
+
+// Peak intervals use UTC. Without a frozen holiday calendar, a weekday peak interval
+// has two possible tariffs. Metered usage still bounds the exposure.
+export function flashBilling(peak: number, from: number, to: number) {
+  const peakAt = (ms: number) => {
+    const d = new Date(ms),
+      day = d.getUTCDay(),
+      h = d.getUTCHours();
+    return day > 0 && day < 6 && ((h >= 1 && h < 4) || (h >= 6 && h < 10));
+  };
+  let possible = peakAt(from);
+  for (
+    let h = (Math.floor(from / 3600000) + 1) * 3600000;
+    h <= to && !possible;
+    h += 3600000
+  )
+    possible = peakAt(h);
+  return {
+    minimum: peak / 2,
+    maximum: possible ? peak : peak / 2,
+    exact: possible ? null : peak / 2,
+    basis: "published schedule and metered token components",
+  };
+}

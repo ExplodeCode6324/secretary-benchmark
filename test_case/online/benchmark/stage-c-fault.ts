@@ -65,7 +65,7 @@ export function installStageCFault(
         proposal.goal === delivery.goal &&
         exec.proposal_ref?.sha256 === task.proposal_ref.sha256 &&
         exec.workspace_binding &&
-        params.content === delivery.bytes &&
+        typeof params.content === "string" &&
         params.path === delivery.name &&
         op.action.resource ===
           path.join(exec.workspace_binding.root_path, delivery.name),

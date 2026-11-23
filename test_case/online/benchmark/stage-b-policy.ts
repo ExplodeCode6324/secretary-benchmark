@@ -64,33 +64,119 @@ export type ProviderRule = {
   max_requested_output: number;
   billed_output: "REQUEST_CAP" | number;
 };
-export type PhysicalPolicy = {
-  schema: "issue122-physical-v2" | "issue122-physical-v3";
-  freeze_sha256: string;
-  providers: Record<StageModel, ProviderRule>;
+export type ScheduledLane = {
+  lane: string;
+  scenario: string;
+  repeat: number;
+  seed: number;
+  model: StageModel;
+  profile: "DEP" | "RC98304";
+  cap: number;
+  seconds: number;
 };
+export type PhysicalPolicy = {
+  freeze_sha256: string;
+  providers: Record<string, ProviderRule>;
+} & (
+  | {
+      schema: "issue122-physical-v2" | "issue122-physical-v3";
+    }
+  | {
+      schema: "issue122-completion-physical-v1";
+      lanes: ScheduledLane[];
+      batch_seconds: number;
+    }
+);
+export function completionPolicy(
+  policy: PhysicalPolicy,
+): policy is Extract<PhysicalPolicy, { lanes: ScheduledLane[] }> {
+  return policy.schema === "issue122-completion-physical-v1";
+}
+export function activeFile(policy: PhysicalPolicy) {
+  return completionPolicy(policy)
+    ? "active-stage-c.json"
+    : "active-stage-b.json";
+}
+export function dispatchFile(policy: PhysicalPolicy) {
+  return completionPolicy(policy)
+    ? "stage-c-dispatch.json"
+    : "stage-b-dispatch.json";
+}
+export function physicalTimes(policy: PhysicalPolicy, laneID: string) {
+  if (!completionPolicy(policy))
+    return { batch: 43200000, lane: 3600000, source: Infinity };
+  const lane = policy.lanes.find((row) => row.lane === laneID);
+  requireThat(lane, "STAGE_C_LANE_BINDING");
+  return {
+    batch: policy.batch_seconds * 1000,
+    lane: lane.seconds * 1000,
+    source: Date.parse(policy.providers[lane.model].checked_at) + 86400000,
+  };
+}
 const keys = (value: object, names: string[]) =>
   Object.keys(value).sort().join(",") === [...names].sort().join(",");
 const digest = (value: string) => /^[a-f0-9]{64}$/.test(value);
 const count = (value: number) => Number.isSafeInteger(value) && value > 0;
 export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
   const legacy = policy?.schema === "issue122-physical-v2";
+  const current = !!policy && completionPolicy(policy);
+  const selected = current
+    ? (Object.keys(policy.providers) as StageModel[])
+    : stageModels;
+  if (current) {
+    requireThat(
+      count(policy.batch_seconds) &&
+        policy.batch_seconds <= 43200 &&
+        Array.isArray(policy.lanes) &&
+        policy.lanes.length > 0 &&
+        new Set(policy.lanes.map((l) => l.lane)).size === policy.lanes.length &&
+        policy.lanes.every(
+          (l) =>
+            keys(l, [
+              "lane",
+              "scenario",
+              "repeat",
+              "seed",
+              "model",
+              "profile",
+              "cap",
+              "seconds",
+            ]) &&
+            /^[a-zA-Z0-9_-]{1,100}$/.test(l.lane) &&
+            selected.includes(l.model) &&
+            ["RC98304", "DEP"].includes(l.profile) &&
+            count(l.cap) &&
+            count(l.seconds) &&
+            count(l.repeat) &&
+            l.repeat <= 3 &&
+            Number.isSafeInteger(l.seed) &&
+            l.seconds <= policy.batch_seconds,
+        ) &&
+        policy.lanes.reduce((sum, l) => sum + l.seconds, 0) <=
+          policy.batch_seconds,
+      "STAGE_C_SCHEDULE_INVALID",
+    );
+  }
   requireThat(
-    (policy?.schema === "issue122-physical-v3" || (allowLegacy && legacy)) &&
-      keys(policy, ["schema", "freeze_sha256", "providers"]) &&
+    (current ||
+      policy?.schema === "issue122-physical-v3" ||
+      (allowLegacy && legacy)) &&
+      keys(policy, [
+        "schema",
+        "freeze_sha256",
+        "providers",
+        ...(current ? ["lanes", "batch_seconds"] : []),
+      ]) &&
       digest(policy.freeze_sha256) &&
-      keys(policy.providers, [...stageModels]),
+      selected.length > 0 &&
+      selected.every((m) => stageModels.includes(m)) &&
+      keys(policy.providers, [...selected]),
     "STAGE_B_POLICY_INVALID",
   );
-  const explicit = Object.hasOwn(
-    policy.providers[luna],
-    "request_service_tier",
-  );
-  const retention = Object.hasOwn(
-    policy.providers[luna],
-    "cache_retention_contract",
-  );
-  for (const model of stageModels) {
+  const control = policy.providers[luna] ?? policy.providers[sol] ?? {};
+  const explicit = Object.hasOwn(control, "request_service_tier");
+  const retention = Object.hasOwn(control, "cache_retention_contract");
+  for (const model of selected) {
     const rule = policy.providers[model];
     const url = new URL(rule.publication_url);
     requireThat(
@@ -143,7 +229,7 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
           ((rule.cache_retention_contract === retentionContract ||
             rule.cache_retention_contract === echoContract) &&
             rule.cache_retention_contract ===
-              policy.providers[luna].cache_retention_contract)) &&
+              control.cache_retention_contract)) &&
         rule.cache_retention === "default" &&
         rule.context_band === "all-admitted-input" &&
         Number.isFinite(Date.parse(rule.checked_at)) &&
@@ -204,7 +290,7 @@ export function physicalBound(
   role: string,
 ) {
   requireThat(
-    policy.schema === "issue122-physical-v3",
+    policy.schema === "issue122-physical-v3" || completionPolicy(policy),
     "STAGE_B_POLICY_INVALID",
   );
   const rule = policy.providers[model];
@@ -472,7 +558,10 @@ export function checkAdmission(
   episode: string,
   now: number,
 ) {
-  const lane = stageLane(laneID);
+  const current = completionPolicy(policy);
+  const lane = current
+    ? policy.lanes.find((l) => l.lane === laneID)
+    : stageLane(laneID);
   requireThat(lane && lane.model === model && episode, "STAGE_B_LANE_BINDING");
   const forModel = prior.filter((attempt) => attempt.model === model);
   const forLane = forModel.filter((attempt) => attempt.lane === laneID);
@@ -486,8 +575,9 @@ export function checkAdmission(
   const remaining = forLane.length ? 1 : lane.cap;
   requireThat(
     forLane.length < lane.cap &&
-      forModel.length + remaining <= 640 &&
-      prior.length + remaining <= 1920,
+      (current ||
+        (forModel.length + remaining <= 640 &&
+          prior.length + remaining <= 1920)),
     "STAGE_B_REQUEST_LIMIT",
   );
   const start = prior.length ? Date.parse(prior[0].at) : now;
@@ -500,18 +590,20 @@ export function checkAdmission(
     }
   }
   const checked = Date.parse(policy.providers[model].checked_at);
+  const limits = physicalTimes(policy, laneID);
+  requireThat(now < limits.source, "STAGE_C_STALE_PROVENANCE");
   requireThat(
     checked <= start && start - checked <= 86400000,
     "STAGE_B_STALE_PROVENANCE",
   );
   requireThat(
-    now >= start && now - start < 12 * 3600000,
+    now >= start && now - start < limits.batch,
     "STAGE_B_CAMPAIGN_TIME",
   );
   if (forLane.length)
     requireThat(
       now >= Date.parse(forLane[0].at) &&
-        now - Date.parse(forLane[0].at) < 3600000,
+        now - Date.parse(forLane[0].at) < limits.lane,
       "STAGE_B_LANE_TIME",
     );
 }

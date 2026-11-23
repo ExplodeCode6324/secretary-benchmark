@@ -69,7 +69,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         root: run.live.facility,
         run: run.id,
         episode: run.lineage,
-        ...(run.config.version === 2
+        ...(run.config.version !== 1
           ? { lane: run.config.lane, stageFreeze: run.config.freeze_sha256 }
           : {}),
         evidence: run.evidence,
@@ -311,7 +311,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
             run.config.model,
             run.live!.key,
             run.evidence,
-            run.config.version === 2
+            run.config.version !== 1
               ? loadCampaign(run.live!.facility).physical_policy?.providers[
                   run.config.model
                 ].request_service_tier
@@ -434,7 +434,9 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
       return finish(id, receipt, outcome);
     }) as typeof app.authorization.finish;
     if (
-      (run.config.version === 3 || run.config.version === 4) &&
+      (run.config.version === 3 ||
+        run.config.version === 4 ||
+        run.config.version === 5) &&
       run.config.case_id === "C12b"
     )
       installStageCFault(app, run);

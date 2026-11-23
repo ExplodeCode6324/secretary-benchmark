@@ -1,3 +1,4 @@
+import { completionPolicy, activeFile } from "./stage-b-policy.ts";
 import { initializeGuard, forbiddenPayload } from "./payload-guard.ts";
 import { fingerprint } from "./source.ts";
 import { captureProcessWitness } from "./process-witness.ts";
@@ -51,6 +52,7 @@ import {
   validateLiveConfiguration,
   type LiveConfiguration,
   type StageConfiguration,
+  type CompletionConfiguration,
 } from "./memory-config.ts";
 import { credential } from "./live-model.ts";
 import {
@@ -106,6 +108,7 @@ export type Configuration =
     }
   | LiveConfiguration
   | StageConfiguration
+  | CompletionConfiguration
   | {
       version: 3;
       mode: "fixture";
@@ -419,14 +422,34 @@ export class Domains {
     const run = this.load(id);
     if (run.config.mode === "live") {
       const campaign = assertCampaignSource(this.root);
-      if (run.config.version === 2) {
+      if (run.config.version === 2 || run.config.version === 5) {
         requireThat(
           campaign.physical_policy?.freeze_sha256 === run.config.freeze_sha256,
           "STAGE_B_FREEZE_BINDING",
         );
-        const active = readJSON(
-          path.join(this.root, "campaign", "active-stage-b.json"),
+        const policy = campaign.physical_policy!;
+        requireThat(
+          completionPolicy(policy) === (run.config.version === 5),
+          "STAGE_C_POLICY_BINDING",
         );
+        const active = readJSON(
+          path.join(this.root, "campaign", activeFile(policy)),
+        );
+        if (completionPolicy(policy)) {
+          const config = run.config,
+            row = policy.lanes.find((l) => l.lane === config.lane);
+          requireThat(
+            row &&
+              active.run === run.id &&
+              active.deadline > Date.now() &&
+              row.scenario === config.case_id &&
+              row.seed === config.seed &&
+              row.model === config.model &&
+              row.cap === config.max_sends &&
+              row.profile === config.profile,
+            "STAGE_C_CONFIG_DRIFT",
+          );
+        }
         requireThat(
           active.state === "OPEN" &&
             active.episode === run.lineage &&
@@ -440,7 +463,7 @@ export class Domains {
     const live =
       run.config.mode === "live"
         ? {
-            key: credential(run.config.model, run.config.version === 2),
+            key: credential(run.config.model, run.config.version !== 1),
             facility: this.root,
           }
         : undefined;
@@ -459,7 +482,7 @@ export class Domains {
         path.join(run.active, "core"),
         path.join(run.active, "core"),
         this.sink(run),
-        run.config.mode === "live",
+        run.config.mode === "live" || run.config.version === 4,
       );
     if (!pgRunning(run.database)) startDatabase(run.database);
     await verifyDatabase(run.database);
@@ -590,7 +613,7 @@ export class Domains {
       path.join(run.active, "core"),
       path.join(run.active, "core"),
       this.sink(run),
-      run.config.mode === "live",
+      run.config.mode === "live" || run.config.version === 4,
     );
     const cp = randomUUID(),
       dir = path.join(this.root, "checkpoints", cp);
@@ -657,7 +680,7 @@ export class Domains {
       path.join(cpDir, "state/core"),
       path.join(old.active, "core"),
       cp.sink,
-      old.config.mode === "live",
+      old.config.mode === "live" || old.config.version === 4,
     );
     const run = await this.allocate(old.config, old.lineage);
     run.parent = id;
@@ -761,7 +784,7 @@ export class Domains {
       path.join(staged, "core"),
       path.join(run.active, "core"),
       this.sink(run),
-      run.config.mode === "live",
+      run.config.mode === "live" || run.config.version === 4,
     );
     if (!pgRunning(run.database)) startDatabase(run.database);
     await verifyDatabase(run.database);

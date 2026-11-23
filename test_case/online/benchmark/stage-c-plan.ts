@@ -75,7 +75,14 @@ export function trialTimeline(
         ? fixturePrefix
         : { ...recipe, seed: fixturePrefix.seed };
     requireThat(
-      filler.count && filler.bytes_each,
+      filler.count &&
+        filler.bytes_each &&
+        Number.isSafeInteger(filler.count) &&
+        filler.count > 0 &&
+        filler.count <= 160 &&
+        Number.isSafeInteger(filler.bytes_each) &&
+        filler.bytes_each >= 128 &&
+        filler.bytes_each <= 65536,
       "STAGE_C_CAPACITY_RECIPE_REQUIRED",
     );
     const prefix = {

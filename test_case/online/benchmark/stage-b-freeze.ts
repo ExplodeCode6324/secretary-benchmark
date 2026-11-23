@@ -199,6 +199,7 @@ export function forecastLane(
   factors: Forecast,
   cap: number,
   capacity?: ForecastCapacity,
+  timeCap = 3600,
 ) {
   requireThat(
     Object.keys(factors).sort().join(",") ===
@@ -263,9 +264,9 @@ export function forecastLane(
     context_compactions: interval("context_compactions"),
     forced_band_compactions: interval("forced_band_compactions"),
     send_cap: cap,
-    seconds_cap: 3600,
+    seconds_cap: timeCap,
     send_limit: limit(sends, cap),
-    time_limit: limit(seconds, 3600),
+    time_limit: limit(seconds, timeCap),
   };
   const {
     turns,

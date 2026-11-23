@@ -140,3 +140,174 @@ test("post-restart finish counts verified wrong bytes and duplicate writes and p
   assert.throws(finish, /PARKED/);
   assert.equal(lines(log).length, 3);
 });
+
+import { completionCommand } from "../../online/benchmark/stage-c-dispatch.ts";
+import { c16Disposition } from "../../online/benchmark/stage-c-observations.ts";
+import { flashBilling } from "../../online/benchmark/stage-c-identity.ts";
+import {
+  checkAdmission,
+  type PhysicalPolicy,
+} from "../../online/benchmark/stage-b-policy.ts";
+import { repository } from "../../online/benchmark/io.ts";
+test("completion start refuses historical approval before facility or upstream access", async () => {
+  const root = path.join(
+    repository,
+    ".local/benchmark/tests",
+    "unapproved-" + process.pid,
+  );
+  await assert.rejects(
+    () => completionCommand(root, "start", "issue122-stage-b", sha("fixture")),
+    /APPROVAL_BINDING/,
+  );
+  assert(!fs.existsSync(root));
+});
+test("a scheduled lineage has its own explicit attempt and time limits and fresh source", () => {
+  const checked = "2026-11-23T00:00:00Z",
+    now = Date.parse(checked);
+  const l = {
+    lane: "r1-C16-combined--deepseek-flash",
+    scenario: "C16-combined",
+    model: "deepseek-flash",
+    repeat: 1,
+    seed: 122,
+    profile: "RC98304",
+    cap: 340,
+    seconds: 7200,
+  } as const;
+  const p = {
+    schema: "issue122-completion-physical-v1",
+    freeze_sha256: sha("freeze"),
+    providers: {
+      "deepseek-flash": {
+        checked_at: checked,
+        published_version: "example",
+        allowed_returned_models: ["deepseek-flash"],
+        publication_url: "https://api-docs.deepseek.com/quick_start/pricing.md",
+        tier: "default",
+        cache_retention: "default",
+        context_band: "all-admitted-input",
+        context_upper_tokens: 1000000,
+        cache_input_rate: 0.006,
+        cache_write_rate: 0.3,
+        input_rate: 0.3,
+        output_rate: 1.2,
+        max_input_bytes: 1000000,
+        max_requested_output: 384000,
+        billed_output: 393216,
+        provenance_sha256: sha("price"),
+      },
+    },
+    lanes: [l],
+    batch_seconds: 43200,
+  } as PhysicalPolicy;
+  const a = { model: l.model, lane: l.lane, episode: "line", at: checked };
+  assert.doesNotThrow(() =>
+    checkAdmission(
+      p,
+      Array(200).fill(a),
+      l.lane,
+      l.model,
+      "line",
+      now + 4000000,
+    ),
+  );
+  assert.throws(
+    () =>
+      checkAdmission(
+        p,
+        Array(340).fill(a),
+        l.lane,
+        l.model,
+        "line",
+        now + 4000000,
+      ),
+    /REQUEST_LIMIT/,
+  );
+  assert.throws(
+    () => checkAdmission(p, [a], l.lane, l.model, "line", now + 7200000),
+    /LANE_TIME/,
+  );
+  assert.throws(
+    () => checkAdmission(p, [], l.lane, l.model, "line", now + 86400000),
+    /STALE_PROVENANCE/,
+  );
+  assert.throws(
+    () => checkAdmission(p, [a], l.lane, l.model, "other", now),
+    /LINEAGE_CHANGED/,
+  );
+});
+test("a conclusive retention failure closes C16 only alongside every structural and semantic witness", () => {
+  const visibility = {
+    measured: true,
+    opaque: false,
+    raw_projection_exit: "LITERAL_EXIT",
+  };
+  const proof = {
+    requirements: [],
+    outcome: { probe_send: "s" },
+    cold: {
+      source_event: "ev",
+      source_input: "i",
+      restart_observed: true,
+      pre_restart_send: "s0",
+      pre_restart: visibility,
+      probe: visibility,
+    },
+    maintenance: {
+      samples: [
+        { job: "j1", covered: 10 },
+        { job: "j2", covered: 20 },
+      ],
+    },
+  } as any;
+  const ref = { source: { event: "ev", input: "i" }, result: "PASS" } as any;
+  const grade = {
+    visibility: "RESIDENT",
+    maintenance: "PASS",
+    use: "PASS",
+    audited_surfaces: true,
+  } as const;
+  const chain = { complete: true, final: true, original_delivered: false };
+  assert.equal(c16Disposition(proof, ref, grade, chain, true).verdict, "PASS");
+  assert.equal(
+    c16Disposition(proof, ref, { ...grade, visibility: "COLD" }, chain, true)
+      .verdict,
+    "FAIL",
+  );
+  assert.equal(
+    c16Disposition(proof, { ...ref, result: "FAIL" }, grade, chain, true)
+      .verdict,
+    "FAIL",
+  );
+  assert.equal(
+    c16Disposition(
+      proof,
+      { ...ref, result: "FAIL" },
+      { ...grade, visibility: "OPAQUE" },
+      chain,
+      true,
+    ).gate,
+    "OPEN",
+  );
+  assert.equal(
+    c16Disposition(proof, { ...ref, result: "UNRESOLVED" }, grade, chain, true)
+      .gate,
+    "OPEN",
+  );
+  assert.equal(c16Disposition(proof, ref, grade, chain, false).gate, "OPEN");
+});
+test("schedule prices weekend usage exactly and bounds potential weekday peak billing", () => {
+  const stamp = (s: string) => Date.parse("2026-11-" + s + "Z");
+  assert.equal(
+    flashBilling(10, stamp("22T02:00:00"), stamp("22T02:01:00")).exact,
+    5,
+  );
+  assert.equal(
+    flashBilling(10, stamp("23T00:59:55"), stamp("23T01:00:02")).maximum,
+    10,
+  );
+  assert.equal(
+    flashBilling(10, stamp("23T02:00:00"), stamp("23T02:01:00")).exact,
+    null,
+  );
+});

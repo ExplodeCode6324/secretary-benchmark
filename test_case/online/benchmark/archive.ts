@@ -27,7 +27,7 @@ import {
 import { controlID, pgRunning } from "./postgres.ts";
 import { assertCampaignClosed, loadCampaign } from "./campaign.ts";
 import { verifyTierSamples } from "./stage-b-tier-samples.ts";
-import { stageSlots, stageModels } from "./stage-b-policy.ts";
+import { completionPolicy, stageSlots, stageModels } from "./stage-b-policy.ts";
 
 export function archiveConfiguration(
   file = path.join(repository, ".local/archive.json"),
@@ -152,9 +152,42 @@ function ownedStoppedRuns(d: Domains): Run[] {
   assertCampaignClosed(d.root);
   let dossier;
   let verifiedTierSamples = false;
+  let completion = false;
   if (fs.existsSync(path.join(d.root, "campaign/manifest.json"))) {
     const campaign = loadCampaign(d.root);
-    if (campaign.physical_policy) {
+    if (
+      campaign.physical_policy &&
+      completionPolicy(campaign.physical_policy)
+    ) {
+      const policy = campaign.physical_policy;
+      const registered = readJSON(
+        path.join(
+          repository,
+          ".local/benchmark/.campaign-registry",
+          campaign.approval_id + ".json",
+        ),
+      );
+      const bytes = read(path.join(d.root, "configs/stage-c-freeze.json"));
+      const f = JSON.parse(bytes.toString()),
+        state = readJSON(path.join(d.root, "campaign/stage-c-dispatch.json"));
+      requireThat(
+        registered.facility === d.root &&
+          JSON.stringify(registered.physical_policy) ===
+            JSON.stringify(policy) &&
+          sha(bytes) === policy.freeze_sha256 &&
+          state.ended &&
+          state.freeze_sha256 === policy.freeze_sha256 &&
+          f.schema === "issue122-completion-freeze-v1" &&
+          JSON.stringify(f.source) === JSON.stringify(campaign.source) &&
+          sha(read(path.join(d.root, "inputs/stage-c-preflight.json"))) ===
+            f.inputs_sha256 &&
+          sha(read(path.join(d.root, "inputs/official/flash-pricing.md"))) ===
+            policy.providers["deepseek-flash"].provenance_sha256 &&
+          policy.lanes.every((l) => state.terminals[l.lane]),
+        "ARCHIVE_STAGE_C_UNVERIFIED",
+      );
+      completion = true;
+    } else if (campaign.physical_policy) {
       const registered = readJSON(
         path.join(
           repository,
@@ -249,6 +282,7 @@ function ownedStoppedRuns(d: Domains): Run[] {
       "ARCHIVE_UNKNOWN_TOP_LEVEL",
     );
   for (const name of childNames(d.root, "configs")) {
+    if (completion && name === "stage-c-freeze.json") continue;
     if (name === "stage-b-tier-samples.json" && verifiedTierSamples) continue;
     if (
       dossier &&
@@ -264,7 +298,7 @@ function ownedStoppedRuns(d: Domains): Run[] {
   }
   const names = childNames(d.root, "runs");
   requireThat(
-    (names.length > 0 || !!dossier) &&
+    (names.length > 0 || !!dossier || completion) &&
       names.every((n) => n.endsWith(".json") && uuid.test(n.slice(0, -5))),
     "ARCHIVE_INVALID_RUN_REGISTRY",
   );

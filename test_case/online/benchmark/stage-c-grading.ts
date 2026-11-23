@@ -528,13 +528,19 @@ export function completedBatchReport(root: string, hash: string) {
         identities,
         spans_observed_identity_strata:
           new Set(
-            identities.map((v) =>
-              JSON.stringify([
-                v.returned_model,
-                v.fingerprint_status,
-                v.fingerprint_digests,
-              ]),
-            ),
+            identities
+              .filter(
+                (v) =>
+                  v.returned_model &&
+                  ["PRESENT", "ABSENT", "NULL"].includes(v.fingerprint_status),
+              )
+              .map((v) =>
+                JSON.stringify([
+                  v.returned_model,
+                  v.fingerprint_status,
+                  v.fingerprint_digests,
+                ]),
+              ),
           ).size > 1,
         external_recipe_sha256:
           s.pair?.position === "B" ? row.pair : row.trial.timeline,

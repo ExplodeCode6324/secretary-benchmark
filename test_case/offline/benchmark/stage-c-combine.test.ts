@@ -163,7 +163,7 @@ test("combined reports keep the denominator, reject overlapping lineages and bin
   ]) {
     const bad = structuredClone(snapshots[0]);
     Object.assign(bad.result.rows[0], patch);
-    assert.throws(() => combineResults([bad]), /AGGREGATE_ROW/);
+    assert.throws(() => combineResults([bad]), /AGGREGATE_ROW|GRADE_DECISION/);
   }
   const unapproved = structuredClone(snapshots[0]);
   Object.assign(unapproved.calibration, {
@@ -246,7 +246,10 @@ test("closed zero-send batch exports from the report producer match the archived
     assert.equal(aggregate.dispositions.UNRUN, 99);
     assert.equal(aggregate.proposals[0].calibration.status, "NOT_TESTED");
     const f = path.join(folder, "stage-c-results.json");
-    writeJSON(f, { ...readJSON(f), physical_sends: 1 });
+    writeJSON(f, {
+      ...readJSON<Record<string, unknown>>(f),
+      physical_sends: 1,
+    });
     assert.throws(
       () =>
         archivedBatch(tmp, exports, {

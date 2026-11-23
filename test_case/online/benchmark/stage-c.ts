@@ -1,12 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { baselineCases } from "./baseline-scenarios.ts";
-import { fillerTexts, timeline, visibleInputs } from "./baseline-timeline.ts";
-import { baselineModels } from "./live-model.ts";
 import { Domains, type Run } from "./domain.ts";
 import {
   correctionControls,
-  fixturePrefix,
   exerciseCorrection,
   fixtureMessage,
 } from "./stage-c-correction.ts";
@@ -26,125 +23,15 @@ import { fingerprint } from "./source.ts";
 import { captureBodies } from "./baseline-b0.ts";
 import { lines } from "./stage-b-scenarios-evidence.ts";
 
-const version = "issue122-stage-c-offline-v1";
-const additionalControl = {
-  ...baselineCases(true).find((c) => c.id === "C04-resident")!,
-  id: "C06-resident-B",
-  setup: [
-    "The current pickup day for Fern is Saturday. Only redacted copies may be collected.",
-  ],
-  probe: "What pickup instructions currently apply to Fern?",
-  oracle: {
-    required: ["Saturday; redacted only"],
-    forbidden: ["unsupported authority"],
-  },
-};
-type BodySample = {
-  model: string;
-  bytes: number;
-  sha256: string;
-  output_cap: number;
-};
-export function prospectiveMatrix(measured: Record<string, BodySample[]> = {}) {
-  const cases = [...baselineCases(true), additionalControl];
-  const rows = cases.flatMap((c) => {
-    const disposition =
-      c.id === "C16-combined" ? "DEFERRED_BY_DECISION" : c.status;
-    const steps = timeline(c);
-    const fixtureInputs =
-      c.id === "C12b"
-        ? [
-            {
-              route: "task-requests",
-              goal: delivery.goal,
-              acceptance: delivery.acceptance,
-            },
-          ]
-        : c.id === "C06-stale-cold"
-          ? [...c.setup, ...fillerTexts(fixturePrefix), c.probe]
-          : [
-                additionalControl.id,
-                "C04-irrelevant",
-                "C04-nonexistent",
-              ].includes(c.id)
-            ? [...c.setup, c.probe]
-            : null;
-    return baselineModels.flatMap((model) =>
-      Array.from(
-        { length: disposition === "READY_FOR_OFFLINE_VALIDATION" ? 3 : 1 },
-        (_, index) => {
-          const sample = measured[c.id]?.find((s) => s.model === model);
-          const candidate = disposition === "READY_FOR_OFFLINE_VALIDATION";
-          return {
-            scenario: c.id,
-            family: c.family,
-            route: c.route,
-            model,
-            disposition,
-            profile: candidate ? "SINGLE_PROFILE_TO_BE_FROZEN" : null,
-            repeat: candidate ? index + 1 : null,
-            lineage_group: candidate
-              ? [c.pair?.id ?? c.id, model, index + 1].join("/")
-              : null,
-            pair: c.pair,
-            assertions: c.assertions,
-            template_inputs_sha256: sha(JSON.stringify(visibleInputs(steps))),
-            template_timeline_sha256: sha(JSON.stringify(steps)),
-            template_oracle_sha256: sha(JSON.stringify(c.oracle)),
-            offline_fixture_inputs_sha256: fixtureInputs
-              ? sha(JSON.stringify(fixtureInputs))
-              : null,
-            offline_fixture_inputs: fixtureInputs?.length ?? null,
-            template_inputs: visibleInputs(steps).length,
-            restart: c.restart,
-            maintenance_cycles: c.maintenance_cycles,
-            measured_fixture_request: sample
-              ? {
-                  bytes: sample.bytes,
-                  body_sha256: sample.sha256,
-                  output_cap: sample.output_cap,
-                }
-              : null,
-            forecast: candidate
-              ? sample
-                ? "SINGLE_BODY_MEASURED_LANE_TOTAL_UNKNOWN"
-                : "UNKNOWN_UNTIL_MEASURED_PREFLIGHT"
-              : null,
-            request_cap: null,
-            retry_cap: null,
-            token_cap: null,
-            time_cap_seconds: null,
-            estimated_usd: null,
-            reservation_usd: null,
-            eligible_to_dispatch: false,
-          };
-        },
-      ),
-    );
-  });
-  const candidates = rows.filter((r) => r.lineage_group);
-  return {
-    schema: version,
-    models: baselineModels,
-    repeats: 3,
-    source_cases: cases.length - 1,
-    additional_controls: [additionalControl.id],
-    reused_controls: ["C04-irrelevant", "C04-nonexistent"],
-    candidate_observations: candidates.length,
-    source_lineages: new Set(candidates.map((r) => r.lineage_group)).size,
-    prior_pilot: {
-      C05_W: [7, 7],
-      C08: [26, 27],
-      C10_condition: [9, 11],
-      workload: 121,
-      probes: 3,
-      known_usd: "0.377460353",
-      uncertain_reservation_usd: "0.4784286",
-    },
-    freeze_status: "UNFROZEN",
-    rows,
-  };
-}
+import {
+  version,
+  additionalControl,
+  primaryModels,
+  sutCommit,
+  piCommit,
+  prospectiveMatrix,
+} from "./stage-c-plan.ts";
+export { prospectiveMatrix } from "./stage-c-plan.ts";
 const reportName = "issue122-stage-c-offline.json";
 async function fixture<T>(
   d: Domains,
@@ -171,18 +58,54 @@ async function fixture<T>(
     });
     throw error;
   } finally {
-    await d.seal(run.id);
+    try {
+      await d.seal(run.id);
+    } catch (e) {
+      writeJSON(path.join(run.evidence, "stage-c-seal-failure.json"), {
+        error: String(e),
+      });
+      if (!fs.existsSync(path.join(run.evidence, "stage-c-first-failure.json")))
+        throw e;
+    }
   }
+}
+export function legacyLayout(row: Record<string, unknown>) {
+  const has = (name: string) => Object.hasOwn(row, name);
+  const digest = (name: string) =>
+    typeof row[name] === "string" && /^[a-f0-9]{64}$/.test(row[name] as string);
+  if (
+    digest("source_inputs_sha256") &&
+    digest("oracle_sha256") &&
+    !has("template_inputs_sha256") &&
+    !has("offline_fixture_inputs_sha256")
+  )
+    return "R35_TEMPLATE";
+  if (
+    digest("template_inputs_sha256") &&
+    digest("template_oracle_sha256") &&
+    !has("source_inputs_sha256") &&
+    !has("oracle_sha256") &&
+    has("offline_fixture_inputs_sha256") &&
+    (row.offline_fixture_inputs_sha256 === null ||
+      digest("offline_fixture_inputs_sha256"))
+  )
+    return "R36_TEMPLATE_AND_FIXTURE";
+  throw Error("STAGE_C_UNKNOWN_LEGACY_LAYOUT");
 }
 export function readStageCReport(root: string) {
   const report = read(path.join(root, "reports", reportName));
+  const parsed = JSON.parse(report.toString());
   const receipt = readJSON(path.join(root, "reports", "stage-c-receipt.json"));
   requireThat(
     sha(report) === receipt.sha256 &&
-      JSON.parse(report.toString()).schema === version,
+      [version, "issue122-stage-c-offline-v1"].includes(parsed.schema),
     "STAGE_C_REPORT_CHANGED",
   );
-  return JSON.parse(report.toString());
+  if (parsed.schema === "issue122-stage-c-offline-v1") {
+    const layouts = new Set(parsed.matrix.rows.map(legacyLayout));
+    requireThat(layouts.size === 1, "STAGE_C_MIXED_LEGACY_LAYOUT");
+  }
+  return parsed;
 }
 export async function prepareStageC(root: string) {
   // This offline entry owns one fresh facility. Existing or failed facilities are evidence.
@@ -203,6 +126,11 @@ export async function prepareStageC(root: string) {
       "STAGE_C_FRESH_FACILITY_REQUIRED",
     );
     const source = fingerprint();
+    requireThat(
+      source.sut.commit === sutCommit &&
+        source.sut.submodules["src/pi_resource"] === piCommit,
+      "STAGE_C_SUT_PIN",
+    );
     writeJSON(path.join(root, "reports", "stage-c-start.json"), {
       schema: version,
       source,
@@ -220,7 +148,10 @@ export async function prepareStageC(root: string) {
           ),
       );
       requireThat(call, "C12B_TASK_SAMPLE_MISSING");
-      return { ...result, samples: await captureBodies(call.context) };
+      return {
+        ...result,
+        samples: await captureBodies(call.context, undefined, primaryModels),
+      };
     });
     const correction = await fixture(d, "C06-stale-cold", exerciseCorrection);
     const controls = [];
@@ -254,7 +185,11 @@ export async function prepareStageC(root: string) {
           return {
             id: c.id,
             probe,
-            samples: await captureBodies(call.context),
+            samples: await captureBodies(
+              call.context,
+              undefined,
+              primaryModels,
+            ),
             semantic: "NOT_TESTED",
           };
         }),

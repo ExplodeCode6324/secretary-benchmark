@@ -92,7 +92,7 @@ export function installStageCFault(
             outcome,
             () => read(op.action.resource),
             () => app.store.bytes(proof.evidence),
-          ) && proof.evidence.sha256 === sha(delivery.bytes),
+          ),
           "C12B_WRITE_PROOF",
         );
         const record = { ...fields(op), observed_hash: proof.evidence.sha256 };

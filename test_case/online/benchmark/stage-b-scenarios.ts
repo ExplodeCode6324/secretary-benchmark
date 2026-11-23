@@ -39,10 +39,19 @@ export const placeStageFile: (
 ) => void = (core, task, e, file) => {
   requireThat(
     /^[a-f0-9-]{36}$/.test(task.id) &&
-      file.path === "ready.txt" &&
+      (file.path === "ready.txt" ||
+        (file.path === "linden.txt" &&
+          task.preconditions.some(
+            (p) => p.kind === "RESOURCE_PRESENT" && p.target === file.path,
+          ))) &&
       sha(file.content) === file.sha256 &&
       e.task_id === task.id &&
-      e.state === "WAIT_PRECONDITION",
+      (e.state === "WAIT_PRECONDITION" ||
+        (file.path === "ready.txt" &&
+          e.state === "CANCELLED" &&
+          task.preconditions.some(
+            (p) => p.kind === "RESOURCE_PRESENT" && p.target === file.path,
+          ))),
     "SCENARIO_FILE_BINDING",
   );
   const owner = path.join(core, "workspaces", task.id);
@@ -65,7 +74,11 @@ export const placeStageFile: (
   requireThat(sha(read(target)) === file.sha256, "SCENARIO_FILE_CHANGED");
 };
 
-function secretaryHost(d: Domains, source: Run): ScenarioHost {
+export function secretaryHost(
+  d: Domains,
+  source: Run,
+  progress = "stage-b-progress.json",
+): ScenarioHost {
   let run = source;
   const core = path.join(source.active, "core");
   const client = () => new CoreClient(run.endpoint!);
@@ -93,8 +106,7 @@ function secretaryHost(d: Domains, source: Run): ScenarioHost {
     writes: () => lines(path.join(run.evidence, "completed-file-writes.jsonl")),
     place: (...args) => placeStageFile(core, ...args),
     guard: (future) => setFutureInputs(d.root, run.lineage, future),
-    record: (trail) =>
-      writeJSON(path.join(run.evidence, "stage-b-progress.json"), trail),
+    record: (trail) => writeJSON(path.join(run.evidence, progress), trail),
     async restart(signal) {
       const old = run;
       checkAbort(signal);

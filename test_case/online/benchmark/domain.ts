@@ -1,6 +1,7 @@
 import { initializeGuard, forbiddenPayload } from "./payload-guard.ts";
 import { fingerprint } from "./source.ts";
 import { captureProcessWitness } from "./process-witness.ts";
+import { caseDefinition } from "./stage-c-plan.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -94,6 +95,15 @@ export type Run = {
   };
 };
 export type Configuration =
+  | {
+      version: 4;
+      mode: "fixture";
+      track: "issue122";
+      case_id: string;
+      seed: number;
+      profile: "DEP" | "RC98304";
+      fault_injection?: never;
+    }
   | LiveConfiguration
   | StageConfiguration
   | {
@@ -129,6 +139,19 @@ export const configuration: Extract<
 };
 export function validateConfiguration(config: Configuration) {
   if (config.mode === "live") return validateLiveConfiguration(config);
+  if (config.version === 4) {
+    const c = caseDefinition(config.case_id);
+    requireThat(
+      Object.keys(config).sort().join(",") ===
+        "case_id,mode,profile,seed,track,version" &&
+        config.track === "issue122" &&
+        config.mode === "fixture" &&
+        Number.isSafeInteger(config.seed) &&
+        config.profile === (c.id === "C16-combined" ? "RC98304" : "DEP"),
+      "STAGE_C_FIXTURE_CONFIG",
+    );
+    return;
+  }
   if (config.version === 3) {
     requireThat(
       Object.keys(config).sort().join(",") ===

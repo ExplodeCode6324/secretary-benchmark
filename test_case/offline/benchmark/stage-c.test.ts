@@ -619,13 +619,17 @@ test("C12b requires the independent old exit and refuses a checkpoint substituti
 });
 test("preparation refuses all live or old approvals and keeps all controls and exclusions", () => {
   const matrix = prospectiveMatrix();
-  assert.equal(matrix.candidate_observations, 288);
-  assert.equal(matrix.source_lineages, 270);
+  assert.equal(matrix.candidate_observations, 99);
+  assert.equal(matrix.source_lineages, 93);
   assert(matrix.rows.every((r) => !r.eligible_to_dispatch));
   assert(
     matrix.rows
       .filter((r) => r.scenario === "C16-combined")
-      .every((r) => r.disposition === "DEFERRED_BY_DECISION"),
+      .every(
+        (r) =>
+          r.disposition === "READY_FOR_OFFLINE_VALIDATION" &&
+          r.profile === "RC98304",
+      ),
   );
   for (const command of [
     "baseline-stage-c-start",
@@ -771,7 +775,7 @@ test(
     assert.equal(c.status, "CAPTURED");
     assert(c.probe_revision >= c.boundary.revision);
     assert(c.transition_call);
-    assert.equal(c.samples.length, 3);
+    assert.equal(c.samples.length, 1);
     assert.equal(c.natural_use, "UNRESOLVED");
     assert(!Object.hasOwn(c.boundary, "items"));
     const scenarios = [
@@ -780,7 +784,7 @@ test(
       ...report.controls.map((v: any) => [v.observations.id, v.observations]),
     ];
     for (const [scenario, observations] of scenarios) {
-      assert.equal(observations.samples.length, 3);
+      assert.equal(observations.samples.length, 1);
       for (const sample of observations.samples) {
         const rows = report.matrix.rows.filter(
           (row: any) => row.scenario === scenario && row.model === sample.model,

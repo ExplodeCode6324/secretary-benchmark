@@ -10,6 +10,7 @@ import {
   safeRetentionUsage,
   type RetentionFrame,
 } from "./stage-b-retention.ts";
+import { wireIdentity } from "./stage-c-identity.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -505,6 +506,7 @@ export function meteredFetch(
       }
       const reader = response.body.getReader(),
         decoder = new TextDecoder();
+      const identity = wireIdentity(response.headers, options.key);
       const observedModels: string[] = [];
       const retention = physical?.cache_retention_contract;
       let failureFrameSeen = false;
@@ -538,6 +540,7 @@ export function meteredFetch(
             if (!expectedTier) completed = true;
           } else if (line.startsWith("data: ")) {
             const data = JSON.parse(line.slice(6));
+            identity.observe(data);
             const mismatch = expectedTier && tierMismatch(data, expectedTier);
             const snapshot = retention
               ? retentionFrame(data, ++frameIndex)
@@ -679,6 +682,9 @@ export function meteredFetch(
                   response_complete:
                     completed && outcome === "RESPONSE_COMPLETE",
                   observed_models: observedModels,
+                  wire_identity: identity.receipt(
+                    completed && outcome === "RESPONSE_COMPLETE",
+                  ),
                   ...(terminalTier
                     ? { returned_service_tier: terminalTier }
                     : {}),

@@ -1,3 +1,5 @@
+import { caseDefinition } from "./stage-c-plan.ts";
+import { elmNote } from "./stage-b-scenarios-protocol.ts";
 import { installStageCFault } from "./stage-c-fault.ts";
 import { loadCampaign } from "./campaign.ts";
 import { forbiddenPayload } from "./payload-guard.ts";
@@ -59,6 +61,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
       ),
       "AMBIENT_CONFIGURATION",
     );
+    if (run.config.version === 4) configureProfile(run.config.profile);
     if (run.config.mode === "live") {
       requireThat(run.live?.key && run.live.facility, "LIVE_PERMIT_REQUIRED");
       configureProfile(run.config.profile);
@@ -92,6 +95,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
     writeJSON(path.join(run.evidence, "worker-configuration.json"), run.config);
     let calls = 0,
       app: App;
+    let scriptedTaskTurns = 0;
     const stream: StreamFn = (m, c, o) => {
       appendJSON(path.join(run.evidence, "fixture-calls.jsonl"), {
         number: ++calls,
@@ -105,6 +109,125 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         (x) =>
           x.role === "system" && JSON.stringify(x).includes("TASK_EXECUTOR"),
       );
+      if (run.config.version === 4) {
+        const id = run.config.case_id;
+        const tool = (name: string, args: Record<string, any>) =>
+          replyStream(
+            [{ type: "toolCall", id: randomUUID(), name, arguments: args }],
+            m,
+          );
+        if (task && id !== "C12b") {
+          const n = scriptedTaskTurns++;
+          if (id === "C13-imported_note" && n === 0)
+            return tool("read", { path: "linden.txt" });
+          if (id.startsWith("C10-") || id.startsWith("C11-")) {
+            if (n === 0)
+              return id === "C10-answer" || id === "C10-model-created"
+                ? tool("request_decision", {
+                    question: "Which format should I use?",
+                  })
+                : tool("read", { path: "ready.txt" });
+            if (n === 1)
+              return tool("write", {
+                path: "result.txt",
+                content: "Checklist complete.",
+              });
+          }
+          return fixtureStream(m, c, o);
+        }
+        const last = c.messages.at(-1),
+          text = JSON.stringify(last?.content ?? "");
+        if (
+          !task &&
+          last?.role === "user" &&
+          c.messages.some(
+            (m) =>
+              m.role === "system" &&
+              m.toolsAdded?.some((t) => t.name === "task_propose"),
+          ) &&
+          id === "C10-model-created" &&
+          !app.store.all("TaskPlan").length
+        )
+          return tool("task_propose", {
+            title_candidate: "Checklist",
+            goal: "Ask for the format before writing result.txt",
+            acceptance_criteria: ["One result.txt"],
+          });
+        if (
+          !task &&
+          c.messages.some(
+            (m) =>
+              m.role === "system" &&
+              m.toolsAdded?.some((t) => t.name === "memory_propose_change"),
+          ) &&
+          last?.role === "user" &&
+          (id === "C05-W" || id === "C14-retraction")
+        ) {
+          const row = caseDefinition(id),
+            part = row.setup.findIndex((line) => text.includes(line));
+          if (part >= 0) {
+            const events = app.store.events("input.accepted");
+            const event = events.findLast((e) => {
+              const input = app.store.read<any>(e.payload);
+              return (
+                app.store.bytes(input.payload).toString() === row.setup[part]
+              );
+            });
+            requireThat(event, "STAGE_C_FIXTURE_INPUT_BINDING");
+            const source_event_ids = [event.event_id];
+            const elm = id === "C14-retraction",
+              ref = elm ? "$elm" : "$fern";
+            if (elm && part === 1) {
+              const op = app.store
+                .all<Operation>("Operation")
+                .find(
+                  (op) =>
+                    op.action.action === "world.change" &&
+                    op.state === "SUCCEEDED" &&
+                    op.receipt,
+                );
+              const ids =
+                op?.receipt && app.store.read<any>(op.receipt).result_ids;
+              requireThat(ids?.length === 2, "STAGE_C_FIXTURE_ELM_TARGET");
+              return tool("memory_propose_change", {
+                changes: [
+                  {
+                    intent: "RETRACT",
+                    subject: ids[0],
+                    target_fact_id: ids[1],
+                    predicate: "entity.note",
+                    source_event_ids,
+                  },
+                ],
+              });
+            }
+            return tool("memory_propose_change", {
+              changes: [
+                {
+                  intent: "CREATE_ENTITY",
+                  local_ref: ref,
+                  entity_kind: "PROJECT",
+                  display_name: elm ? "Elm" : "Fern",
+                  source_event_ids,
+                },
+                {
+                  intent: "ASSERT",
+                  subject: ref,
+                  predicate: "entity.note",
+                  topic: "current_context",
+                  keywords: [],
+                  value: elm
+                    ? elmNote
+                    : part
+                      ? "Fern pickup is Saturday. Only redacted copies may be collected."
+                      : "Fern pickup is Thursday.",
+                  source_event_ids,
+                },
+              ],
+            });
+          }
+        }
+      }
       if (!task) {
         const last = c.messages.at(-1);
         if (
@@ -310,7 +433,10 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
       }
       return finish(id, receipt, outcome);
     }) as typeof app.authorization.finish;
-    if (run.config.version === 3 && run.config.case_id === "C12b")
+    if (
+      (run.config.version === 3 || run.config.version === 4) &&
+      run.config.case_id === "C12b"
+    )
       installStageCFault(app, run);
     requireThat(app.world?.ready && app.world.configured, "WORLD_NOT_READY");
     const role = (
@@ -355,7 +481,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         calls: app.store.all("ModelCall"),
         compactions: app.store.all("CompactionJob"),
         extractions: app.store.all("MemoryExtractionJob"),
-        ...(run.config.mode === "live"
+        ...(run.config.mode === "live" || run.config.version === 4
           ? {
               sessions: app.store.all("Session"),
               input_records: app.store.all("Input"),
@@ -368,6 +494,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
               extractions: app.store.all("MemoryExtractionJob"),
               consciousness: app.store.all("Consciousness"),
               authorizations: app.store.all("AuthorizationRequest"),
+              feedback: app.store.all("Feedback"),
               world_commands: app.store.all("WorldCommand"),
             }
           : {}),

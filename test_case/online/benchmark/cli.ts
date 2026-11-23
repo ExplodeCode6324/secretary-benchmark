@@ -12,6 +12,7 @@ import {
   replayAssessment,
 } from "./assessment-report.ts";
 import { writeJSON } from "./io.ts";
+import { prepareTrial } from "./stage-c-trial.ts";
 import fs from "node:fs";
 import { sha } from "./io.ts";
 import {
@@ -104,7 +105,9 @@ async function main() {
         "--profiles",
         "--source",
         "--provenance",
-      ].includes(args[i]) &&
+      ]
+        .concat(command === "baseline-stage-c-trial" ? ["--case"] : [])
+        .includes(args[i]) &&
         !!args[i + 1] &&
         !options[args[i]],
       "INVALID_ARGUMENTS",
@@ -137,6 +140,17 @@ async function main() {
     );
   deploymentGuard(repository, root);
   if (command.startsWith("baseline-stage-c-")) {
+    if (command === "baseline-stage-c-trial") {
+      requireThat(
+        Object.keys(options).sort().join(",") === "--case,--root" &&
+          options["--case"] &&
+          options["--root"] &&
+          root !== path.join(repository, ".local/benchmark"),
+        "STAGE_C_OFFLINE_ONLY",
+      );
+      console.log(JSON.stringify(await prepareTrial(root, options["--case"])));
+      return;
+    }
     if (command === "baseline-stage-c-plan") {
       requireThat(Object.keys(options).length === 0, "STAGE_C_PLAN_NO_OPTIONS");
       console.log(JSON.stringify(prospectiveMatrix()));

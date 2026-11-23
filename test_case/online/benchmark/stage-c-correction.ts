@@ -165,7 +165,7 @@ export function jobsAtCap(frames: Frame[], session: string, deadline: number) {
         r.record_type === "CompactionJob" &&
         r.mode === "WORKING_MEMORY" &&
         r.session_id === session &&
-        Date.parse(r.updated_at) <= deadline
+        Date.parse(r.updated_at) < deadline
       )
         latest.set(r.id, r);
     }
@@ -174,7 +174,11 @@ export function jobsAtCap(frames: Frame[], session: string, deadline: number) {
     (a, b) => Date.parse(a.updated_at) - Date.parse(b.updated_at),
   );
 }
-export async function exerciseCorrection(run: Run) {
+export async function exerciseCorrection(
+  run: Run,
+  recipe = fixturePrefix,
+  models: Parameters<typeof captureBodies>[2] = ["deepseek-flash"],
+) {
   const core = path.join(run.active, "core");
   const observe = () => readJSON(path.join(run.evidence, "observed.json"));
   const a = await fixtureMessage(run, coldCase.setup[0], Date.now() + 30000);
@@ -195,7 +199,7 @@ export async function exerciseCorrection(run: Run) {
   requireThat(aHandled && bHandled, "C06_HANDLED_BOUNDARY");
   const deadline = Date.parse(bHandled.occurred_at) + capMs;
   let prefix = 0;
-  for (const text of fillerTexts(fixturePrefix)) {
+  for (const text of fillerTexts(recipe)) {
     if (Date.now() >= deadline) break;
     try {
       await fixtureMessage(run, text, deadline);
@@ -233,10 +237,10 @@ export async function exerciseCorrection(run: Run) {
     a_handled: aHandled.event_id,
     b_handled: bHandled.event_id,
     deadline,
-    fixture_prefix: fixturePrefix,
+    prefix_recipe: recipe,
     prefix_handled: prefix,
   };
-  if (!boundary || Date.now() >= deadline || prefix !== fixturePrefix.count) {
+  if (!boundary || Date.now() >= deadline || prefix !== recipe.count) {
     const status = maintenanceBoundary(
       jobsAtCap(state.transactions, session, deadline),
       source,
@@ -287,13 +291,13 @@ export async function exerciseCorrection(run: Run) {
         r.context_id === first.id &&
         r.started_at,
     );
-  if (!call)
+  if (!call || Date.parse(call.started_at!) >= deadline)
     return {
       inputs,
       boundary,
       probe,
       references,
-      status: "FIRST_SEND_MISSING",
+      status: call ? "FIRST_SEND_AFTER_CUTOFF" : "FIRST_SEND_MISSING",
       use: "UNRESOLVED",
       physical_provider_sends: 0,
     };
@@ -309,6 +313,7 @@ export async function exerciseCorrection(run: Run) {
         call: call.id,
       });
     },
+    models,
   );
   const events = final.transactions.flatMap((f) => f.events);
   const calls = sends.chain.flatMap((ctx) => {

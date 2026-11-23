@@ -10,7 +10,7 @@ import { snapshot } from "./snapshot.ts";
 import type { ScenarioTrail } from "./stage-b-scenarios-protocol.ts";
 
 type Ref = { path: string; sha256: string; bytes: number };
-export function cas(core: string, r: Ref) {
+export function casBytes(core: string, r: Ref) {
   requireThat(
     r && /^[a-f0-9]{64}$/.test(r.sha256) && r.path === "objects/" + r.sha256,
     "SCENARIO_CAS_REFERENCE",
@@ -20,7 +20,10 @@ export function cas(core: string, r: Ref) {
     data.length === r.bytes && sha(data) === r.sha256,
     "SCENARIO_CAS_CHANGED",
   );
-  return JSON.parse(data.toString());
+  return data;
+}
+export function cas(core: string, r: Ref) {
+  return JSON.parse(casBytes(core, r).toString());
 }
 export function lines(file: string): any[] {
   return fs.existsSync(file)

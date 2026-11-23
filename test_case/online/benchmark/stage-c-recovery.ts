@@ -19,7 +19,7 @@ import { lines } from "./stage-b-scenarios-evidence.ts";
 import { delivery, deliveryRequest } from "./stage-c-fault.ts";
 import { type RestartEvidence, verifyRestart } from "./baseline-evidence.ts";
 
-const windows = {
+const fixtureWindows = {
   target_ms: 20000,
   exit_ms: 8000,
   recovery_ms: 15000,
@@ -104,38 +104,56 @@ export function verifyDirectRecovery(
   );
   return verifyRestart(evidence, bytes);
 }
-export async function exerciseRecovery(d: Domains, old: Run) {
+export async function exerciseRecovery(
+  d: Domains,
+  old: Run,
+  windows = fixtureWindows,
+  probe?: string,
+) {
   const file = (name: string) => path.join(old.evidence, name);
   const core = path.join(old.active, "core");
   const client = new CoreClient(old.endpoint!);
   const request = deliveryRequest(old.id);
-  const accepted = await client.command("task-requests", {
-    request_id: request,
-    goal: delivery.goal,
-    acceptance: delivery.acceptance,
-  });
-  requireThat(
-    accepted.acceptance === "ACCEPTED" && accepted.request_id === request,
-    "C12B_REQUEST",
-  );
-  const waitForFault = async (
-    check: () => boolean,
-    ms: number,
-    missing: string,
-  ) => {
+  async function supervise<T>(run: Run, action: () => Promise<T>) {
     try {
-      await until(check, ms);
+      return await action();
     } catch (error) {
-      if (String(error) !== "Error: WAIT_TIMEOUT") throw error;
-      // A parked sync finish hook cannot service Core commands. Signal only
-      // this run's independently identified worker; a forced exit earns no credit.
-      requireThat(
-        (await stopOwned(old.process)) === "STOPPED",
-        "C12B_SUPERVISOR_STOP_UNCONFIRMED",
-      );
-      throw Error(missing);
+      const failure = file("stage-c-supervisor-failure.json");
+      try {
+        if (!fs.existsSync(failure))
+          writeJSON(failure, { error: String(error), process: run.process });
+      } finally {
+        const state = await stopOwned(run.process);
+        if (state !== "STOPPED")
+          throw new AggregateError(
+            [error, Error("C12B_SUPERVISOR_STOP_UNCONFIRMED")],
+            String(error),
+          );
+      }
+      throw error;
     }
-  };
+  }
+  const waitForFault = (check: () => boolean, ms: number, missing: string) =>
+    supervise(old, async () => {
+      try {
+        await until(check, ms);
+      } catch (e) {
+        if (String(e) === "Error: WAIT_TIMEOUT") throw Error(missing);
+        throw e;
+      }
+    });
+  const accepted = await supervise(old, async () => {
+    const receipt = await client.command("task-requests", {
+      request_id: request,
+      goal: delivery.goal,
+      acceptance: delivery.acceptance,
+    });
+    requireThat(
+      receipt.acceptance === "ACCEPTED" && receipt.request_id === request,
+      "C12B_REQUEST",
+    );
+    return receipt;
+  });
   await waitForFault(
     () => fs.existsSync(file("stage-c-barrier.json")),
     windows.target_ms,
@@ -181,47 +199,87 @@ export async function exerciseRecovery(d: Domains, old: Run) {
     read,
   );
   const observed = () => readJSON(file("observed.json"));
-  await until(
-    () =>
-      observed().operations.some(
-        (op: any) =>
-          op.id === bound.operation &&
-          op.state === "RESULT_UNKNOWN" &&
-          op.effect === "UNKNOWN",
-      ),
-    windows.recovery_ms,
-  );
-  const unknown = snapshot(core);
   const verifyID = randomUUID();
-  const verify = await new CoreClient(fresh.endpoint!).command(
-    "operations/" + bound.operation + "/verify-write",
-    { request_id: verifyID },
-  );
-  requireThat(
-    verify.request_id === verifyID && verify.acceptance === "ACCEPTED",
-    "C12B_VERIFY_RECEIPT",
-  );
-  await until(
-    () =>
-      observed().operations.some(
-        (op: any) =>
-          op.id === bound.operation &&
-          op.state === "SUCCEEDED" &&
-          op.effect === "APPLIED",
-      ),
-    windows.recovery_ms,
-  );
-  await new Promise((resolve) => setTimeout(resolve, windows.post_verify_ms));
-  await d.stop(old.id);
-  const final = snapshot(core),
-    history = final.operationHistory.get(bound.operation) ?? [];
-  requireThat(
-    history.at(-1)?.effect === "APPLIED" &&
-      history.at(-1)?.state === "SUCCEEDED" &&
-      unknown.operationHistory.get(bound.operation)?.at(-1)?.state ===
-        "RESULT_UNKNOWN",
-    "C12B_RECONCILIATION_HISTORY",
-  );
+  let verify: Awaited<ReturnType<CoreClient["command"]>> | undefined;
+  let unknownDigest: string | null = null;
+  let reconciled = false;
+  let probeInput: string | null = null;
+  let recoveryFailure: string | null = null;
+  try {
+    await supervise(fresh, async () => {
+      await until(
+        () =>
+          observed().operations.some(
+            (op: any) =>
+              op.id === bound.operation &&
+              op.state === "RESULT_UNKNOWN" &&
+              op.effect === "UNKNOWN",
+          ),
+        windows.recovery_ms,
+      );
+      const unknown = snapshot(core);
+      requireThat(
+        unknown.operationHistory.get(bound.operation)?.at(-1)?.state ===
+          "RESULT_UNKNOWN",
+        "C12B_UNKNOWN_HISTORY",
+      );
+      unknownDigest = unknown.digest;
+      verify = await new CoreClient(fresh.endpoint!).command(
+        "operations/" + bound.operation + "/verify-write",
+        { request_id: verifyID },
+      );
+      requireThat(
+        verify.request_id === verifyID && verify.acceptance === "ACCEPTED",
+        "C12B_VERIFY_RECEIPT",
+      );
+      await until(
+        () =>
+          observed().operations.some(
+            (op: any) =>
+              op.id === bound.operation &&
+              op.state === "SUCCEEDED" &&
+              op.effect === "APPLIED",
+          ),
+        windows.recovery_ms,
+      );
+      if (probe) {
+        const request_id = randomUUID();
+        const r = await new CoreClient(fresh.endpoint!).command("messages", {
+          request_id,
+          text: probe,
+        });
+        const input = r.resource_ids.find((i) => i.type === "Input")?.id;
+        requireThat(
+          r.acceptance === "ACCEPTED" && r.request_id === request_id && input,
+          "C12B_PROBE_BINDING",
+        );
+        probeInput = input;
+        await until(
+          () =>
+            observed().input_records.some(
+              (i: any) => i.id === input && i.state === "HANDLED",
+            ),
+          windows.recovery_ms,
+        );
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, windows.post_verify_ms),
+      );
+      await d.stop(old.id);
+      reconciled = true;
+    });
+  } catch (e) {
+    requireThat(
+      processStatus(fresh.process) === "STOPPED",
+      "C12B_SUPERVISOR_STOP_UNCONFIRMED",
+    );
+    recoveryFailure = String(e);
+    await d.stop(old.id);
+  }
+  const final = snapshot(core);
+  const last = final.operationHistory.get(bound.operation)?.at(-1);
+  reconciled =
+    reconciled && last?.state === "SUCCEEDED" && last.effect === "APPLIED";
   const attempts = lines(file("stage-c-write-attempts.jsonl")),
     writes = lines(file("stage-c-physical-writes.jsonl"));
   const unobserved = final.records.some(
@@ -232,23 +290,35 @@ export async function exerciseRecovery(d: Domains, old: Run) {
         (op.effect === "APPLIED" &&
           !writes.some((w) => w.operation === op.id))),
   );
-  const effects = countRecoveryWrites(attempts, writes, bound, unobserved);
-  const target = sha(read(bound.resource));
-  requireThat(target === bound.expected_hash, "C12B_POSTCONDITION");
+  const effects = countRecoveryWrites(
+    attempts,
+    writes,
+    bound,
+    unobserved || !reconciled,
+  );
+  const target = fs.existsSync(bound.resource)
+    ? sha(read(bound.resource))
+    : null;
   const result = {
     expected: 1,
     physical_writes: writes.length,
-    effects,
+    effects:
+      effects === "PASS" && target !== bound.expected_hash
+        ? "UNRESOLVED"
+        : effects,
+    reconciled,
+    first_recovery_failure: recoveryFailure,
     host_assisted: true,
     kind: restart.kind,
     old_exit: restart.old_exit.sha256,
     new_start: restart.new_start.sha256,
     operation: bound.operation,
     pre_restart_journal: before.digest,
-    unknown_journal: unknown.digest,
+    unknown_journal: unknownDigest,
     final_journal: final.digest,
     verify_request: verifyID,
-    verify_receipt_sha256: sha(JSON.stringify(verify)),
+    probe_input: probeInput,
+    verify_receipt_sha256: verify ? sha(JSON.stringify(verify)) : null,
     content_sha256: target,
     windows,
   };

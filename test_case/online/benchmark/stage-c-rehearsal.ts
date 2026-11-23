@@ -49,12 +49,19 @@ export function rehearsalFetch(): typeof fetch {
       object: "chat.completion.chunk",
       system_fingerprint: "stub-" + (++number % 2),
     };
-    const packet = body.messages.findLast(
-      (m: any) =>
-        m.role === "user" &&
-        typeof m.content === "string" &&
-        m.content.includes('"secretary.agent-task.v1"'),
-    );
+    const textOf = (content: unknown) =>
+      typeof content === "string"
+        ? content
+        : Array.isArray(content)
+          ? content
+              .filter((p) => p.type === "text")
+              .map((p) => p.text)
+              .join("\n")
+          : "";
+    const packet = body.messages
+      .filter((m: any) => m.role === "user")
+      .map((m: any) => textOf(m.content))
+      .findLast((text: string) => text.includes('"secretary.agent-task.v1"'));
     const task = packet && sys.includes("TASK_EXECUTOR");
     const hasWrite = body.messages.some((m: any) =>
       m.tool_calls?.some(

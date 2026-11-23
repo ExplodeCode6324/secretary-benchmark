@@ -1,3 +1,4 @@
+import { assertCombinedRehearsal } from "./scenarios/stage-c-combine-rehearsal.ts";
 import {
   ledger,
   loadCampaign,
@@ -181,6 +182,9 @@ test(
     assert.equal(report.physical_sends, 0);
     assert(report.metered_attempts > 10);
     assert.equal(report.rows.length, 5);
+    const combined = assertCombinedRehearsal(root, hash, report);
+    assert.equal(combined.dispositions.INCOMPLETE, 1);
+    assert.equal(combined.unpriced_reservation_usd, reserved);
     const interrupted = ledger(root).entries.get(orphan)!;
     assert.equal(interrupted.outcome, "INTERRUPTED_IN_FLIGHT");
     assert.equal(interrupted.charged_usd, reserved);

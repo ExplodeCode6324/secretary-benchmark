@@ -120,7 +120,20 @@ export function combineResults(snapshots: Snapshot[]) {
   let physical = 0,
     known = 0,
     unpriced = 0;
+  const grader = snapshots[0].freeze.grade;
   for (const s of snapshots) {
+    const g = s.freeze.grade;
+    requireThat(
+      g &&
+        reference(g.reader) &&
+        reference(g.version) &&
+        hash(g.rubric_sha256) &&
+        hash(g.key_sha256) &&
+        g.reader === grader.reader &&
+        g.version === grader.version &&
+        g.rubric_sha256 === grader.rubric_sha256,
+      "STAGE_C_AGGREGATE_RUBRIC",
+    );
     requireThat(
       s.freeze.evidence_class === "LIVE" &&
         s.result.evidence_class === "LIVE" &&
@@ -297,6 +310,7 @@ export function combineResults(snapshots: Snapshot[]) {
       freeze_sha256: s.hash,
       runner: s.freeze.source.head,
       decisions: s.decisions,
+      grade: s.freeze.grade,
       calibration: s.calibration,
       archive_sha256: s.archive_sha256,
     })),

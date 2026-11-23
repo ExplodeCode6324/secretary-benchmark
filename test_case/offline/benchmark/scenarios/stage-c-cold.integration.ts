@@ -1,4 +1,5 @@
 // Run separately before the C16 freeze. Both scenarios use only in-memory provider streams.
+import { assertCombinedRehearsal } from "./stage-c-combine-rehearsal.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -111,6 +112,8 @@ for (const mode of ["ORIGINAL_OFFSET", "OTHER_EVENT"] as const) {
       );
     }
     const report = completedBatchReport(root, hash);
+    const combined = assertCombinedRehearsal(root, hash, report);
+    assert.equal(combined.c16_closed, 1);
     assert.equal(report.physical_sends, 0);
     assert.equal(report.rows[0].c16?.gate, "CLOSED");
     assert.equal(

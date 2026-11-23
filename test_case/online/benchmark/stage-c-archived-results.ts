@@ -58,7 +58,8 @@ export function archivedBatch(
   );
   const prefix = "oracles/completion/calibration/";
   requireThat(
-    entries.get(prefix + "blind.json")?.sha256 === freeze.grade.packet_sha256,
+    entries.get(prefix + "blind.json")?.sha256 === freeze.grade.packet_sha256 &&
+      entries.get(prefix + "key.json")?.sha256 === freeze.grade.key_sha256,
     "STAGE_C_AGGREGATE_CALIBRATION",
   );
   const reservations = [1, 2, 3].filter((n) =>

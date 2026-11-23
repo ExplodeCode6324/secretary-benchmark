@@ -172,6 +172,24 @@ test("combined reports keep the denominator, reject overlapping lineages and bin
     receipt_sha256: sha("grade"),
   });
   assert.throws(() => combineResults([unapproved]), /GRADE_DECISION/);
+  for (const patch of [
+    { reader: "other" },
+    { version: "other" },
+    { rubric_sha256: sha("other") },
+  ]) {
+    const other = structuredClone(snapshots[1]);
+    Object.assign(other.freeze.grade, patch);
+    assert.throws(
+      () => combineResults([snapshots[0], other]),
+      /AGGREGATE_RUBRIC/,
+    );
+  }
+  const separatelyCalibrated = structuredClone(snapshots[1]);
+  separatelyCalibrated.freeze.grade.packet_sha256 =
+    separatelyCalibrated.calibration.packet_sha256 = sha("other packet");
+  separatelyCalibrated.freeze.grade.key_sha256 = sha("other key");
+  const different = combineResults([snapshots[0], separatelyCalibrated]);
+  assert.equal(different.proposals[1].grade.key_sha256, sha("other key"));
   const changed = structuredClone(snapshots);
   changed.at(-1)!.result.rows[0].external_recipe_sha256 = sha("changed");
   assert.throws(() => combineResults(changed), /AGGREGATE_ROW/);

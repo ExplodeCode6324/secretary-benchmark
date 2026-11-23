@@ -1,3 +1,4 @@
+import { loadCombinedResults } from "./stage-c-combine.ts";
 import {
   prepareCompletionCalibration,
   completionJudge,
@@ -147,6 +148,14 @@ async function main() {
     );
   deploymentGuard(repository, root);
   if (command.startsWith("baseline-stage-c-")) {
+    if (command === "baseline-stage-c-combine") {
+      requireThat(
+        Object.keys(options).join(",") === "--root",
+        "STAGE_C_AGGREGATE_ARGUMENTS",
+      );
+      console.log(JSON.stringify(loadCombinedResults(root)));
+      return;
+    }
     if (command === "baseline-stage-c-controls") {
       requireThat(
         Object.keys(options).join(",") === "--root" &&

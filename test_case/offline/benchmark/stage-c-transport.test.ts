@@ -207,12 +207,37 @@ test(
     // Local synthetic reader receipts exercise all branches without sending a packet to a model.
     const judge = { model: "Opus 5.5", effort: "Extra" },
       approval = completionApproval(hash, true);
+    const reservation = await completionJudge(
+      root,
+      "begin",
+      hash,
+      approval,
+      "calibration",
+    );
+    assert("packet_sha256" in reservation);
+    const incomplete = await completionJudge(
+      root,
+      "finish",
+      hash,
+      approval,
+      "calibration",
+      {
+        mechanical: "INVALID_JSON",
+        evidence_sha256: sha("truncated JSON from synthetic reader"),
+      },
+    );
+    assert("status" in incomplete && incomplete.status === "MECHANICAL");
     const prepare = await completionJudge(
       root,
       "begin",
       hash,
       approval,
       "calibration",
+    );
+    assert(
+      "packet_sha256" in prepare &&
+        prepare.packet_sha256 === reservation.packet_sha256 &&
+        prepare.number === 2,
     );
     const key = readJSON(
       path.join(root, "oracles/completion/calibration/key.json"),

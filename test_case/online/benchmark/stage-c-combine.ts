@@ -1,8 +1,15 @@
 // The aggregate reads portable, hash-bound exports. Only an exact-head runner produces each individual batch result.
 import path from "node:path";
-import { read, readJSON, requireThat, sha } from "./io.ts";
+import { readJSON, requireThat, sha } from "./io.ts";
 import { caseDefinition, stageCases } from "./stage-c-plan.ts";
 import type { FrozenBatch } from "./stage-c-freeze.ts";
+
+import { archivedBatch } from "./stage-c-archived-results.ts";
+import {
+  archiveConfiguration,
+  assertArchiveTargetExternal,
+} from "./archive.ts";
+import { familyResults } from "./stage-c-families.ts";
 
 type Decision = { workload: string; grading?: string };
 type Snapshot = {
@@ -10,10 +17,65 @@ type Snapshot = {
   projection: { batches: FrozenBatch[] };
   result: any;
   hash: string;
+  archive_sha256: string;
+  calibration: {
+    attempts: number;
+    status: string;
+    receipt_sha256: string | null;
+    packet_sha256: string;
+  };
   decisions: Decision;
 };
 const reference = (v: unknown) =>
   typeof v === "string" && v.trim().length > 0 && v.length <= 400;
+const money = (v: unknown): v is number =>
+  typeof v === "number" && Number.isFinite(v) && v >= 0;
+const count = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0;
+const hash = (v: unknown) => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
+const verdicts = ["PASS", "FAIL", "UNRESOLVED", "NOT_TESTED"];
+function checkAccounting(s: Snapshot) {
+  const r = s.result,
+    c = s.calibration;
+  requireThat(
+    r.schema === "issue122-completion-results-v1" &&
+      r.batch_closed === true &&
+      Array.isArray(r.rows) &&
+      r.observations === r.rows.length &&
+      r.lineages === s.freeze.batch.length &&
+      count(r.physical_sends) &&
+      r.metered_attempts === r.physical_sends &&
+      [r.known_usd, r.unresolved_cost_reservation_usd, r.charged_usd].every(
+        money,
+      ) &&
+      Math.abs(
+        r.charged_usd - r.known_usd - r.unresolved_cost_reservation_usd,
+      ) <=
+        1e-9 * Math.max(1, r.charged_usd) &&
+      (r.physical_sends > 0 || r.charged_usd === 0),
+    "STAGE_C_AGGREGATE_ACCOUNTING",
+  );
+  requireThat(
+    hash(s.archive_sha256) &&
+      c &&
+      count(c.attempts) &&
+      c.attempts <= 3 &&
+      hash(c.packet_sha256) &&
+      c.packet_sha256 === s.freeze.grade.packet_sha256 &&
+      (c.attempts === 0
+        ? c.status === "NOT_TESTED" && c.receipt_sha256 === null
+        : c.status === "RESERVED"
+          ? c.receipt_sha256 === null
+          : ["PASSED", "FAILED", "REJECTED", "MECHANICAL"].includes(c.status) &&
+            hash(c.receipt_sha256)),
+    "STAGE_C_AGGREGATE_CALIBRATION",
+  );
+  if (c.attempts || r.rows.some((row: any) => row.assessment_attempts))
+    requireThat(
+      reference(s.decisions.grading) &&
+        s.decisions.grading !== s.decisions.workload,
+      "STAGE_C_AGGREGATE_GRADE_DECISION",
+    );
+}
 export function combineResults(snapshots: Snapshot[]) {
   requireThat(snapshots.length > 0, "STAGE_C_AGGREGATE_EMPTY");
   const allCases = stageCases();
@@ -71,6 +133,9 @@ export function combineResults(snapshots: Snapshot[]) {
         reference(s.decisions.workload),
       "STAGE_C_AGGREGATE_FREEZE",
     );
+    checkAccounting(s);
+    const lineages = new Map<string, string>();
+    const sends = new Set<string>();
     const admitted = new Set(
       s.freeze.batch.map((r: FrozenBatch[number]) => r.lane.lane),
     );
@@ -94,12 +159,76 @@ export function combineResults(snapshots: Snapshot[]) {
           ["COMPLETED", "INCOMPLETE", "UNRUN"].includes(row.status),
         "STAGE_C_AGGREGATE_ROW",
       );
-      if (row.assessment_attempts)
+      const definition = caseDefinition(row.scenario);
+      const lane = s.freeze.batch.find(
+        (r: FrozenBatch[number]) => r.lane.lane === row.source_lineage,
+      ).lane;
+      const attempts = row.physical_attempts_on_shared_lineage;
+      requireThat(
+        count(attempts) &&
+          attempts <= lane.cap &&
+          Array.isArray(row.identities) &&
+          row.identities.length === attempts &&
+          count(row.assessment_attempts) &&
+          row.assessment_attempts <= 3 &&
+          (row.assessment_attempts
+            ? s.calibration.status === "PASSED" &&
+              ["NOT_TESTED", "ACCEPTED", "REJECTED", "MECHANICAL"].includes(
+                row.assessment_status,
+              )
+            : row.assessment_status === "NOT_TESTED") &&
+          row.family === definition.family &&
+          row.published_version ===
+            s.freeze.providers[row.model].published_version &&
+          row.grades &&
+          Object.keys(row.grades).length === definition.assertions.length &&
+          definition.assertions.every((a) =>
+            verdicts.includes(row.grades[a]),
+          ) &&
+          (row.status === "COMPLETED"
+            ? attempts > 0 && row.reason === null
+            : typeof row.reason === "string" && row.reason.length > 0) &&
+          (row.status !== "UNRUN" ||
+            (attempts === 0 &&
+              row.assessment_attempts === 0 &&
+              Object.values(row.grades).every((v) => v === "NOT_TESTED"))) &&
+          (row.c16 === null ||
+            (row.scenario === "C16-combined" &&
+              ["CLOSED", "OPEN"].includes(row.c16?.gate) &&
+              (row.c16.gate === "CLOSED"
+                ? row.assessment_status === "ACCEPTED" &&
+                  ["PASS", "FAIL"].includes(row.c16.verdict)
+                : row.c16.verdict === "UNRESOLVED"))),
+        "STAGE_C_AGGREGATE_ROW_EVIDENCE",
+      );
+      const shared = JSON.stringify([row.status, row.reason, row.identities]);
+      if (lineages.has(row.source_lineage))
         requireThat(
-          reference(s.decisions.grading) &&
-            s.decisions.grading !== s.decisions.workload,
-          "STAGE_C_AGGREGATE_GRADE_DECISION",
+          lineages.get(row.source_lineage) === shared,
+          "STAGE_C_AGGREGATE_SHARED_LINEAGE",
         );
+      else {
+        lineages.set(row.source_lineage, shared);
+        for (const identity of row.identities) {
+          requireThat(
+            typeof identity.send === "string" &&
+              identity.send.length &&
+              !sends.has(identity.send) &&
+              Array.isArray(identity.fingerprint_digests) &&
+              identity.fingerprint_digests.every(hash) &&
+              [
+                "PRESENT",
+                "ABSENT",
+                "NULL",
+                "UNKNOWN",
+                "CHANGED_WITHIN_SEND",
+                "INVALID",
+              ].includes(identity.fingerprint_status),
+            "STAGE_C_AGGREGATE_IDENTITY",
+          );
+          sends.add(identity.send);
+        }
+      }
       for (const send of row.identities) {
         if (
           !send.returned_model ||
@@ -128,6 +257,11 @@ export function combineResults(snapshots: Snapshot[]) {
         row,
       });
     }
+    requireThat(
+      sends.size === s.result.physical_sends &&
+        lineages.size === s.result.lineages,
+      "STAGE_C_AGGREGATE_ACCOUNTING",
+    );
     physical += s.result.physical_sends;
     known += s.result.known_usd;
     unpriced += s.result.unresolved_cost_reservation_usd;
@@ -141,6 +275,19 @@ export function combineResults(snapshots: Snapshot[]) {
   );
   return {
     schema: "issue122-cross-batch-v1",
+    ...familyResults(
+      rows.map((r) => {
+        const c = caseDefinition(r.case_id);
+        return {
+          family: c.family,
+          source_lineage: r.lane,
+          status: r.row.status,
+          grades:
+            r.row.grades ??
+            Object.fromEntries(c.assertions.map((a) => [a, "NOT_TESTED"])),
+        };
+      }),
+    ),
     matrix_sha256: matrix,
     expected_lineages: 93,
     expected_observations: 99,
@@ -150,6 +297,8 @@ export function combineResults(snapshots: Snapshot[]) {
       freeze_sha256: s.hash,
       runner: s.freeze.source.head,
       decisions: s.decisions,
+      calibration: s.calibration,
+      archive_sha256: s.archive_sha256,
     })),
     dispositions: Object.fromEntries(
       ["COMPLETED", "INCOMPLETE", "UNRUN"].map((status) => [
@@ -176,28 +325,11 @@ export function loadCombinedResults(root: string) {
     Array.isArray(index.batches) && index.batches.length > 0,
     "STAGE_C_AGGREGATE_INDEX",
   );
+  const { destination, mount } = archiveConfiguration();
+  assertArchiveTargetExternal(root, destination, mount);
   return combineResults(
-    index.batches.map((b: any) => {
-      requireThat(
-        [b.freeze_sha256, b.results_sha256].every(
-          (h) => typeof h === "string" && /^[a-f0-9]{64}$/.test(h),
-        ),
-        "STAGE_C_AGGREGATE_DIGEST",
-      );
-      const dir = path.join(root, "inputs", "batches", b.freeze_sha256),
-        freeze = read(path.join(dir, "stage-c-freeze.json")),
-        result = read(path.join(dir, "stage-c-results.json"));
-      requireThat(
-        sha(freeze) === b.freeze_sha256 && sha(result) === b.results_sha256,
-        "STAGE_C_AGGREGATE_DIGEST",
-      );
-      return {
-        hash: b.freeze_sha256,
-        freeze: JSON.parse(freeze.toString()),
-        projection: readJSON(path.join(dir, "stage-c-projection.json")),
-        result: JSON.parse(result.toString()),
-        decisions: b.decisions,
-      };
-    }),
+    index.batches.map((b: any) =>
+      archivedBatch(destination, path.join(root, "inputs", "batches"), b),
+    ),
   );
 }

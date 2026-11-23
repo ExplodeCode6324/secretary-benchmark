@@ -1,3 +1,4 @@
+import { familyResults } from "./stage-c-families.ts";
 import { judgeCorrection } from "./stage-c-reader.ts";
 import { ledger } from "./campaign.ts";
 import fs from "node:fs";
@@ -555,48 +556,9 @@ export function completedBatchReport(root: string, hash: string) {
       };
     });
   });
-  const excluded = stageCases()
-    .filter((c) => c.status !== "READY_FOR_OFFLINE_VALIDATION")
-    .map((c) => ({
-      scenario: c.id,
-      family: c.family,
-      disposition: c.status,
-      route: c.route,
-      reason:
-        c.id === "C12a"
-          ? "Archived checkpoint evidence; original OS process witness unavailable"
-          : c.id.startsWith("C15")
-            ? "Clock-dependent evaluation tracked in #125"
-            : c.status,
-    }));
-  const families = Object.fromEntries(
-    ["M1", "M2", "M3", "M4", "M5", "M6"].map((family) => {
-      const group = rows.filter((r) => r.family === family);
-      return [
-        family,
-        {
-          observations: group.length,
-          lineages: new Set(group.map((r) => r.source_lineage)).size,
-          unrun: group.filter((r) => r.status !== "COMPLETED").length,
-          assertions: Object.fromEntries(
-            ["PASS", "FAIL", "UNRESOLVED", "NOT_TESTED"].map((v) => [
-              v,
-              group.reduce(
-                (n, r) =>
-                  n + Object.values(r.grades).filter((x) => x === v).length,
-                0,
-              ),
-            ]),
-          ),
-          exclusions: excluded.filter((r) => r.family === family).length,
-        },
-      ];
-    }),
-  );
   return {
     schema: "issue122-completion-results-v1",
-    families,
-    excluded,
+    ...familyResults(rows),
     freeze_sha256: hash,
     batch_closed: state.ended,
     rows,

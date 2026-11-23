@@ -408,13 +408,16 @@ function runArchive(
   );
 }
 /** Read every tar entry and verify size/hash/type/mode, without extraction or execution. */
-export function verifyArchive(directory: string) {
+export function verifiedArchiveDigest(directory: string): string {
   noLinks(directory);
-  runArchive(
+  return runArchive(
     "verify",
     path.join(directory, "manifest.json"),
     path.join(directory, "facility.tar.gz"),
-  );
+  ).archive_sha256;
+}
+export function verifyArchive(directory: string) {
+  verifiedArchiveDigest(directory);
   return true;
 }
 /** Library destination may be a temporary directory in tests; CLI must require the approved external mount. */

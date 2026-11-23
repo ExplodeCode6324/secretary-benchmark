@@ -36,3 +36,11 @@ No additional software license has been selected or granted for this repository.
 [中文说明](README.zh-CN.md) · [reviewed extraction plan](docs/fix/standalone-publication.en.md)
 
 If the operating system cannot resolve the current account in its password database (for example, a container UID with no entry), protected-checkout verification fails closed; provide a normal account entry before running the harness.
+
+### Issue 122 cross-batch results
+
+Before archiving each stopped facility, finish the authorized assessments and capture the output of `baseline-stage-c-results --root <facility> --sha256 <freeze digest>` using the exact runner that produced the batch. Save that output as `reports/stage-c-results.json` in the facility. Check the command exited successfully and the JSON has `batch_closed: true` before archiving. Treat this export as immutable. Retain the verified archive receipt.
+
+For `baseline-stage-c-combine --root <aggregate>`, create `inputs/stage-c-batch-index.json` under the aggregate root with a `batches` array. Each entry has `archive_day` (YYYYMMDD), `archive_id`, `archive_sha256`, `freeze_sha256` and `decisions` with the workload and, if any calibration or assessment was started, its separate grading decision reference. Under `inputs/batches/<freeze_sha256>/` supply the exact bytes of the archived freeze, projection and results as `stage-c-freeze.json`, `stage-c-projection.json` and `stage-c-results.json`. When the last calibration attempt has a result, include the corresponding archived `oracles/completion/calibration/attempt-N-result.json` as `calibration-result.json`. Keep these files private.
+
+The command reads the archive from the configured external mount, verifies the archive, receipt and file inventory, and checks each export against that inventory. Its output counts shared attempts once and retains missing observations in each family's denominator. Closed workload results can include incomplete trials or outstanding assessments. Record these outcomes when interpreting the baseline.

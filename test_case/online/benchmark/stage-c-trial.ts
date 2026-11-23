@@ -260,11 +260,13 @@ export async function executeTrial(
               [model],
               {
                 guard: (future) => host.guard(future),
-                arm: (deadline) => {
+                arm: (deadline, request) => {
                   if (live)
                     writeJSON(activeFile, {
                       ...readJSON<Record<string, unknown>>(activeFile),
                       probe_deadline: deadline,
+                      probe_request: request,
+                      probe_sha256: sha(c.probe),
                     });
                 },
               },

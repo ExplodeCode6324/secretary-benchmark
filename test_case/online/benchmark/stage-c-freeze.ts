@@ -1,3 +1,4 @@
+import { rehearsalCases } from "./stage-c-rehearsal.ts";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -34,7 +35,19 @@ export const officialFlash =
 type Capacity = ReturnType<typeof capacityForecast>[number];
 type Sample = { bytes: number; output_cap: number; sha256: string };
 export type Preflight = {
+  evidence_class?: "OFFLINE_SSE";
   models: StageModel[];
+  measured_tokens: Record<
+    string,
+    {
+      tokens_per_byte: number;
+      mean_output_tokens: number;
+      median_seconds: number;
+      longest_seconds: number;
+      workload_responses: number;
+      ledger_sha256: string;
+    }
+  >;
   capacities: Capacity[];
   samples: Record<string, Record<string, Sample[]>>;
   forecast: Record<string, Parameters<typeof forecastLane>[2]>;
@@ -122,6 +135,11 @@ export function projectCampaign(
   providers: Record<string, ProviderRule>,
 ) {
   const models = inputs.models;
+  const rehearsal = inputs.evidence_class === "OFFLINE_SSE";
+  requireThat(
+    inputs.evidence_class === undefined || rehearsal,
+    "STAGE_C_TRANSPORT",
+  );
   requireThat(
     models.includes("deepseek-flash") &&
       new Set(models).size === models.length &&
@@ -142,7 +160,9 @@ export function projectCampaign(
   );
   const sources = stageCases().filter(
     (c) =>
-      c.status === "READY_FOR_OFFLINE_VALIDATION" && c.pair?.position !== "B",
+      c.status === "READY_FOR_OFFLINE_VALIDATION" &&
+      c.pair?.position !== "B" &&
+      (!rehearsal || rehearsalCases.some((id) => c.id === id)),
   );
   const lanes = [];
   for (const c of sources)
@@ -154,14 +174,18 @@ export function projectCampaign(
       );
       requireThat(capacity && providers[model], "STAGE_C_CAPACITY_REQUIRED");
       const plan = fillerPlan(capacity, c.requires_cold);
-      const recipe = plan
-        ? {
-            count:
-              c.id === "C06-stale-cold" ? Math.min(8, plan.count) : plan.count,
-            bytes_each: plan.bytes_each,
-          }
-        : undefined;
-      for (let repeat = 1; repeat <= 3; repeat++) {
+      const recipe = rehearsal
+        ? { count: 8, bytes_each: 256 }
+        : plan
+          ? {
+              count:
+                c.id === "C06-stale-cold"
+                  ? Math.min(8, plan.count)
+                  : plan.count,
+              bytes_each: plan.bytes_each,
+            }
+          : undefined;
+      for (let repeat = 1; repeat <= (rehearsal ? 1 : 3); repeat++) {
         const spec = describeTrial(c.id, repeat, model, "BASELINE", recipe);
         const b =
           c.pair &&
@@ -194,7 +218,49 @@ export function projectCampaign(
             ),
           "STAGE_C_MEASURED_SAMPLE_REQUIRED",
         );
-        const factors = inputs.forecast[model];
+        const metered = inputs.measured_tokens?.[model];
+        requireThat(
+          metered &&
+            digest(metered.ledger_sha256) &&
+            metered.workload_responses > 0 &&
+            metered.tokens_per_byte > 0 &&
+            metered.tokens_per_byte <= 1 &&
+            metered.mean_output_tokens > 0 &&
+            metered.median_seconds > 0 &&
+            metered.longest_seconds >= metered.median_seconds,
+          "STAGE_C_METERED_BASIS",
+        );
+        const nativeMean =
+          samples.reduce((n, s) => n + s.bytes, 0) / samples.length;
+        const liveFillerBytes = steps.reduce(
+          (n, s) => n + (s.filler ? s.filler.count * s.filler.bytes_each : 0),
+          0,
+        );
+        const shortFillerBytes = describeTrial(
+          c.id,
+          repeat,
+          model,
+          "OFFLINE_FIXTURE",
+        ).steps.reduce(
+          (n, s) => n + (s.filler ? s.filler.count * s.filler.bytes_each : 0),
+          0,
+        );
+        const estimatedBytes = Math.min(
+          providers[model].max_input_bytes,
+          nativeMean + Math.max(0, liveFillerBytes - shortFillerBytes) / 2,
+        );
+        const factors = {
+          ...inputs.forecast[model],
+          expected_input_tokens: Math.ceil(
+            estimatedBytes * metered.tokens_per_byte,
+          ),
+          expected_output_tokens: Math.ceil(metered.mean_output_tokens),
+          seconds_per_send: Math.max(
+            inputs.forecast[model].seconds_per_send,
+            metered.longest_seconds,
+          ),
+        };
+
         const unbounded = forecastLane(
           steps,
           providers[model],
@@ -260,6 +326,19 @@ export function projectCampaign(
           samples_sha256: sha(JSON.stringify(samples)),
           forecast,
           passive_seconds: passive,
+          metered_basis: {
+            source: metered.ledger_sha256,
+            sample_count: metered.workload_responses,
+            median_seconds: metered.median_seconds,
+            longest_seconds: metered.longest_seconds,
+            forecast_seconds_per_send: factors.seconds_per_send,
+            expected_input_tokens: factors.expected_input_tokens,
+            expected_output_tokens: factors.expected_output_tokens,
+            native_mean_serialized_bytes: nativeMean,
+            projected_mean_bytes: estimatedBytes,
+            assumption:
+              "Half of the additional live filler remains resident on an average request. Historical metered tokens per serialized byte; uncached peak-rate estimate.",
+          },
           retry_policy: "SDK_ZERO_RETRIES_ONE_TRAJECTORY",
           recovery_windows: {
             target_ms: 120000,
@@ -270,6 +349,12 @@ export function projectCampaign(
         });
       }
     }
+  if (rehearsal)
+    lanes.sort(
+      (a, b) =>
+        rehearsalCases.findIndex((id) => id === a.lane.scenario) -
+        rehearsalCases.findIndex((id) => id === b.lane.scenario),
+    );
   const batches: (typeof lanes)[] = [];
   let cost = 0;
   for (const row of lanes) {
@@ -299,17 +384,37 @@ export function projectCampaign(
   };
 }
 export type FrozenBatch = ReturnType<typeof projectCampaign>["batches"][number];
+export function completionApproval(hash: string, rehearsal: boolean) {
+  return (
+    (rehearsal ? "issue122-rehearsal-" : "issue122-completion-") +
+    hash.slice(0, 40)
+  );
+}
 export function loadCompletion(root: string, hash: string, approval: string) {
   requireThat(
-    digest(hash) && approval === "issue122-completion-" + hash.slice(0, 40),
+    digest(hash) &&
+      ["issue122-completion-", "issue122-rehearsal-"].some(
+        (p) => approval === p + hash.slice(0, 40),
+      ),
     "STAGE_C_APPROVAL_BINDING",
   );
   const bytes = read(freezeFile(root));
   requireThat(sha(bytes) === hash, "STAGE_C_FREEZE_CHANGED");
   const frozen = JSON.parse(bytes.toString());
   const source = fingerprint();
+  const rehearsal = frozen.evidence_class === "OFFLINE_SSE";
+  requireThat(
+    approval === completionApproval(hash, rehearsal) &&
+      (rehearsal
+        ? root.startsWith(
+            path.join(repository, ".local/benchmark/tests") + path.sep,
+          )
+        : frozen.evidence_class === "LIVE"),
+    "STAGE_C_TRANSPORT_BINDING",
+  );
   requireThat(
     frozen.schema === "issue122-completion-freeze-v1" &&
+      source.dirty === sha("") &&
       JSON.stringify(source) === JSON.stringify(frozen.source) &&
       source.sut.commit === sutCommit &&
       source.sut.submodules["src/pi_resource"] === piCommit,
@@ -318,7 +423,8 @@ export function loadCompletion(root: string, hash: string, approval: string) {
   const inputsFile = path.join(root, "inputs", "stage-c-preflight.json"),
     inputs = readJSON<Preflight>(inputsFile);
   requireThat(
-    sha(read(inputsFile)) === frozen.inputs_sha256 &&
+    (inputs.evidence_class === "OFFLINE_SSE") === rehearsal &&
+      sha(read(inputsFile)) === frozen.inputs_sha256 &&
       inputs.models.length === 1 &&
       inputs.models[0] === primaryModels[0],
     "STAGE_C_INPUT_CHANGED",
@@ -331,8 +437,25 @@ export function loadCompletion(root: string, hash: string, approval: string) {
     JSON.stringify(rule) === JSON.stringify(frozen.providers["deepseek-flash"]),
     "STAGE_C_PUBLICATION_CHANGED",
   );
+  const projection = projectCampaign(inputs, { "deepseek-flash": rule });
+  requireThat(
+    JSON.stringify(inputs.source) === JSON.stringify(source) &&
+      JSON.stringify(frozen.grade) === JSON.stringify(inputs.calibration) &&
+      Number.isSafeInteger(frozen.batch_index) &&
+      frozen.batch_index >= 1 &&
+      JSON.stringify(projection.batches[frozen.batch_index - 1]) ===
+        JSON.stringify(frozen.batch) &&
+      frozen.projection_sha256 === sha(JSON.stringify(projection)) &&
+      sha(
+        JSON.stringify(
+          readJSON(path.join(root, "reports", "stage-c-projection.json")),
+        ),
+      ) === frozen.projection_sha256,
+    "STAGE_C_PROJECTION_CHANGED",
+  );
   const policy: PhysicalPolicy = {
     schema: "issue122-completion-physical-v1",
+    ...(rehearsal ? { rehearsal: true as const } : {}),
     freeze_sha256: hash,
     providers: frozen.providers,
     batch_seconds: 43200,
@@ -379,6 +502,7 @@ export function freezeBatch(root: string, index: number, checked: string) {
   const model = descriptor("deepseek-flash");
   const document = {
     schema: "issue122-completion-freeze-v1",
+    evidence_class: inputs.evidence_class ?? "LIVE",
     source,
     checked_at: checked,
     providers,
@@ -394,13 +518,18 @@ export function freezeBatch(root: string, index: number, checked: string) {
       temperature: "ADAPTER_DEFAULT",
       provider_seed: "UNAVAILABLE",
     },
+    identity_stratum: "PER_SEND_RETURNED_MODEL_AND_PROVIDER_FINGERPRINT",
     grade: inputs.calibration,
     projection_sha256: sha(JSON.stringify(projection)),
   };
   writeJSON(path.join(root, "reports", "stage-c-projection.json"), projection);
   writeJSON(freezeFile(root), document);
   const hash = sha(read(freezeFile(root)));
-  loadCompletion(root, hash, "issue122-completion-" + hash.slice(0, 40));
+  loadCompletion(
+    root,
+    hash,
+    completionApproval(hash, inputs.evidence_class === "OFFLINE_SSE"),
+  );
   return {
     hash,
     index,

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { Domains } from "./domain.ts";
-import { createCampaign, ledger, loadCampaign } from "./campaign.ts";
+import { createCampaign, ledger, loadCampaign, settle } from "./campaign.ts";
 import { loadCompletion, officialFlash, freezeFile } from "./stage-c-freeze.ts";
 import { describeTrial } from "./stage-c-plan.ts";
 import { executeTrial } from "./stage-c-trial.ts";
@@ -36,6 +36,23 @@ export async function completionCommand(
   const { policy, batch, inputs } = loadCompletion(root, hash, approval);
   const stateFile = path.join(root, "campaign", "stage-c-dispatch.json"),
     activeFile = path.join(root, "campaign", "active-stage-c.json");
+  const publication = () =>
+    checkPublication(
+      [
+        {
+          url: officialFlash,
+          sha256: policy.providers["deepseek-flash"].provenance_sha256,
+        },
+      ],
+      "rehearsal" in policy && policy.rehearsal
+        ? async () =>
+            new Response(
+              read(
+                path.join(root, "inputs/official/flash-pricing.md"),
+              ).toString(),
+            )
+        : fetch,
+    );
   return Domains.use(root, async (d) => {
     if (mode === "start") {
       requireThat(
@@ -52,12 +69,7 @@ export async function completionCommand(
           "preflight",
           Date.now(),
         );
-      await checkPublication([
-        {
-          url: officialFlash,
-          sha256: policy.providers["deepseek-flash"].provenance_sha256,
-        },
-      ]);
+      await publication();
       await createCampaign(root, approval, undefined, undefined, policy);
       const state: State = {
         schema: "issue122-completion-dispatch-v1",
@@ -97,36 +109,49 @@ export async function completionCommand(
         )
           await d.seal(r.id);
       }
+      for (const [id, entry] of ledger(root).entries) {
+        if (entry.attempt.lane === state.current && !entry.settled)
+          await settle(root, id, "INTERRUPTED_IN_FLIGHT", null, null);
+      }
       state.terminals[state.current] = {
         status: "INCOMPLETE",
         reason: "INTERRUPTED_TRAJECTORY",
       };
       state.current = null;
       writeJSON(stateFile, state);
-      requireThat(mode === "stop", "STAGE_C_INTERRUPTED_TRAJECTORY");
     }
     if (mode === "dispatch")
       for (const row of batch) {
         const l = row.lane;
         if (state.terminals[l.lane]) continue;
         const record = ledger(root);
-        requireThat(
-          [...record.entries.values()].every(
-            (e) =>
-              e.settled &&
-              !e.component_violation &&
-              !e.bound_violation &&
-              ![
-                "PROVENANCE_CHANGE",
-                "VERSION_TRANSITION",
-                "IDENTITY_UNKNOWN",
-                "IDENTITY_MISMATCH_FIRST_CONTACT",
-                "AUTH",
-                "EXHAUSTED_QUOTA",
-              ].includes(e.outcome ?? ""),
-          ),
-          "STAGE_C_ACCOUNT_OR_IDENTITY_HOLD",
+        const held = [...record.entries.values()].find(
+          (e) =>
+            !e.settled ||
+            e.component_violation ||
+            e.bound_violation ||
+            [
+              "PROVENANCE_CHANGE",
+              "VERSION_TRANSITION",
+              "IDENTITY_UNKNOWN",
+              "IDENTITY_MISMATCH_FIRST_CONTACT",
+              "AUTH",
+              "EXHAUSTED_QUOTA",
+            ].includes(e.outcome ?? ""),
         );
+        if (held) {
+          const reason =
+            held.component_violation || held.bound_violation
+              ? "RESERVATION_BOUND"
+              : (held.outcome ?? "UNSETTLED");
+          for (const next of batch)
+            state.terminals[next.lane.lane] ??= {
+              status: "UNRUN",
+              reason: "HOLD_" + reason,
+            };
+          writeJSON(stateFile, state);
+          break;
+        }
         const until = Math.min(
           Date.parse(state.started_at) + policy.batch_seconds * 1000,
           Date.parse(policy.providers[l.model].checked_at) + 86400000,
@@ -135,12 +160,7 @@ export async function completionCommand(
           Date.now() + l.seconds * 1000 <= until,
           "STAGE_C_BATCH_OR_SOURCE_WINDOW",
         );
-        await checkPublication([
-          {
-            url: officialFlash,
-            sha256: policy.providers[l.model].provenance_sha256,
-          },
-        ]);
+        await publication();
         const desc = describeTrial(
           l.scenario,
           l.repeat,

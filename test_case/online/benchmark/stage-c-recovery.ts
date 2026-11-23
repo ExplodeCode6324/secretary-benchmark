@@ -93,6 +93,8 @@ export function verifyDirectRecovery(
 ) {
   requireThat(
     evidence.kind === "DIRECT_SAME_DOMAIN" &&
+      evidence.old_identity === identityHash(old.process) &&
+      evidence.new_identity === identityHash(fresh.process) &&
       !fresh.parent &&
       !fresh.restoredFrom &&
       fresh.id === old.id &&

@@ -55,6 +55,7 @@ export function correctionBoundary(
       covered: memory.covered_event_sequence,
       source,
       items_sha256: sha(JSON.stringify(memory.items)),
+      items: memory.items,
     };
   }
   return null;
@@ -127,9 +128,13 @@ export function checkReader(
   );
 }
 
-async function sendFixtureInput(run: Run, text: string, deadline: number) {
+async function sendFixtureInput(
+  run: Run,
+  text: string,
+  deadline: number,
+  request_id = randomUUID(),
+) {
   requireThat(Date.now() < deadline, "C06_INPUT_DEADLINE");
-  const request_id = randomUUID();
   const receipt = await new CoreClient(run.endpoint!).command("messages", {
     request_id,
     text,
@@ -182,7 +187,7 @@ export async function exerciseCorrection(
   models: Parameters<typeof captureBodies>[2] = ["deepseek-flash"],
   hooks?: {
     guard: (future: string[]) => void;
-    arm: (deadline: number) => void;
+    arm: (deadline: number, request: string) => void;
   },
 ) {
   const core = path.join(run.active, "core");
@@ -279,8 +284,14 @@ export async function exerciseCorrection(
     };
   }
   hooks?.guard([]);
-  hooks?.arm(deadline);
-  const probe = await sendFixtureInput(run, coldCase.probe, deadline);
+  const probeRequest = randomUUID();
+  hooks?.arm(deadline, probeRequest);
+  const probe = await sendFixtureInput(
+    run,
+    coldCase.probe,
+    deadline,
+    probeRequest,
+  );
   try {
     await waitHandled(
       run,

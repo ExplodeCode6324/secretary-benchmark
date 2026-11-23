@@ -1,3 +1,4 @@
+import { rehearsalFetch } from "./stage-c-rehearsal.ts";
 import { caseDefinition } from "./stage-c-plan.ts";
 import { elmNote } from "./stage-b-scenarios-protocol.ts";
 import { installStageCFault } from "./stage-c-fault.ts";
@@ -65,19 +66,22 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
     if (run.config.mode === "live") {
       requireThat(run.live?.key && run.live.facility, "LIVE_PERMIT_REQUIRED");
       configureProfile(run.config.profile);
-      globalThis.fetch = meteredFetch({
-        root: run.live.facility,
-        run: run.id,
-        episode: run.lineage,
-        ...(run.config.version !== 1
-          ? { lane: run.config.lane, stageFreeze: run.config.freeze_sha256 }
-          : {}),
-        evidence: run.evidence,
-        model: run.config.model,
-        key: run.live.key,
-        maxSends: run.config.max_sends,
-        forbidden: () => forbiddenPayload(run.live!.facility, run.lineage),
-      });
+      globalThis.fetch = meteredFetch(
+        {
+          root: run.live.facility,
+          run: run.id,
+          episode: run.lineage,
+          ...(run.config.version !== 1
+            ? { lane: run.config.lane, stageFreeze: run.config.freeze_sha256 }
+            : {}),
+          evidence: run.evidence,
+          model: run.config.model,
+          key: run.live.key,
+          maxSends: run.config.max_sends,
+          forbidden: () => forbiddenPayload(run.live!.facility, run.lineage),
+        },
+        run.live.rehearsal ? rehearsalFetch() : globalThis.fetch,
+      );
     } else
       globalThis.fetch = async (input) => {
         const url = new URL(

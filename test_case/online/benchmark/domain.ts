@@ -54,6 +54,7 @@ import {
   type StageConfiguration,
   type CompletionConfiguration,
 } from "./memory-config.ts";
+import { rehearsalKey } from "./stage-c-rehearsal.ts";
 import { credential } from "./live-model.ts";
 import {
   assertCampaignClosed,
@@ -193,7 +194,10 @@ export function validateConfiguration(config: Configuration) {
 export type WorkerPermit = Pick<
   Run,
   "id" | "lineage" | "nonce" | "active" | "evidence" | "config"
-> & { core_dsn: string; live?: { key: string; facility: string } };
+> & {
+  core_dsn: string;
+  live?: { key: string; facility: string; rehearsal?: boolean };
+};
 export function workerPermit(run: Run): WorkerPermit {
   return {
     id: run.id,
@@ -420,6 +424,7 @@ export class Domains {
   }
   async start(id: string) {
     const run = this.load(id);
+    let rehearsal = false;
     if (run.config.mode === "live") {
       const campaign = assertCampaignSource(this.root);
       if (run.config.version === 2 || run.config.version === 5) {
@@ -436,6 +441,7 @@ export class Domains {
           path.join(this.root, "campaign", activeFile(policy)),
         );
         if (completionPolicy(policy)) {
+          rehearsal = policy.rehearsal === true;
           const config = run.config,
             row = policy.lanes.find((l) => l.lane === config.lane);
           requireThat(
@@ -463,7 +469,10 @@ export class Domains {
     const live =
       run.config.mode === "live"
         ? {
-            key: credential(run.config.model, run.config.version !== 1),
+            rehearsal,
+            key: rehearsal
+              ? rehearsalKey
+              : credential(run.config.model, run.config.version !== 1),
             facility: this.root,
           }
         : undefined;

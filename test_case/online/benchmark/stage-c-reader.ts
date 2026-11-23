@@ -92,7 +92,18 @@ export function sourceReads(
         parsed.event_id !== args.event_id ||
         parsed.body_hash !== sourceHashes.get(args.event_id) ||
         typeof parsed.body !== "string" ||
-        !parsed.body.includes(text)
+        !(
+          parsed.body.includes(text) ||
+          (parsed.body.length > 0 &&
+            parsed.body_hash === sha(text) &&
+            Number.isSafeInteger(parsed.offset) &&
+            parsed.offset === (args.offset ?? 0) &&
+            parsed.total_length === Array.from(text).length &&
+            parsed.body ===
+              Array.from(text)
+                .slice(parsed.offset, parsed.offset + (args.length ?? 2000))
+                .join(""))
+        )
       )
         continue;
       const delivery = calls.find(
@@ -111,6 +122,13 @@ export function sourceReads(
       reads.push({
         event: args.event_id,
         request: c.id,
+        tool_call_id: part.id,
+        tool_text_sha256: sha(
+          result.content
+            .filter((p: any) => p.type === "text")
+            .map((p: any) => p.text)
+            .join("\n"),
+        ),
         result_sha256: event.payload.sha256,
         delivered_to: delivery?.id ?? null,
       });

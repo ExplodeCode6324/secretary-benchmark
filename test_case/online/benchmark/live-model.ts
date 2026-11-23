@@ -1,3 +1,4 @@
+import { snapshot } from "./snapshot.ts";
 import { readJSON } from "./io.ts";
 import {
   echoContract,
@@ -435,17 +436,39 @@ export function meteredFetch(
               e.attempt.correction_probe_first,
           )
         ) {
-          // Bind only the current user turn. Maintenance roles and tool continuations do not acquire the first-probe receipt.
-          const last = (payload.messages ?? payload.input ?? []).at(-1);
-          if (
-            last?.role === "user" &&
-            JSON.stringify(last.content).includes(
-              "Draft a current pickup instruction for Fern here, without sending it.",
-            )
-          ) {
-            firstProbe = true;
-            cutoff = active.probe_deadline;
-          }
+          const run = readJSON(
+            path.join(options.root, "runs", options.run + ".json"),
+          );
+          const state = snapshot(path.join(run.active, "core"));
+          const input = state.records.find(
+            (r) =>
+              r.record_type === "Input" &&
+              r.dedupe_key === active.probe_request,
+          );
+          const ctxHash = attribution.getStore()?.context_sha256;
+          const call = state.records.find(
+            (r) =>
+              r.record_type === "ModelCall" &&
+              r.request.sha256 === ctxHash &&
+              !r.completed_at,
+          );
+          const ctx =
+            call?.record_type === "ModelCall" &&
+            state.records.find(
+              (r) => r.record_type === "Context" && r.id === call.context_id,
+            );
+          requireThat(
+            input?.record_type === "Input" &&
+              input.payload.sha256 === active.probe_sha256 &&
+              ctx &&
+              ctx.record_type === "Context" &&
+              ctx.purpose === "MAIN" &&
+              ctx.input_ids.includes(input.id) &&
+              ctx.loop_id === input.loop_id,
+            "STAGE_C_PROBE_BINDING",
+          );
+          firstProbe = true;
+          cutoff = active.probe_deadline;
         }
       }
       phase = "CAMPAIGN_RESERVATION_REFUSED";

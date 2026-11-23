@@ -3,7 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { Domains } from "./domain.ts";
-import { loadCompletion } from "./stage-c-freeze.ts";
+import {
+  loadCompletion,
+  completionApproval,
+  freezeFile,
+} from "./stage-c-freeze.ts";
 import { caseDefinition, stageCases } from "./stage-c-plan.ts";
 import { c16Disposition } from "./stage-c-observations.ts";
 import { correctionControls } from "./stage-c-correction.ts";
@@ -314,7 +318,10 @@ export function completedBatchReport(root: string, hash: string) {
   const { batch, policy } = loadCompletion(
     root,
     hash,
-    "issue122-completion-" + hash.slice(0, 40),
+    completionApproval(
+      hash,
+      readJSON(freezeFile(root)).evidence_class === "OFFLINE_SSE",
+    ),
   );
   const state = readJSON(path.join(root, "campaign/stage-c-dispatch.json"));
   requireThat(state.freeze_sha256 === hash, "STAGE_C_REPORT_FREEZE");
@@ -356,7 +363,10 @@ export function completedBatchReport(root: string, hash: string) {
               x.physical && (x.case_id ?? trial.descriptor.scenario) === s.id,
           );
         if (obs) {
-          protocol = obs.physical.requirements;
+          protocol = [
+            ...obs.physical.requirements,
+            ...obs.witness.structural_gaps,
+          ];
           for (const a of s.assertions)
             grades[a] = obs.witness.assertions[a] ?? "UNRESOLVED";
           if (end?.status === "ACCEPTED") {
@@ -426,6 +436,25 @@ export function completedBatchReport(root: string, hash: string) {
             grades.item_lineage = "NOT_TESTED";
         }
       }
+      const identities = charged.map((e) => {
+        const usage = e.usage as {
+          returned_model?: string;
+          wire_identity?: {
+            fingerprint_status?: string;
+            system_fingerprints?: string[];
+          };
+        } | null;
+        return {
+          at: e.attempt.at,
+          outcome: e.outcome ?? "UNSETTLED",
+          returned_model: usage?.returned_model ?? null,
+          fingerprint_status:
+            usage?.wire_identity?.fingerprint_status ?? "UNKNOWN",
+          fingerprint_digests: (
+            usage?.wire_identity?.system_fingerprints ?? []
+          ).map((v) => sha(v)),
+        };
+      });
       return {
         scenario: s.id,
         family: s.family,
@@ -435,6 +464,17 @@ export function completedBatchReport(root: string, hash: string) {
         profile: lane.profile,
         source_lineage: lane.lane,
         pair_position: s.pair?.position ?? null,
+        identities,
+        spans_observed_identity_strata:
+          new Set(
+            identities.map((v) =>
+              JSON.stringify([
+                v.returned_model,
+                v.fingerprint_status,
+                v.fingerprint_digests,
+              ]),
+            ),
+          ).size > 1,
         external_recipe_sha256:
           s.pair?.position === "B" ? row.pair : row.trial.timeline,
         published_version: policy.providers[lane.model].published_version,
@@ -464,7 +504,11 @@ export function completedBatchReport(root: string, hash: string) {
     completed_c16: rows.filter((r) => r.c16?.gate === "CLOSED").length,
     required_c16_in_batch: rows.filter((r) => r.scenario === "C16-combined")
       .length,
-    physical_sends: counts.entries.size,
+    evidence_class:
+      "rehearsal" in policy && policy.rehearsal ? "OFFLINE_SSE" : "LIVE",
+    physical_sends:
+      "rehearsal" in policy && policy.rehearsal ? 0 : counts.entries.size,
+    metered_attempts: counts.entries.size,
     charged_usd: counts.charged_usd,
     known_usd: [...counts.entries.values()].reduce(
       (sum, e) => sum + (e.actual_usd ?? 0),

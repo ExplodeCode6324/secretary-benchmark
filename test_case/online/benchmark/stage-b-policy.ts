@@ -83,6 +83,7 @@ export type PhysicalPolicy = {
     }
   | {
       schema: "issue122-completion-physical-v1";
+      rehearsal?: true;
       lanes: ScheduledLane[];
       batch_seconds: number;
     }
@@ -165,7 +166,13 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
         "schema",
         "freeze_sha256",
         "providers",
-        ...(current ? ["lanes", "batch_seconds"] : []),
+        ...(current
+          ? [
+              "lanes",
+              "batch_seconds",
+              ...(policy.rehearsal === true ? ["rehearsal"] : []),
+            ]
+          : []),
       ]) &&
       digest(policy.freeze_sha256) &&
       selected.length > 0 &&

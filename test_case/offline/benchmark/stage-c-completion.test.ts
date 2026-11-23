@@ -241,6 +241,7 @@ test("a conclusive retention failure closes C16 only alongside every structural 
     measured: true,
     opaque: false,
     raw_projection_exit: "LITERAL_EXIT",
+    original_projection_exit: "SOURCE_EXIT",
   };
   const proof = {
     requirements: [],

@@ -499,10 +499,50 @@ export function inspectStageEvidence(
       (v) => v.c.loop_id === before?.loop && v.c.input_ids.includes(before?.id),
     );
     const preSend = pre && captures(pre)[0];
+    function sourceVisibility(send: Send, ctx: typeof pre) {
+      const v = wireVisibility(send.payload);
+      const modelCall = ctx && latest("ModelCall", ctx.c.call_id);
+      if (!v.measured || v.opaque || !source || !modelCall)
+        return { ...v, original_projection_exit: "UNKNOWN" };
+      const normalized = object(modelCall.request);
+      const sourceCall = contexts.find((row) =>
+        row.c.input_ids.includes(source.id),
+      );
+      const origin = sourceCall && latest("ModelCall", sourceCall.c.call_id);
+      const original =
+        origin &&
+        object(origin.request).messages.find(
+          (m: any) => m.secretary_input?.input_id === source.id,
+        );
+      const originalText = original?.content;
+      if (
+        typeof originalText !== "string" ||
+        sha(originalText) !== source.text_sha256
+      )
+        return { ...v, original_projection_exit: "UNKNOWN" };
+      const raw = normalized.messages.filter((m: any) => m.role === "user");
+      const projected = raw.some(
+        (m: any) => m.secretary_input?.input_id === source.id,
+      );
+      const onWire = (send.payload.messages ?? send.payload.input).some(
+        (m: any) =>
+          m.role === "user" &&
+          !JSON.stringify(m).includes(
+            "Working memory (source history remains queryable):",
+          ) &&
+          JSON.stringify(m.content).includes(originalText),
+      );
+      return {
+        ...v,
+        original_projection_exit:
+          projected || onWire ? "STILL_PRESENT" : "SOURCE_EXIT",
+        original_sha256: sha(originalText),
+      };
+    }
     cold = {
       pre_restart_send: preSend?.id,
-      pre_restart: preSend ? wireVisibility(preSend.payload) : null,
-      probe: initial ? wireVisibility(initial.payload) : null,
+      pre_restart: preSend ? sourceVisibility(preSend, pre) : null,
+      probe: initial ? sourceVisibility(initial, probeRequests[0]) : null,
       source_input: source?.id,
       source_event: source?.source_event,
       reads,

@@ -654,6 +654,7 @@ export async function reserve(
       );
       requireThat(
         !dispatch.ended &&
+          (!completionPolicy(policy) || dispatch.current === details.lane) &&
           dispatch.freeze_sha256 === policy.freeze_sha256 &&
           !dispatch.terminals[details.lane] &&
           !dispatch.probes[details.lane],
@@ -889,38 +890,6 @@ export async function settle(
         prior?.returned_model,
         observedModels,
       );
-      if (completionPolicy(campaign.physical_policy!)) {
-        const select = (value: unknown) => {
-          const wire = (
-            value as {
-              wire_identity?: {
-                fingerprint_status: string;
-                system_fingerprints: string[];
-              };
-            } | null
-          )?.wire_identity;
-          if (
-            !wire ||
-            !["PRESENT", "ABSENT", "NULL"].includes(wire.fingerprint_status)
-          )
-            return null;
-          return JSON.stringify([
-            wire.fingerprint_status,
-            wire.system_fingerprints,
-          ]);
-        };
-        const baseline = [...entries.values()].find(
-          (e) =>
-            e.attempt.model === item.attempt.model &&
-            e.outcome === "RESPONSE_COMPLETE",
-        );
-        const current = select(usage);
-        if (
-          outcome === "RESPONSE_COMPLETE" &&
-          (!current || (baseline && select(baseline.usage) !== current))
-        )
-          outcome = "VERSION_TRANSITION";
-      }
       usage = { ...(usage as object), identity_status: identity };
       if (
         outcome !== "PROVENANCE_CHANGE" &&

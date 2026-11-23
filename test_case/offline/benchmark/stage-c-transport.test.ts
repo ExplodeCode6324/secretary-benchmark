@@ -237,6 +237,7 @@ test(
     assert(
       "packet_sha256" in prepare &&
         prepare.packet_sha256 === reservation.packet_sha256 &&
+        "number" in prepare &&
         prepare.number === 2,
     );
     const key = readJSON(

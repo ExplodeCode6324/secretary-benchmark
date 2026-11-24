@@ -39,20 +39,48 @@ const rubric = {
   visibility:
     "Inspect the entire first eligible request across raw conversation, assistant and tool history, working memory, and the system profile and recall. Classify RESIDENT if the corrected fact is supported on a visible surface, COLD only with complete absence, and OPAQUE if inspection is incomplete. Grade maintenance independently of final use. A partial statement of the restriction alone does not establish the current day.",
 };
+export const hermesReader = "Hermes/opencode-go/deepseek-v4.1-flash/max";
+export function scoringRubric(reader: string) {
+  requireThat(
+    reader === rubric.reader || reader === hermesReader,
+    "STAGE_C_UNKNOWN_READER",
+  );
+  return { ...rubric, reader };
+}
+function matchesReader(submission: any, digest: string, reader: string) {
+  if (reader === rubric.reader) return boundJudge(submission, digest);
+  return (
+    reader === hermesReader &&
+    submission.packet_sha256 === digest &&
+    submission.judge?.provider === "opencode-go" &&
+    submission.judge?.model === "deepseek-v4.1-flash" &&
+    submission.judge?.reasoning_effort === "max"
+  );
+}
 const binding = (root: string, dir: string) =>
   sha(readOwnedGradeFile(root, dir + "/blind.json"));
 export function calibrationInputs(root: string) {
   const dir = base + "/calibration";
+  const saved = readOwnedGradeJSON(root, dir + "/blind.json").rubric;
+  const policy = scoringRubric(saved.reader);
+  requireThat(
+    sha(gradeJSONBytes(policy)) === sha(gradeJSONBytes(saved)),
+    "STAGE_C_GRADER_CHANGED",
+  );
   return {
-    reader: rubric.reader,
+    reader: policy.reader,
     version: rubric.version,
-    rubric_sha256: sha(gradeJSONBytes(rubric)),
+    rubric_sha256: sha(gradeJSONBytes(policy)),
     packet_sha256: binding(root, dir),
     key_sha256: sha(readOwnedGradeFile(root, dir + "/key.json")),
     max_attempts: 3,
   };
 }
-export async function prepareCompletionCalibration(root: string) {
+export async function prepareCompletionCalibration(
+  root: string,
+  reader = rubric.reader,
+) {
+  const policy = scoringRubric(reader);
   return Domains.use(root, async (d) => {
     const dir = base + "/calibration",
       store = assertGradeStore(root);
@@ -60,7 +88,7 @@ export async function prepareCompletionCalibration(root: string) {
       const semantic = generateCalibration(),
         visibility = correctionControls();
       const packet = {
-        rubric,
+        rubric: policy,
         controls: [
           ...semantic.packet.controls,
           ...visibility.reader.map((v) => ({ ...v, assertion: "visibility" })),
@@ -77,7 +105,9 @@ export async function prepareCompletionCalibration(root: string) {
         ],
       );
     }
-    return calibrationInputs(root);
+    const frozen = calibrationInputs(root);
+    requireThat(frozen.reader === reader, "STAGE_C_GRADER_CHANGED");
+    return frozen;
   });
 }
 function safeExcerpt(text: string) {
@@ -101,7 +131,12 @@ function safeExcerpt(text: string) {
   );
   return redacted;
 }
-function trialPacket(root: string, lane: string, scenario: string) {
+export function trialPacket(
+  root: string,
+  lane: string,
+  scenario: string,
+  reader = rubric.reader,
+) {
   const state = readJSON(path.join(root, "campaign/stage-c-dispatch.json")),
     terminal = state.terminals[lane];
   requireThat(
@@ -196,7 +231,11 @@ function trialPacket(root: string, lane: string, scenario: string) {
       }),
     );
   return {
-    packet: { rubric, assertions: c.assertions, evidence: rows },
+    packet: {
+      rubric: scoringRubric(reader),
+      assertions: c.assertions,
+      evidence: rows,
+    },
     private: {
       run: p.run,
       lane,
@@ -246,7 +285,12 @@ export async function completionJudge(
       requireThat(s, "STAGE_C_GRADE_PAIR");
       if (!grade.has(dir + "/blind.json")) {
         requireThat(mode === "begin", "STAGE_C_GRADE_UNPREPARED");
-        const b = trialPacket(root, row.lane.lane, s.id);
+        const b = trialPacket(
+          root,
+          row.lane.lane,
+          s.id,
+          inputs.calibration.reader,
+        );
         commitGradeFiles(
           root,
           d.assertControllerLease(),
@@ -279,7 +323,10 @@ export async function completionJudge(
     ) {
       kind = "MECHANICAL";
       status = "MECHANICAL";
-    } else if (submission && boundJudge(submission, digest)) {
+    } else if (
+      submission &&
+      matchesReader(submission, digest, inputs.calibration.reader)
+    ) {
       if (calibration) {
         const key = readOwnedGradeJSON(root, dir + "/key.json");
         const rows = submission.labels;

@@ -158,11 +158,16 @@ async function main() {
     }
     if (command === "baseline-stage-c-controls") {
       requireThat(
-        Object.keys(options).join(",") === "--root" &&
-          root !== path.join(repository, ".local/benchmark"),
+        ["--root", "--reader,--root"].includes(
+          Object.keys(options).sort().join(","),
+        ) && root !== path.join(repository, ".local/benchmark"),
         "STAGE_C_CONTROLS_ARGUMENTS",
       );
-      console.log(JSON.stringify(await prepareCompletionCalibration(root)));
+      console.log(
+        JSON.stringify(
+          await prepareCompletionCalibration(root, options["--reader"]),
+        ),
+      );
       return;
     }
     if (command === "baseline-stage-c-results") {

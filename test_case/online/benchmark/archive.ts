@@ -1,3 +1,5 @@
+import { goModelRule } from "./stage-c-go-provider.ts";
+import { isDeepStrictEqual } from "node:util";
 import { echoContract, echoPriceBasis } from "./stage-b-retention.ts";
 import { retentionEvidence } from "./stage-b-capture.ts";
 import fs from "node:fs";
@@ -181,8 +183,17 @@ function ownedStoppedRuns(d: Domains): Run[] {
           JSON.stringify(f.source) === JSON.stringify(campaign.source) &&
           sha(read(path.join(d.root, "inputs/stage-c-preflight.json"))) ===
             f.inputs_sha256 &&
-          sha(read(path.join(d.root, "inputs/official/flash-pricing.md"))) ===
-            policy.providers["deepseek-flash"].provenance_sha256 &&
+          (policy.providers["deepseek-flash"].route === "opencode-go"
+            ? isDeepStrictEqual(
+                goModelRule(
+                  readJSON(path.join(d.root, "inputs/official/go-model.json")),
+                  f.checked_at,
+                ),
+                policy.providers["deepseek-flash"],
+              )
+            : sha(
+                read(path.join(d.root, "inputs/official/flash-pricing.md")),
+              ) === policy.providers["deepseek-flash"].provenance_sha256) &&
           policy.lanes.every((l) => state.terminals[l.lane]),
         "ARCHIVE_STAGE_C_UNVERIFIED",
       );

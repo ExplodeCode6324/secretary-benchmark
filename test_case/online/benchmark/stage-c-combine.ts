@@ -1,5 +1,8 @@
 // The aggregate reads portable, hash-bound exports. Only an exact-head runner produces each individual batch result.
 import path from "node:path";
+import { officialReader, visibilityV2 } from "./stage-c-visibility-rubric.ts";
+import { scoringRubric } from "./stage-c-grading.ts";
+import { gradeJSONBytes } from "./grading-transaction.ts";
 import { readJSON, requireThat, sha } from "./io.ts";
 import { caseDefinition, stageCases } from "./stage-c-plan.ts";
 import type { FrozenBatch } from "./stage-c-freeze.ts";
@@ -20,6 +23,7 @@ type Snapshot = {
   archive_sha256: string;
   assessment_grade?: Snapshot["freeze"]["grade"];
   assessment_amendment?: string;
+  original_calibration?: Snapshot["calibration"];
   calibration: {
     attempts: number;
     status: string;
@@ -123,7 +127,11 @@ export function combineResults(snapshots: Snapshot[]) {
   let physical = 0,
     known = 0,
     unpriced = 0;
-  const grader = snapshots[0].assessment_grade ?? snapshots[0].freeze.grade;
+  const effective = (s: Snapshot) => s.assessment_grade ?? s.freeze.grade;
+  const grader = effective(
+    snapshots.find((s) => effective(s).version === visibilityV2) ??
+      snapshots[0],
+  );
   for (const s of snapshots) {
     const g = s.assessment_grade ?? s.freeze.grade;
     requireThat(
@@ -133,8 +141,19 @@ export function combineResults(snapshots: Snapshot[]) {
         hash(g.rubric_sha256) &&
         hash(g.key_sha256) &&
         g.reader === grader.reader &&
-        g.version === grader.version &&
-        g.rubric_sha256 === grader.rubric_sha256,
+        ((g.version === grader.version &&
+          g.rubric_sha256 === grader.rubric_sha256) ||
+          (grader.version === visibilityV2 &&
+            grader.reader === officialReader &&
+            grader.rubric_sha256 ===
+              sha(
+                gradeJSONBytes(scoringRubric(officialReader, visibilityV2)),
+              ) &&
+            g.version === "issue122-comparison-reader-v1" &&
+            g.rubric_sha256 ===
+              sha(gradeJSONBytes(scoringRubric(officialReader))) &&
+            s.calibration.status === "FAILED" &&
+            s.result.rows.every((r: any) => r.assessment_attempts === 0))),
       "STAGE_C_AGGREGATE_RUBRIC",
     );
     requireThat(
@@ -269,6 +288,8 @@ export function combineResults(snapshots: Snapshot[]) {
       observed.set(id, {
         ...match,
         freeze_sha256: s.hash,
+        reader_version: g.version,
+        reader_rubric_sha256: g.rubric_sha256,
         runner: s.freeze.source.head,
         row,
       });
@@ -318,6 +339,7 @@ export function combineResults(snapshots: Snapshot[]) {
         ? {
             grading_amendment_sha256: s.assessment_amendment,
             original_grade: s.freeze.grade,
+            original_calibration: s.original_calibration,
           }
         : {}),
       calibration: s.calibration,
@@ -337,6 +359,18 @@ export function combineResults(snapshots: Snapshot[]) {
       observations: v.observations.size,
       lineages: v.lineages.size,
     })),
+    reader_metered_usd:
+      Math.round(
+        snapshots.reduce(
+          (n, s) =>
+            n +
+            Number(
+              (s.calibration as { metered_usd?: number }).metered_usd ?? 0,
+            ) +
+            Number(s.result.candidate_reader_metered_usd ?? 0),
+          0,
+        ) * 1e9,
+      ) / 1e9,
     physical_attempts: physical,
     known_usd: known,
     unpriced_reservation_usd: unpriced,

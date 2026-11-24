@@ -1,7 +1,7 @@
 // The first live batch was already closed when Master changed the reader.
 // Keep its original freeze and producer export intact. Apply only the archived assessment.
 import { requireThat, sha, type FileEntry } from "./io.ts";
-import { matchesReader, scoringRubric } from "./stage-c-grading.ts";
+import { scoringRubric } from "./stage-c-grading.ts";
 import { gradeJSONBytes } from "./grading-transaction.ts";
 
 export const firstReaderAmendment =
@@ -89,89 +89,30 @@ export function amendedFirstAssessment(
       transport.fallback === false,
     "STAGE_C_ARCHIVED_READER_TRANSPORT",
   );
-  if (cal.status === "MECHANICAL") {
-    requireThat(
+  requireThat(
+    cal.status === "MECHANICAL" &&
+      cal.attempts === 1 &&
+      decision.attempt_limit_per_packet === 1 &&
       !assessment.candidate &&
-        assessment.candidate_dispatches === 0 &&
-        receipt.kind === "MECHANICAL" &&
-        receipt.packet_sha256 === cal.packet_sha256 &&
-        receipt.transport_sha256 === cal.transport_sha256 &&
-        receipt.mechanical === "TRUNCATED_RESPONSE" &&
-        transport.finish_reason === "length" &&
-        transport.usage?.completion_tokens === transport.max_tokens &&
-        transport.usage?.completion_tokens_details?.reasoning_tokens ===
-          transport.max_tokens,
-      "STAGE_C_ARCHIVED_TRUNCATED_CALIBRATION",
-    );
-  } else {
-    const submission = receipt,
-      key = exported(
-        "reader-deepseek-v1/private-key.json",
-        "oracles/completion/calibration/key.json",
-      );
-    requireThat(
-      matchesReader(submission, cal.packet_sha256, reader),
-      "STAGE_C_ARCHIVED_CALIBRATION_READER",
-    );
-    const passed =
-      Array.isArray(submission.labels) &&
-      submission.labels.length === key.length &&
-      key.every(
-        (k: any) =>
-          submission.labels.filter(
-            (r: any) => r.id === k.id && r.verdict === k.expected,
-          ).length === 1,
-      );
-    requireThat(
-      (cal.status === "PASSED") === passed,
-      "STAGE_C_ARCHIVED_CALIBRATION_VERDICT",
-    );
-  }
-  const candidate = assessment.candidate;
-  if (candidate) {
-    const packet = get("candidate-packet.json"),
-      receipt = get("candidate-receipt.json");
-    const g = receipt.assertions?.[0];
-    requireThat(
-      cal.status === "PASSED" &&
-        Number.isSafeInteger(candidate.attempts) &&
-        candidate.attempts >= 1 &&
-        candidate.attempts <= 3 &&
-        JSON.stringify(packet.assertions) ===
-          JSON.stringify(["natural_access"]) &&
-        candidate.status === "ACCEPTED" &&
-        candidate.packet_sha256 === entryHash(base + "candidate-packet.json") &&
-        receipt.packet_sha256 === candidate.packet_sha256 &&
-        candidate.receipt_sha256 ===
-          entryHash(base + "candidate-receipt.json") &&
-        packet.rubric.reader === reader &&
-        sha(gradeJSONBytes(packet.rubric)) === decision.rubric_sha256 &&
-        matchesReader(receipt, candidate.packet_sha256, reader) &&
-        receipt.assertions.length === 1 &&
-        g?.assertion === "natural_access" &&
-        ["PASS", "FAIL", "UNRESOLVED", "NOT_TESTED"].includes(g.verdict) &&
-        typeof g.rationale === "string" &&
-        g.rationale.trim() &&
-        Array.isArray(g.evidence) &&
-        (g.verdict === "NOT_TESTED" || g.evidence.length > 0) &&
-        g.evidence.every((id: string) =>
-          packet.evidence.some((e: any) => e.id === id),
-        ),
-      "STAGE_C_ARCHIVED_AMENDED_GRADE",
-    );
-    result = {
-      ...result,
-      rows: [
-        {
-          ...result.rows[0],
-          grades: { natural_access: g.verdict },
-          assessment_attempts: candidate.attempts,
-          assessment_status: candidate.status,
-          first_assessment_failure: candidate.first_failure,
-        },
-      ],
-    };
-  }
+      assessment.candidate_dispatches === 0 &&
+      receipt.kind === "MECHANICAL" &&
+      receipt.packet_sha256 === cal.packet_sha256 &&
+      receipt.transport_sha256 === cal.transport_sha256 &&
+      receipt.mechanical === "TRUNCATED_RESPONSE" &&
+      transport.returned_model === decision.judge.model &&
+      transport.endpoint === decision.endpoint &&
+      transport.thinking_type === "enabled" &&
+      transport.http_status === 200 &&
+      transport.finish_reason === "length" &&
+      transport.max_tokens ===
+        decision.financial_limits.maximum_output_tokens &&
+      transport.wire_bytes <=
+        decision.financial_limits.maximum_serialized_bytes &&
+      transport.usage?.completion_tokens === transport.max_tokens &&
+      transport.usage?.completion_tokens_details?.reasoning_tokens ===
+        transport.max_tokens,
+    "STAGE_C_ARCHIVED_TRUNCATED_CALIBRATION",
+  );
   return {
     result,
     calibration: cal,

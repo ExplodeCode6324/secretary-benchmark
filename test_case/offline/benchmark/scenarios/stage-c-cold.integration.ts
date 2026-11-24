@@ -3,6 +3,12 @@ import { assertCombinedRehearsal } from "./stage-c-combine-rehearsal.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import {
+  readerPolicy,
+  officialReader,
+  visibilityV2,
+} from "../../../online/benchmark/stage-c-visibility-rubric.ts";
+import { sha } from "../../../online/benchmark/io.ts";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import {
@@ -33,7 +39,11 @@ for (const mode of ["ORIGINAL_OFFSET", "OTHER_EVENT"] as const) {
     const inputs = JSON.parse(
       fs.readFileSync(new URL("rehearsal-inputs.json", dir), "utf8"),
     );
-    const calibration = await prepareCompletionCalibration(root);
+    const calibration = await prepareCompletionCalibration(
+      root,
+      officialReader,
+      visibilityV2,
+    );
     fs.mkdirSync(path.join(root, "inputs/official"), { recursive: true });
     fs.copyFileSync(
       new URL("rehearsal-rates.md", dir),
@@ -87,6 +97,13 @@ for (const mode of ["ORIGINAL_OFFSET", "OTHER_EVENT"] as const) {
             }
           : {
               visibility: "COLD",
+              visibility_evidence: [
+                a.packet.evidence.find((r: any) =>
+                  r.text.startsWith(
+                    "First eligible request capture coverage\n",
+                  ),
+                ).id,
+              ],
               assertions: a.packet.assertions.map((assertion: string) => ({
                 assertion,
                 verdict: "PASS",
@@ -94,17 +111,55 @@ for (const mode of ["ORIGINAL_OFFSET", "OTHER_EVENT"] as const) {
                 evidence: [a.packet.evidence[0].id],
               })),
             };
+      assert("query" in a && typeof a.query === "string");
+      const raw = JSON.stringify({
+        ...content,
+        judge: {
+          provider: readerPolicy.provider,
+          model: readerPolicy.model,
+          reasoning_effort: readerPolicy.reasoning_effort,
+        },
+        packet_sha256: a.packet_sha256,
+      });
+      const dispatch = {
+        decision_sha256: hash,
+        wire_sha256: sha("offline-only native envelope " + a.query),
+      };
+      const envelope = {
+        raw,
+        dispatch,
+        transport: {
+          ...readerPolicy,
+          ...dispatch,
+          native_entry: "AIAgent.run_conversation",
+          input_sha256: sha(a.query),
+          raw_sha256: sha(raw),
+          max_tokens: readerPolicy.max_output_tokens,
+          wire_bytes: Buffer.byteLength(a.query) + 700,
+          returned_model: readerPolicy.model,
+          tools: 0,
+          fallback: false,
+          inference_dispatches: 1,
+          http_status: 200,
+          finish_reason: "stop",
+          usage: {
+            prompt_tokens: 10,
+            prompt_cache_hit_tokens: 0,
+            prompt_cache_miss_tokens: 10,
+            completion_tokens: 10,
+          },
+          created: "2026-11-24T16:00:00Z",
+          finished: "2026-11-24T16:00:01Z",
+          calculated_charge_usd: 0.0000075,
+        },
+      };
       const response = await completionJudge(
         root,
         "finish",
         hash,
         approval,
         observation,
-        {
-          ...content,
-          judge: { model: "Opus 5.5", effort: "Extra" },
-          packet_sha256: a.packet_sha256,
-        },
+        envelope,
       );
       assert.equal(
         response.status,

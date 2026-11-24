@@ -1,3 +1,8 @@
+import {
+  visibilityV2,
+  readerPolicy,
+  officialReader,
+} from "./stage-c-visibility-rubric.ts";
 import { rehearsalCases } from "./stage-c-rehearsal.ts";
 import fs from "node:fs";
 import path from "node:path";
@@ -36,6 +41,14 @@ type Capacity = ReturnType<typeof capacityForecast>[number];
 type Sample = { bytes: number; output_cap: number; sha256: string };
 export type Preflight = {
   evidence_class?: "OFFLINE_SSE";
+  c16_dedicated_batch?: true;
+  first_contact?: {
+    ledger_sha256: string;
+    first_bytes: number;
+    last_bytes: number;
+    turns: number;
+    main_sends: number;
+  };
   rehearsal_read?: "ORIGINAL_OFFSET" | "OTHER_EVENT";
   rehearsal_scenario?: "C16-combined" | "C06-stale-cold" | "C12b";
   models: StageModel[];
@@ -65,6 +78,7 @@ export type Preflight = {
     packet_sha256: string;
     key_sha256: string;
     max_attempts: number;
+    transport?: typeof readerPolicy;
   };
   source: ReturnType<typeof fingerprint>;
 };
@@ -165,6 +179,23 @@ export function projectCampaign(
       models.length === Object.keys(providers).length,
     "STAGE_C_MODELS",
   );
+  if (inputs.c16_dedicated_batch) {
+    const contact = inputs.first_contact;
+    requireThat(
+      contact &&
+        digest(contact.ledger_sha256) &&
+        [
+          contact.first_bytes,
+          contact.last_bytes,
+          contact.turns,
+          contact.main_sends,
+        ].every((n) => Number.isSafeInteger(n) && n > 0) &&
+        contact.last_bytes >= contact.first_bytes &&
+        inputs.forecast["deepseek-flash"]?.ordinary_sends_per_turn ===
+          contact.main_sends / contact.turns,
+      "STAGE_C_FIRST_CONTACT_MEASUREMENTS",
+    );
+  }
   const grade = inputs.calibration;
   requireThat(
     grade.reader &&
@@ -174,7 +205,11 @@ export function projectCampaign(
       ) &&
       grade.packet_sha256 !== grade.key_sha256 &&
       Number.isSafeInteger(grade.max_attempts) &&
-      grade.max_attempts === 3,
+      (grade.version === visibilityV2
+        ? grade.reader === officialReader &&
+          grade.max_attempts === 1 &&
+          JSON.stringify(grade.transport) === JSON.stringify(readerPolicy)
+        : grade.max_attempts === 3),
     "STAGE_C_GRADER_FREEZE",
   );
   const sources = stageCases().filter(
@@ -270,7 +305,12 @@ export function projectCampaign(
         );
         const estimatedBytes = Math.min(
           providers[model].max_input_bytes,
-          nativeMean + Math.max(0, liveFillerBytes - shortFillerBytes) / 2,
+          nativeMean +
+            Math.max(0, liveFillerBytes - shortFillerBytes) / 2 +
+            (inputs.c16_dedicated_batch && c.id === "C16-combined"
+              ? inputs.first_contact!.last_bytes -
+                inputs.first_contact!.first_bytes
+              : 0),
         );
         const factors = {
           ...inputs.forecast[model],
@@ -360,6 +400,14 @@ export function projectCampaign(
             expected_output_tokens: factors.expected_output_tokens,
             native_mean_serialized_bytes: nativeMean,
             projected_mean_bytes: estimatedBytes,
+            ...(inputs.c16_dedicated_batch && c.id === "C16-combined"
+              ? {
+                  additional_tool_context_bytes:
+                    inputs.first_contact!.last_bytes -
+                    inputs.first_contact!.first_bytes,
+                  contact_ledger_sha256: inputs.first_contact!.ledger_sha256,
+                }
+              : {}),
             assumption:
               "Half of the additional live filler remains resident on an average request. Historical metered tokens per serialized byte; uncached peak-rate estimate.",
           },
@@ -387,9 +435,23 @@ export function projectCampaign(
       (r) => r.lane.scenario === "C04-resident" && r.lane.repeat === 1,
     );
   if (firstContact) batches.push([firstContact]);
+  const dedicated = inputs.c16_dedicated_batch
+    ? lanes.filter((r) => r.lane.scenario === "C16-combined")
+    : [];
+  if (inputs.c16_dedicated_batch) {
+    requireThat(
+      !rehearsal &&
+        firstContact &&
+        grade.version === visibilityV2 &&
+        dedicated.length === 3 &&
+        dedicated.reduce((n, r) => n + r.lane.seconds, 0) <= 43200,
+      "STAGE_C_DEDICATED_C16",
+    );
+    batches.push(dedicated);
+  }
   let cost = firstContact ? 43200 : 0;
   for (const row of lanes) {
-    if (row === firstContact) continue;
+    if (row === firstContact || dedicated.includes(row)) continue;
     if (!batches.length || cost + row.lane.seconds > 43200) {
       batches.push([]);
       cost = 0;
@@ -431,6 +493,27 @@ export function projectCampaign(
       source_checks: batches.length + lanes.length,
       operator_approval_wait: "UNBOUNDED",
       reader_latency: "ESTIMATE_ONLY",
+      ...(grade.version === visibilityV2
+        ? {
+            reader: grade.reader,
+            transport: grade.transport,
+            limits_at_peak_usd: {
+              calibration:
+                (readerPolicy.calibration_wire_bytes *
+                  providers["deepseek-flash"].input_rate +
+                  readerPolicy.max_output_tokens *
+                    providers["deepseek-flash"].output_rate) /
+                1e6,
+              candidate:
+                (readerPolicy.candidate_wire_bytes *
+                  providers["deepseek-flash"].input_rate +
+                  readerPolicy.max_output_tokens *
+                    providers["deepseek-flash"].output_rate) /
+                1e6,
+            },
+            candidate_time_evidence: "NO_LIVE_SAMPLE; calibration timing proxy",
+          }
+        : {}),
     },
     models,
     estimated_lineages: lanes.length,

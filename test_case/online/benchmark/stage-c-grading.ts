@@ -1,3 +1,13 @@
+import {
+  visibilityV2,
+  visibilityRule,
+  newVisibilityControls,
+  officialReader,
+  readerPolicy,
+  renderReaderQuery,
+  readerResponse,
+  surfaces,
+} from "./stage-c-visibility-rubric.ts";
 import { familyResults } from "./stage-c-families.ts";
 import { judgeCorrection } from "./stage-c-reader.ts";
 import { ledger } from "./campaign.ts";
@@ -49,7 +59,12 @@ export const hermesReaders = {
     model: "deepseek-flash",
   },
 } as const;
-export function scoringRubric(reader: string) {
+export function scoringRubric(reader: string, version = rubric.version) {
+  if (version === visibilityV2) {
+    requireThat(reader === officialReader, "STAGE_C_UNKNOWN_READER");
+    return { ...rubric, reader, version, visibility: visibilityRule };
+  }
+  requireThat(version === rubric.version, "STAGE_C_GRADER_CHANGED");
   requireThat(
     reader === rubric.reader || Object.hasOwn(hermesReaders, reader),
     "STAGE_C_UNKNOWN_READER",
@@ -73,31 +88,36 @@ const binding = (root: string, dir: string) =>
 export function calibrationInputs(root: string) {
   const dir = base + "/calibration";
   const saved = readOwnedGradeJSON(root, dir + "/blind.json").rubric;
-  const policy = scoringRubric(saved.reader);
+  const policy = scoringRubric(saved.reader, saved.version);
   requireThat(
     sha(gradeJSONBytes(policy)) === sha(gradeJSONBytes(saved)),
     "STAGE_C_GRADER_CHANGED",
   );
   return {
     reader: policy.reader,
-    version: rubric.version,
+    version: policy.version,
     rubric_sha256: sha(gradeJSONBytes(policy)),
     packet_sha256: binding(root, dir),
     key_sha256: sha(readOwnedGradeFile(root, dir + "/key.json")),
-    max_attempts: 3,
+    max_attempts: policy.version === visibilityV2 ? 1 : 3,
+    ...(policy.version === visibilityV2 ? { transport: readerPolicy } : {}),
   };
 }
 export async function prepareCompletionCalibration(
   root: string,
   reader = rubric.reader,
+  version = rubric.version,
 ) {
-  const policy = scoringRubric(reader);
+  const policy = scoringRubric(reader, version);
   return Domains.use(root, async (d) => {
     const dir = base + "/calibration",
       store = assertGradeStore(root);
     if (!store.has(dir + "/blind.json")) {
       const semantic = generateCalibration(),
-        visibility = correctionControls();
+        visibility =
+          version === visibilityV2
+            ? newVisibilityControls()
+            : correctionControls();
       const packet = {
         rubric: policy,
         controls: [
@@ -117,7 +137,10 @@ export async function prepareCompletionCalibration(
       );
     }
     const frozen = calibrationInputs(root);
-    requireThat(frozen.reader === reader, "STAGE_C_GRADER_CHANGED");
+    requireThat(
+      frozen.reader === reader && frozen.version === version,
+      "STAGE_C_GRADER_CHANGED",
+    );
     return frozen;
   });
 }
@@ -147,6 +170,7 @@ export function trialPacket(
   lane: string,
   scenario: string,
   reader = rubric.reader,
+  version = rubric.version,
 ) {
   const state = readJSON(path.join(root, "campaign/stage-c-dispatch.json")),
     terminal = state.terminals[lane];
@@ -185,6 +209,7 @@ export function trialPacket(
     }),
   );
   let surfaceComplete = false;
+  const members: string[][] = surfaces.map(() => []);
   if (p.physical.outcome.probe_send) {
     const wire = readJSON(
       path.join(
@@ -205,12 +230,55 @@ export function trialPacket(
         /"encrypted_content"|"item_reference"|"input_image"|"image_url"/.test(
           JSON.stringify(wire.payload),
         );
-      if (wire.payload.instructions)
+      if (wire.payload.instructions) {
         add("Request instructions", wire.payload.instructions);
-      for (const m of messages) add("First request message", JSON.stringify(m));
-      surfaceComplete = !opaque;
+        members[3].push(rows.at(-1)!.id);
+      }
+      let parsed = messages.length > 0;
+      for (const m of messages) {
+        add("First request message", JSON.stringify(m));
+        const id = rows.at(-1)!.id;
+        if (m.role === "system" || m.role === "developer") members[3].push(id);
+        else if (m.role === "assistant" || m.role === "tool")
+          members[1].push(id);
+        else if (m.role === "user") {
+          const content =
+            typeof m.content === "string"
+              ? m.content
+              : Array.isArray(m.content)
+                ? m.content.map((v: any) => v.text ?? "").join("")
+                : "";
+          members[
+            content.startsWith(
+              "Working memory (source history remains queryable):",
+            )
+              ? 2
+              : 0
+          ].push(id);
+        } else parsed = false;
+        if (
+          Array.isArray(m.content) &&
+          m.content.some(
+            (part: any) =>
+              !["text", "input_text", "output_text"].includes(part?.type),
+          )
+        )
+          parsed = false;
+      }
+      surfaceComplete = !opaque && (version !== visibilityV2 || parsed);
     }
   }
+  if (version === visibilityV2)
+    add(
+      "First eligible request capture coverage",
+      JSON.stringify(
+        surfaces.map((surface, index) => ({
+          surface,
+          captured_evidence: members[index],
+          coverage: surfaceComplete ? "COMPLETE" : "NOT_CERTIFIED_COMPLETE",
+        })),
+      ),
+    );
   const special = trial.observations.find(
     (o: any) => o.host_assisted || (o.inputs && o.status),
   );
@@ -243,7 +311,7 @@ export function trialPacket(
     );
   return {
     packet: {
-      rubric: scoringRubric(reader),
+      rubric: scoringRubric(reader, version),
       assertions: c.assertions,
       evidence: rows,
     },
@@ -253,6 +321,14 @@ export function trialPacket(
       scenario,
       report_sha256: terminal.report_sha256,
       surfaceComplete,
+      ...(version === visibilityV2
+        ? {
+            wire_ids: members.flat(),
+            coverage_id: rows.find((r) =>
+              r.text.startsWith("First eligible request capture coverage\n"),
+            )?.id,
+          }
+        : {}),
     },
   };
 }
@@ -264,7 +340,7 @@ export async function completionJudge(
   observation: string,
   submission?: any,
 ) {
-  const { inputs, batch } = loadCompletion(root, hash, approval);
+  const { inputs, batch, policy } = loadCompletion(root, hash, approval);
   requireThat(
     JSON.stringify(inputs.calibration) ===
       JSON.stringify(calibrationInputs(root)),
@@ -301,6 +377,7 @@ export async function completionJudge(
           row.lane.lane,
           s.id,
           inputs.calibration.reader,
+          inputs.calibration.version,
         );
         commitGradeFiles(
           root,
@@ -321,10 +398,25 @@ export async function completionJudge(
         "STAGE_C_JUDGE_ATTEMPT_LIMIT",
       );
       const a = reserveJudgeAttempt(d, dir, digest, 1, calibration);
-      return { ...a, packet };
+      return {
+        ...a,
+        packet,
+        ...(inputs.calibration.version === visibilityV2
+          ? { query: renderReaderQuery(packet) }
+          : {}),
+      };
     }
     const attempt = attemptHistory(root, dir).at(-1);
     requireThat(attempt && !attempt.result, "STAGE_C_NO_READER_RESERVATION");
+    const nativeEvidence =
+      inputs.calibration.version === visibilityV2 ? submission : undefined;
+    if (inputs.calibration.version === visibilityV2)
+      submission = readerResponse(
+        nativeEvidence,
+        packet,
+        hash,
+        policy.providers["deepseek-flash"],
+      );
     let status = "REJECTED",
       kind = "SEMANTIC";
     if (
@@ -375,8 +467,22 @@ export async function completionJudge(
           );
         const b = readOwnedGradeJSON(root, dir + "/binding.json");
         const visibility = submission.visibility;
+        const visibilityReferences = submission.visibility_evidence;
+        const visibilityBound =
+          inputs.calibration.version !== visibilityV2 ||
+          !["C16-combined", "C06-stale-cold"].includes(b.scenario) ||
+          (Array.isArray(visibilityReferences) &&
+            visibilityReferences.length > 0 &&
+            visibilityReferences.every((id) =>
+              packet.evidence.some((e: any) => e.id === id),
+            ) &&
+            (visibility === "RESIDENT"
+              ? visibilityReferences.some((id) => b.wire_ids.includes(id))
+              : visibilityReferences.includes(b.coverage_id) &&
+                (visibility !== "COLD" || b.surfaceComplete)));
         status =
           valid &&
+          visibilityBound &&
           (!["C16-combined", "C06-stale-cold"].includes(b.scenario) ||
             ["RESIDENT", "COLD", "OPAQUE"].includes(visibility))
             ? "ACCEPTED"
@@ -388,6 +494,12 @@ export async function completionJudge(
       status,
       submission,
       response_sha256: sha(gradeJSONBytes(submission)),
+      ...(nativeEvidence
+        ? {
+            reader_evidence: nativeEvidence,
+            reader_query_sha256: sha(renderReaderQuery(packet)),
+          }
+        : {}),
     });
     return { status, attempt: attempt.number, packet_sha256: digest };
   });
@@ -610,6 +722,13 @@ export function completedBatchReport(root: string, hash: string) {
         protocol_gaps: protocol,
         grades,
         c16,
+        ...(end?.reader_evidence
+          ? {
+              reader_metered_usd:
+                end.reader_evidence.transport.calculated_charge_usd ??
+                end.reader_evidence.transport.charged_usd,
+            }
+          : {}),
         assessment_attempts: history.length,
         assessment_status: end?.status ?? "NOT_TESTED",
         first_assessment_failure:
@@ -623,6 +742,10 @@ export function completedBatchReport(root: string, hash: string) {
   return {
     schema: "issue122-completion-results-v1",
     ...familyResults(rows),
+    candidate_reader_metered_usd: rows.reduce(
+      (n, r) => n + Number(r.reader_metered_usd ?? 0),
+      0,
+    ),
     freeze_sha256: hash,
     batch_closed: state.ended,
     rows,

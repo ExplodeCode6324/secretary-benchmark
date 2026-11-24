@@ -115,7 +115,7 @@ async function main() {
         "--provenance",
       ]
         .concat(command === "baseline-stage-c-trial" ? ["--case"] : [])
-        .concat(command === "baseline-stage-c-controls" ? ["--reader"] : [])
+        .concat(command === "baseline-stage-c-controls" ? ["--reader","--rubric"] : [])
         .includes(args[i]) &&
         !!args[i + 1] &&
         !options[args[i]],
@@ -159,14 +159,14 @@ async function main() {
     }
     if (command === "baseline-stage-c-controls") {
       requireThat(
-        ["--root", "--reader,--root"].includes(
+        ["--root", "--reader,--root","--reader,--root,--rubric"].includes(
           Object.keys(options).sort().join(","),
         ) && root !== path.join(repository, ".local/benchmark"),
         "STAGE_C_CONTROLS_ARGUMENTS",
       );
       console.log(
         JSON.stringify(
-          await prepareCompletionCalibration(root, options["--reader"]),
+          await prepareCompletionCalibration(root, options["--reader"],options["--rubric"]),
         ),
       );
       return;

@@ -1,3 +1,7 @@
+import {
+  verifiedRecovery,
+  officialC04Decision,
+} from "./stage-c-scoring-recovery.ts";
 import { amendedFirstAssessment } from "./stage-c-reader-amendment.ts";
 import path from "node:path";
 import { read, readJSON, requireThat, sha, type FileEntry } from "./io.ts";
@@ -73,8 +77,17 @@ export function archivedBatch(
   const attempt = reservations.length;
   const last = prefix + "attempt-" + attempt + "-result.json";
   const entry = entries.get(last);
-  const calibrationResult = entry ? exported("calibration-result.json", last) : undefined;
+  const calibrationResult = entry
+    ? exported("calibration-result.json", last)
+    : undefined;
   const calibration = {
+    ...(calibrationResult?.reader_evidence
+      ? {
+          metered_usd:
+            calibrationResult.reader_evidence.transport.calculated_charge_usd ??
+            calibrationResult.reader_evidence.transport.charged_usd,
+        }
+      : {}),
     attempts: attempt,
     status: calibrationResult?.status ?? (attempt ? "RESERVED" : "NOT_TESTED"),
     receipt_sha256: entry?.sha256 ?? null,
@@ -99,6 +112,34 @@ export function archivedBatch(
         b.grading_amendment_sha256,
       )
     : { result, calibration };
+  if (b.reader_recovery) {
+    requireThat(
+      b.grading_amendment_sha256 === officialC04Decision &&
+        b.grading_as_of !== "first-official-attempt",
+      "STAGE_C_READER_RECOVERY_INDEX",
+    );
+    const get = (name: string) =>
+      exported(
+        "reader-deepseek-v1/" + name,
+        "reports/reader-deepseek-v1/" + name,
+      );
+    assessment.calibration = verifiedRecovery(
+      destination,
+      b,
+      assessment.calibration,
+      get("calibration-transport.json"),
+      get("calibration-packet.json"),
+      exported(
+        "reader-deepseek-v1/private-key.json",
+        "oracles/completion/calibration/key.json",
+      ),
+    );
+  } else if (b.grading_amendment_sha256 === officialC04Decision) {
+    requireThat(
+      b.grading_as_of === "first-official-attempt",
+      "STAGE_C_READER_RECOVERY_INDEX",
+    );
+  }
   return {
     hash: b.freeze_sha256,
     archive_sha256: b.archive_sha256,
@@ -108,6 +149,7 @@ export function archivedBatch(
       "reports/stage-c-projection.json",
     ),
     ...assessment,
+    ...(amendment ? { original_calibration: calibration } : {}),
     decisions: b.decisions,
   };
 }

@@ -58,6 +58,7 @@ export function scoringRubric(reader: string) {
 }
 export function matchesReader(submission: any, digest: string, reader: string) {
   if (reader === rubric.reader) return boundJudge(submission, digest);
+  if (!Object.hasOwn(hermesReaders, reader)) return false;
   const expected = hermesReaders[reader as keyof typeof hermesReaders];
   return (
     !!expected &&

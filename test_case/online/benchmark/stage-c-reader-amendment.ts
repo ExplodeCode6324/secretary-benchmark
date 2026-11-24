@@ -61,6 +61,44 @@ export function amendedFirstAssessment(
       ["PASSED", "FAILED", "MECHANICAL"].includes(cal.status),
     "STAGE_C_ARCHIVED_READER_AMENDMENT",
   );
+  const calPacket = get("calibration-packet.json");
+  const oldPacket = exported(
+    "reader-deepseek-v1/original-controls.json",
+    "oracles/completion/calibration/blind.json",
+  );
+  requireThat(
+    sha(gradeJSONBytes(calPacket.rubric)) === decision.rubric_sha256 &&
+      sha(gradeJSONBytes(calPacket.controls)) ===
+        sha(gradeJSONBytes(oldPacket.controls)) &&
+      Number.isSafeInteger(cal.attempts) &&
+      cal.attempts >= 1 &&
+      cal.attempts <= 3,
+    "STAGE_C_ARCHIVED_AMENDED_CONTROLS",
+  );
+  if (cal.status !== "MECHANICAL") {
+    const submission = get("calibration-receipt.json"),
+      key = exported(
+        "reader-deepseek-v1/private-key.json",
+        "oracles/completion/calibration/key.json",
+      );
+    requireThat(
+      matchesReader(submission, cal.packet_sha256, reader),
+      "STAGE_C_ARCHIVED_CALIBRATION_READER",
+    );
+    const passed =
+      Array.isArray(submission.labels) &&
+      submission.labels.length === key.length &&
+      key.every(
+        (k: any) =>
+          submission.labels.filter(
+            (r: any) => r.id === k.id && r.verdict === k.expected,
+          ).length === 1,
+      );
+    requireThat(
+      (cal.status === "PASSED") === passed,
+      "STAGE_C_ARCHIVED_CALIBRATION_VERDICT",
+    );
+  }
   const candidate = assessment.candidate;
   if (candidate) {
     const packet = get("candidate-packet.json"),
@@ -68,6 +106,11 @@ export function amendedFirstAssessment(
     const g = receipt.assertions?.[0];
     requireThat(
       cal.status === "PASSED" &&
+        Number.isSafeInteger(candidate.attempts) &&
+        candidate.attempts >= 1 &&
+        candidate.attempts <= 3 &&
+        JSON.stringify(packet.assertions) ===
+          JSON.stringify(["natural_access"]) &&
         candidate.status === "ACCEPTED" &&
         candidate.packet_sha256 === entryHash(base + "candidate-packet.json") &&
         receipt.packet_sha256 === candidate.packet_sha256 &&

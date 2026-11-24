@@ -113,14 +113,20 @@ export async function admitGoSend(
       !active.closed && active.freeze === freeze && active.root === root,
       "GO_FACILITY_BINDING",
     );
-    if (active.residual_source) {
-      const frozen = read(path.join(root, "configs/stage-c-freeze.json"));
+    const policyFile = path.join(root, "configs/stage-c-freeze.json");
+    const frozen = fs.existsSync(policyFile) ? read(policyFile) : undefined;
+    const expectedSource = frozen
+      ? JSON.parse(frozen.toString()).go_continuation?.residual?.freeze
+      : undefined;
+    requireThat(
+      expectedSource === active.residual_source,
+      "GO_RESIDUAL_ACCOUNT_BINDING",
+    );
+    if (expectedSource) {
+      requireThat(frozen && sha(frozen) === freeze, "GO_RESIDUAL_SEND_BINDING");
       const lane = readJSON(path.join(root, "campaign/active-stage-c.json"));
       requireThat(
-        sha(frozen) === freeze &&
-          JSON.parse(frozen.toString()).go_continuation.residual.freeze ===
-            goResidualSource.freeze &&
-          active.residual_source === goResidualSource.freeze &&
+        expectedSource === goResidualSource.freeze &&
           lane.state === "OPEN" &&
           lane.freeze_sha256 === freeze &&
           goResidualSource.lanes.includes(lane.lane),

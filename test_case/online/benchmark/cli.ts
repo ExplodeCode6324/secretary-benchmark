@@ -115,6 +115,7 @@ async function main() {
         "--provenance",
       ]
         .concat(command === "baseline-stage-c-trial" ? ["--case"] : [])
+        .concat(command === "baseline-stage-c-controls" ? ["--reader"] : [])
         .includes(args[i]) &&
         !!args[i + 1] &&
         !options[args[i]],

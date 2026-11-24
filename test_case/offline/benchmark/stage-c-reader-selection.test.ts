@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { repository } from "../../online/benchmark/io.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -31,4 +35,32 @@ test("reader choice binds the same scoring rubric to one exact model, route and 
     assert.equal(matchesReader(receipt, digest, "Opus 5.5 Extra"), false);
   }
   assert.throws(() => scoringRubric("DeepSeek"), /UNKNOWN_READER/);
+});
+
+test("the normal controls CLI accepts an explicit reader and preserves its existing controls", () => {
+  const root = path.join(
+    repository,
+    ".local/benchmark/tests",
+    "reader-controls-" + randomUUID(),
+  );
+  const controls = (reader: string) =>
+    execFileSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "test_case/online/benchmark/cli.ts",
+        "baseline-stage-c-controls",
+        "--root",
+        root,
+        "--reader",
+        reader,
+      ],
+      { cwd: repository, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+  const reader = "Hermes/deepseek/deepseek-flash/max",
+    first = JSON.parse(controls(reader));
+  assert.equal(first.reader, reader);
+  assert.deepEqual(JSON.parse(controls(reader)), first);
+  assert.throws(() => controls("Opus 5.5 Extra"), /STAGE_C_GRADER_CHANGED/);
 });

@@ -197,18 +197,25 @@ export function trialPacket(
   add("Probe", c.probe);
   for (const e of p.physical.excerpts) add(e.kind, e.text);
   const { assertions: hostVerdicts, ...observed } = p.witness;
-  add(
-    "Host observation",
-    JSON.stringify({
-      requirements: p.physical.requirements,
-      witness: observed,
-      world: p.physical.world,
-      task: p.physical.task,
-      maintenance: p.physical.maintenance,
-      cold: p.physical.cold,
-    }),
-  );
+  if (version !== visibilityV2)
+    add(
+      "Host observation",
+      JSON.stringify({
+        requirements: p.physical.requirements,
+        witness: observed,
+        world: p.physical.world,
+        task: p.physical.task,
+        maintenance: p.physical.maintenance,
+        cold: p.physical.cold,
+      }),
+    );
   let surfaceComplete = false;
+  const flags = surfaces.map(() => ({
+    measured: false,
+    truncated: false,
+    opaque: false,
+  }));
+
   const members: string[][] = surfaces.map(() => []);
   if (p.physical.outcome.probe_send) {
     const wire = readJSON(
@@ -233,8 +240,18 @@ export function trialPacket(
       if (wire.payload.instructions) {
         add("Request instructions", wire.payload.instructions);
         members[3].push(rows.at(-1)!.id);
+        if (
+          rows.at(-1)!.text !==
+          "Request instructions\n" + wire.payload.instructions
+        )
+          flags[3].truncated = true;
       }
       let parsed = messages.length > 0;
+      for (const f of flags) {
+        f.measured = parsed;
+        f.opaque = !!wire.payload.previous_response_id;
+      }
+
       for (const m of messages) {
         add("First request message", JSON.stringify(m));
         const id = rows.at(-1)!.id;
@@ -255,17 +272,39 @@ export function trialPacket(
               ? 2
               : 0
           ].push(id);
-        } else parsed = false;
+        } else {
+          parsed = false;
+          for (const f of flags) f.opaque = true;
+        }
+        const ix = members.findIndex((ids) => ids.includes(id));
+        if (
+          ix >= 0 &&
+          rows.at(-1)!.text !== "First request message\n" + JSON.stringify(m)
+        )
+          flags[ix].truncated = true;
+        if (
+          ix >= 0 &&
+          /"encrypted_content"|"item_reference"|"input_image"|"image_url"/.test(
+            JSON.stringify(m),
+          )
+        )
+          flags[ix].opaque = true;
         if (
           Array.isArray(m.content) &&
           m.content.some(
             (part: any) =>
               !["text", "input_text", "output_text"].includes(part?.type),
           )
-        )
+        ) {
           parsed = false;
+          if (ix >= 0) flags[ix].opaque = true;
+        }
       }
-      surfaceComplete = !opaque && (version !== visibilityV2 || parsed);
+      surfaceComplete =
+        !opaque &&
+        (version !== visibilityV2 ||
+          (parsed &&
+            flags.every((f) => f.measured && !f.truncated && !f.opaque)));
     }
   }
   if (version === visibilityV2)
@@ -275,7 +314,19 @@ export function trialPacket(
         surfaces.map((surface, index) => ({
           surface,
           captured_evidence: members[index],
-          coverage: surfaceComplete ? "COMPLETE" : "NOT_CERTIFIED_COMPLETE",
+          ...flags[index],
+        })),
+      ),
+    );
+  if (version === visibilityV2 && p.witness.source_reads?.length)
+    add(
+      "Post-probe tool activity (outside the visibility window)",
+      JSON.stringify(
+        p.witness.source_reads.map((r: any) => ({
+          source_event: r.event,
+          tool_call: r.tool_call_id,
+          returned_bytes_sha256: r.tool_text_sha256,
+          delivered_to: r.delivered_to,
         })),
       ),
     );
@@ -297,7 +348,7 @@ export function trialPacket(
       JSON.stringify(v.items),
     );
   }
-  if (special)
+  if (special && version !== visibilityV2)
     add(
       "Specialized observation",
       JSON.stringify({
@@ -438,8 +489,9 @@ export async function completionJudge(
           rows.length === key.length &&
           key.every(
             (k: any) =>
-              rows.filter((r: any) => r.id === k.id && r.verdict === k.expected)
-                .length === 1,
+              rows.filter(
+                (r: any) => r?.id === k.id && r?.verdict === k.expected,
+              ).length === 1,
           )
             ? "PASSED"
             : "FAILED";
@@ -452,7 +504,7 @@ export async function completionJudge(
             (a: string) =>
               rows.filter(
                 (r: any) =>
-                  r.assertion === a &&
+                  r?.assertion === a &&
                   ["PASS", "FAIL", "UNRESOLVED", "NOT_TESTED"].includes(
                     r.verdict,
                   ) &&
@@ -467,19 +519,29 @@ export async function completionJudge(
           );
         const b = readOwnedGradeJSON(root, dir + "/binding.json");
         const visibility = submission.visibility;
-        const visibilityReferences = submission.visibility_evidence;
+        const v2Visibility =
+          inputs.calibration.version === visibilityV2 &&
+          ["C16-combined", "C06-stale-cold"].includes(b.scenario);
+        const refs = submission.visibility_evidence;
         const visibilityBound =
-          inputs.calibration.version !== visibilityV2 ||
-          !["C16-combined", "C06-stale-cold"].includes(b.scenario) ||
-          (Array.isArray(visibilityReferences) &&
-            visibilityReferences.length > 0 &&
-            visibilityReferences.every((id) =>
-              packet.evidence.some((e: any) => e.id === id),
-            ) &&
+          !v2Visibility ||
+          (Array.isArray(refs) &&
+            refs.length > 0 &&
+            refs.every((id) => packet.evidence.some((e: any) => e.id === id)) &&
             (visibility === "RESIDENT"
-              ? visibilityReferences.some((id) => b.wire_ids.includes(id))
-              : visibilityReferences.includes(b.coverage_id) &&
-                (visibility !== "COLD" || b.surfaceComplete)));
+              ? refs.some((id) => b.wire_ids.includes(id))
+              : refs.includes(b.coverage_id)));
+        if (
+          v2Visibility &&
+          visibilityBound &&
+          visibility === "COLD" &&
+          !b.surfaceComplete
+        )
+          submission = {
+            ...submission,
+            reader_visibility: visibility,
+            visibility: "OPAQUE",
+          };
         status =
           valid &&
           visibilityBound &&
@@ -595,7 +657,9 @@ export function completedBatchReport(root: string, hash: string) {
               const g = judgeCorrection({
                 maintenance: "UNKNOWN",
                 visibility:
-                  side.surfaceComplete &&
+                  (side.surfaceComplete ||
+                    (end.reader_evidence &&
+                      end.submission.visibility === "RESIDENT")) &&
                   ["COLD", "RESIDENT"].includes(end.submission.visibility)
                     ? end.submission.visibility
                     : "UNKNOWN",
@@ -622,10 +686,11 @@ export function completedBatchReport(root: string, hash: string) {
                     visibility: end.submission.visibility,
                     maintenance: grades.maintenance_current,
                     use: grades.use_current,
-                    audited_surfaces: !!readOwnedGradeJSON(
-                      root,
-                      dir + "/binding.json",
-                    ).surfaceComplete,
+                    audited_surfaces:
+                      (Boolean(end.reader_evidence) &&
+                        end.submission.visibility === "RESIDENT") ||
+                      !!readOwnedGradeJSON(root, dir + "/binding.json")
+                        .surfaceComplete,
                   }
                 : undefined;
             const verdict = (value: string): "PASS" | "FAIL" | "UNRESOLVED" =>

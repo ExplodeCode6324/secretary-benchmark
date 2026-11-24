@@ -48,6 +48,9 @@ export type Preflight = {
     last_bytes: number;
     turns: number;
     main_sends: number;
+    rc_capture_sha256: string;
+    rc_mean_bytes: number;
+    rc_peak_bytes: number;
   };
   rehearsal_read?: "ORIGINAL_OFFSET" | "OTHER_EVENT";
   rehearsal_scenario?: "C16-combined" | "C06-stale-cold" | "C12b";
@@ -190,6 +193,9 @@ export function projectCampaign(
           contact.turns,
           contact.main_sends,
         ].every((n) => Number.isSafeInteger(n) && n > 0) &&
+        digest(contact.rc_capture_sha256) &&
+        contact.rc_mean_bytes > 0 &&
+        contact.rc_peak_bytes >= contact.rc_mean_bytes &&
         contact.last_bytes >= contact.first_bytes &&
         inputs.forecast["deepseek-flash"]?.ordinary_sends_per_turn ===
           contact.main_sends / contact.turns,
@@ -303,15 +309,23 @@ export function projectCampaign(
           (n, s) => n + (s.filler ? s.filler.count * s.filler.bytes_each : 0),
           0,
         );
+        const projectedBytes =
+          nativeMean + Math.max(0, liveFillerBytes - shortFillerBytes) / 2;
+        const targeted = inputs.c16_dedicated_batch && c.id === "C16-combined";
+        const estimate = targeted
+          ? Math.max(
+              projectedBytes,
+              inputs.first_contact!.rc_mean_bytes,
+              inputs.first_contact!.rc_peak_bytes,
+            )
+          : projectedBytes;
         const estimatedBytes = Math.min(
           providers[model].max_input_bytes,
-          nativeMean +
-            Math.max(0, liveFillerBytes - shortFillerBytes) / 2 +
-            (inputs.c16_dedicated_batch && c.id === "C16-combined"
-              ? inputs.first_contact!.last_bytes -
-                inputs.first_contact!.first_bytes
-              : 0),
+          estimate,
         );
+        const sendsByTurn = targeted
+          ? { ordinary: 5, filler: 2, probe: 6 }
+          : undefined;
         const factors = {
           ...inputs.forecast[model],
           expected_input_tokens: Math.ceil(
@@ -330,10 +344,14 @@ export function projectCampaign(
           factors,
           1,
           capacity,
+          3600,
+          sendsByTurn,
         );
         const observed = samples.length;
-        const cap =
-          Math.ceil(Math.max(observed, unbounded.range.sends.max) * 1.35) + 12;
+        const cap = Math.max(
+          targeted ? 609 : 0,
+          Math.ceil(Math.max(observed, unbounded.range.sends.max) * 1.35) + 12,
+        );
         const passive = steps
           .filter(
             (s) =>
@@ -342,7 +360,8 @@ export function projectCampaign(
                 s.requirement?.includes("ten-minute")),
           )
           .reduce((n, s) => n + (s.seconds ?? 0), 0);
-        const seconds =
+        const seconds = Math.max(
+          targeted ? 12090 : 0,
           Math.ceil(
             (Math.max(
               unbounded.range.seconds.max,
@@ -351,7 +370,8 @@ export function projectCampaign(
               passive +
               (c.id === "C12b" ? 180 : 0)) *
               1.3,
-          ) + 180;
+          ) + 180,
+        );
         requireThat(seconds <= 43200, "STAGE_C_LINEAGE_EXCEEDS_BATCH");
         const forecast = forecastLane(
           steps,
@@ -360,6 +380,7 @@ export function projectCampaign(
           cap,
           capacity,
           seconds,
+          sendsByTurn,
         );
         const lane: ScheduledLane = {
           lane: "r" + repeat + "-" + (c.pair?.id ?? c.id) + "--" + model,
@@ -400,11 +421,12 @@ export function projectCampaign(
             expected_output_tokens: factors.expected_output_tokens,
             native_mean_serialized_bytes: nativeMean,
             projected_mean_bytes: estimatedBytes,
-            ...(inputs.c16_dedicated_batch && c.id === "C16-combined"
+            ...(targeted
               ? {
-                  additional_tool_context_bytes:
-                    inputs.first_contact!.last_bytes -
-                    inputs.first_contact!.first_bytes,
+                  sends_by_turn: sendsByTurn,
+                  rc_capture_sha256: inputs.first_contact!.rc_capture_sha256,
+                  rc_peak_bytes: inputs.first_contact!.rc_peak_bytes,
+                  rc_mean_bytes: inputs.first_contact!.rc_mean_bytes,
                   contact_ledger_sha256: inputs.first_contact!.ledger_sha256,
                 }
               : {}),
@@ -676,6 +698,21 @@ export function freezeBatch(root: string, index: number, checked: string) {
   const projection = projectCampaign(inputs, providers),
     batch = projection.batches[index - 1];
   requireThat(batch, "STAGE_C_BATCH_INDEX");
+  if (inputs.c16_dedicated_batch)
+    requireThat(
+      index === 2 &&
+        batch.length === 3 &&
+        batch.every(
+          (r, i) =>
+            r.lane.repeat === i + 1 &&
+            r.lane.scenario === "C16-combined" &&
+            r.lane.cap <= 609 &&
+            r.lane.seconds <= 12090,
+        ) &&
+        batch.reduce((n, r) => n + r.forecast.worst_usd, 0) <=
+          1410.1867584 + 1e-9,
+      "STAGE_C_C16_AUTHORIZED_SCOPE",
+    );
   const document = {
     schema: "issue122-completion-freeze-v1",
     evidence_class: inputs.evidence_class ?? "LIVE",

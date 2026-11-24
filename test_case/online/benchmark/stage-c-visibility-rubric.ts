@@ -36,8 +36,17 @@ export function newVisibilityControls() {
     const target = "handover room for parcel " + randomUUID().slice(0, 8);
     const coverage = surfaces.map((name, i) => ({
       surface: name,
-      coverage: i === missingSurface ? "INCOMPLETE" : "COMPLETE",
-      captured: i === positiveSurface ? evidence : i === 0 ? partial : "",
+      measured: i !== missingSurface || i === 2,
+      truncated: false,
+      opaque: i === missingSurface && i === 2,
+      captured:
+        i === positiveSurface
+          ? evidence
+          : i === 0
+            ? partial
+            : i === missingSurface && i === 2
+              ? "Unresolved external record reference"
+              : "",
     }));
     return {
       id: randomUUID(),
@@ -65,7 +74,7 @@ export function newVisibilityControls() {
       "Master confirmed the new room as Birch.",
       "RESIDENT",
     ),
-    item(-1, -1, "Only sealed parcels are allowed.", "", "COLD"),
+    item(-1, -1, "Visitor tickets are available at reception.", "", "COLD"),
     item(
       -1,
       -1,
@@ -140,6 +149,19 @@ export function readerResponse(
       t.raw_sha256 === sha(raw),
     "STAGE_C_READER_WIRE",
   );
+  if (
+    raw === "" &&
+    t.http_status !== 200 &&
+    (t.http_status === null ||
+      (Number.isInteger(t.http_status) &&
+        t.http_status >= 400 &&
+        t.http_status < 600))
+  ) {
+    return {
+      mechanical: "NO_RESPONSE",
+      evidence_sha256: sha(gradeJSONBytes(envelope)),
+    };
+  }
   requireThat(
     t.returned_model === t.model && t.http_status === 200,
     "STAGE_C_READER_RESPONSE_IDENTITY",

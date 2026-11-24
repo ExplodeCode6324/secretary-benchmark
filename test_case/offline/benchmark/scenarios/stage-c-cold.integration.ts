@@ -1,7 +1,11 @@
 // Run separately before the C16 freeze. Both scenarios use only in-memory provider streams.
 import { assertCombinedRehearsal } from "./stage-c-combine-rehearsal.ts";
 import { verifyPendingWorld } from "../../../online/benchmark/stage-c-pending-world.ts";
-import { recoveryClass, snapshot } from "../../../online/benchmark/snapshot.ts";
+import {
+  validateRestoredRecords,
+  recoveryClass,
+  snapshot,
+} from "../../../online/benchmark/snapshot.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -102,13 +106,32 @@ for (const mode of ["ORIGINAL_OFFSET", "OTHER_EVENT"] as const) {
           op.effect === "NOT_STARTED" &&
           op.authorization_id === pending.id,
       );
+      const rebound = journal.transactions.findIndex((tx) =>
+        tx.events.some((e) => e.event_type === "operation.owner_rebound"),
+      );
+      assert(rebound >= 0, "the restarted worker rebinds ownership");
+      const prefix = journal.transactions.slice(0, rebound);
+      const history = journal.operationHistory.get(op.id)!;
+      const original = history[0];
+      assert.equal(history.length, 2);
+      assert.equal(op.owner_epoch, original.owner_epoch + 1);
+      assert.deepEqual(op, {
+        ...original,
+        owner_epoch: op.owner_epoch,
+        updated_at: op.updated_at,
+        revision: 2,
+      });
       const proof = {
-        history: journal.operationHistory,
-        transactions: journal.transactions,
+        history: new Map([[op.id, [original]]]),
+        transactions: prefix,
         value: (ref: any) => readJSON(path.join(run.active, "core", ref.path)),
       };
       const domain = run.endpoint.data_domain_id;
-      assert.throws(() => verifyPendingWorld(op, proof, "different-domain"));
+      verifyPendingWorld(original, proof, domain);
+      assert.throws(
+        () => verifyPendingWorld(original, proof, "different-domain"),
+        /AUTHORIZATION_UNPROVEN/,
+      );
       for (const patch of [
         { state: "AUTHORIZED" },
         { state: "DISPATCHED" },
@@ -118,18 +141,63 @@ for (const mode of ["ORIGINAL_OFFSET", "OTHER_EVENT"] as const) {
         { authorization_id: "different" },
       ])
         assert.throws(() =>
-          verifyPendingWorld({ ...op, ...patch } as typeof op, proof, domain),
+          verifyPendingWorld(
+            { ...original, ...patch } as typeof original,
+            proof,
+            domain,
+          ),
         );
       const withoutModel = {
         ...proof,
-        transactions: proof.transactions.map((tx) => ({
+        transactions: prefix.map((tx) => ({
           ...tx,
           records: tx.records.filter((r) => r.record_type !== "ModelCall"),
         })),
       };
       assert.throws(
-        () => verifyPendingWorld(op, withoutModel, domain),
+        () => verifyPendingWorld(original, withoutModel, domain),
         /MODEL_PROVENANCE/,
+      );
+      // C12b and checkpoint paths keep their original admission even in a mixed journal.
+      const work = path.join(run.active, "core/workspaces"),
+        owner = path.join(work, "offline-execution");
+      const write = {
+        ...original,
+        id: "offline-write",
+        scope: { ...original.scope, execution_id: "offline-execution" },
+        state: "RESULT_UNKNOWN" as const,
+        authorization_id: null,
+        action: {
+          ...original.action,
+          action: "file.write",
+          resource: path.join(owner, "result.txt"),
+        },
+      };
+      const mixed = {
+        ...proof,
+        history: new Map([...proof.history, [write.id, [write]]]),
+        transactions: [
+          ...prefix,
+          {
+            events: [],
+            records: [
+              {
+                record_type: "Execution",
+                id: "offline-execution",
+                workspace_binding: { root_path: owner },
+              } as any,
+            ],
+          },
+        ],
+        value: (ref: any) =>
+          ref === write.action.parameters_ref
+            ? { path: "result.txt" }
+            : proof.value(ref),
+      };
+      validateRestoredRecords([write], work, [], mixed);
+      assert.throws(
+        () => validateRestoredRecords([write, original], work, [], mixed),
+        /UNSUPPORTED_OPERATION_STATE/,
       );
       assert.equal(recoveryClass("file.write", "RESULT_UNKNOWN"), "U");
     }

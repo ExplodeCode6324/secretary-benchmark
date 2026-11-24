@@ -22,9 +22,35 @@ export type RemainingSeries = {
   previous_c16: string;
   original_c04: string;
   partition: number;
+  allocations: ReturnType<typeof allocationTable>;
   recovery_series: "c16-recovery-1";
   recovery_inventory: string[];
 };
+// Bind each partition's lanes and both budgets before the first paid reservation.
+export function allocationTable(batches: FrozenBatch[]) {
+  return batches.slice(1).map((batch, i) => {
+    const candidates = batch.reduce(
+      (sum, r) => sum + (r.pair ? 2 : 1),
+      i === 0 ? 1 : 0,
+    );
+    return {
+      partition: i + 2,
+      lanes: batch.map((r) => ({
+        lane: r.lane.lane,
+        cap: r.lane.cap,
+        seconds: r.lane.seconds,
+      })),
+      physical_calls: batch.reduce((sum, r) => sum + r.lane.cap, 0),
+      seconds: batch.reduce((sum, r) => sum + r.lane.seconds, 0),
+      workload_usd: Number(
+        batch.reduce((sum, r) => sum + r.forecast.worst_usd, 0).toFixed(9),
+      ),
+      calibrations: 1,
+      candidates,
+      reader_usd: (688128 + candidates * 2162688) / 1e7,
+    };
+  });
+}
 export function validateSeries(
   s: RemainingSeries,
   index: number,
@@ -34,6 +60,21 @@ export function validateSeries(
     sizes = [3, 3, 2, 27, 28, 29];
   const rest = batches.slice(1),
     rows = rest.flat();
+  const allocations = allocationTable(batches);
+  const candidateCaps = [4, 3, 4, 31, 28, 29],
+    laneSeconds = [36270, 43047, 29200, 42109, 42904, 24476];
+  requireThat(
+    allocations.length === 6 &&
+      JSON.stringify(allocations) === JSON.stringify(s.allocations) &&
+      allocations.every(
+        (a, i) =>
+          a.physical_calls === caps[i] &&
+          a.seconds <= laneSeconds[i] &&
+          a.candidates === candidateCaps[i] &&
+          a.workload_usd <= caps[i] * 0.7718592 + 1e-9,
+      ),
+    "STAGE_C_SERIES_ALLOCATION",
+  );
   const definitions = stageCases();
   const inventory = batches
     .flat()

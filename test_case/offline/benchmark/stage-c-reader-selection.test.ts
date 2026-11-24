@@ -70,6 +70,7 @@ import {
   officialReader,
   newVisibilityControls,
   renderReaderQuery,
+  admittedReaderQuery,
   readerPolicy,
   readerResponse,
 } from "../../online/benchmark/stage-c-visibility-rubric.ts";
@@ -124,10 +125,8 @@ test("prospective visibility controls bind complete and incomplete capture and v
   });
   for (const patch of [
     { input_sha256: sha("wrong") },
-    { returned_model: "other" },
     { fallback: true },
     { max_tokens: 16384 },
-    { calculated_charge_usd: 0 },
   ]) {
     assert.throws(
       () =>
@@ -139,6 +138,29 @@ test("prospective visibility controls bind complete and incomplete capture and v
         ),
       /STAGE_C_READER/,
     );
+  }
+  assert.equal(admittedReaderQuery(packet), q);
+  assert.throws(
+    () =>
+      admittedReaderQuery({
+        ...packet,
+        controls: [{ text: '"'.repeat(20000) }],
+      }),
+    /PACKET_TOO_LARGE/,
+  );
+  for (const [patch, key, reason] of [
+    [{ returned_model: "other" }, "rejected", "RETURNED_MODEL_MISMATCH"],
+    [{ calculated_charge_usd: 0 }, "rejected", "DISPUTED_CHARGE"],
+    [{ finish_reason: "content_filter" }, "mechanical", "UNEXPECTED_FINISH"],
+  ] as const) {
+    const result = readerResponse(
+      { ...evidence, transport: { ...t, ...patch } },
+      packet,
+      freeze,
+      rate,
+    );
+    assert.equal(result[key], reason);
+    assert.match(result.evidence_sha256, /^[a-f0-9]{64}$/);
   }
   assert.throws(
     () => readerResponse({ ...evidence, raw: "changed" }, packet, freeze, rate),

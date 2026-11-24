@@ -560,6 +560,32 @@ export function completionApproval(hash: string, rehearsal: boolean) {
     hash.slice(0, 40)
   );
 }
+function validateC16Limits(
+  index: number,
+  batch: FrozenBatch,
+  projection: ReturnType<typeof projectCampaign>,
+) {
+  const reader = projection.reader_wall.limits_at_peak_usd;
+  requireThat(
+    reader && reader.calibration + 3 * reader.candidate <= 0.7176192 + 1e-12,
+    "STAGE_C_C16_READER_LIMIT",
+  );
+  requireThat(
+    index === 2 &&
+      batch.length === 3 &&
+      batch.every(
+        (r, i) =>
+          r.lane.repeat === i + 1 &&
+          r.lane.scenario === "C16-combined" &&
+          r.lane.cap <= 609 &&
+          r.lane.seconds <= 12090,
+      ) &&
+      batch.reduce((n, r) => n + r.forecast.worst_usd, 0) <=
+        1410.1867584 + 1e-9,
+    "STAGE_C_C16_AUTHORIZED_SCOPE",
+  );
+}
+
 export function loadCompletion(root: string, hash: string, approval: string) {
   requireThat(
     digest(hash) &&
@@ -627,6 +653,8 @@ export function loadCompletion(root: string, hash: string, approval: string) {
       ) === frozen.projection_sha256,
     "STAGE_C_PROJECTION_CHANGED",
   );
+  if (inputs.c16_dedicated_batch)
+    validateC16Limits(frozen.batch_index, frozen.batch, projection);
   const policy: PhysicalPolicy = {
     schema: "issue122-completion-physical-v1",
     ...(rehearsal ? { rehearsal: true as const } : {}),
@@ -698,21 +726,7 @@ export function freezeBatch(root: string, index: number, checked: string) {
   const projection = projectCampaign(inputs, providers),
     batch = projection.batches[index - 1];
   requireThat(batch, "STAGE_C_BATCH_INDEX");
-  if (inputs.c16_dedicated_batch)
-    requireThat(
-      index === 2 &&
-        batch.length === 3 &&
-        batch.every(
-          (r, i) =>
-            r.lane.repeat === i + 1 &&
-            r.lane.scenario === "C16-combined" &&
-            r.lane.cap <= 609 &&
-            r.lane.seconds <= 12090,
-        ) &&
-        batch.reduce((n, r) => n + r.forecast.worst_usd, 0) <=
-          1410.1867584 + 1e-9,
-      "STAGE_C_C16_AUTHORIZED_SCOPE",
-    );
+  if (inputs.c16_dedicated_batch) validateC16Limits(index, batch, projection);
   const document = {
     schema: "issue122-completion-freeze-v1",
     evidence_class: inputs.evidence_class ?? "LIVE",

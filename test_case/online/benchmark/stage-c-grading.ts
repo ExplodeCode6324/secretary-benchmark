@@ -5,6 +5,7 @@ import {
   officialReader,
   readerPolicy,
   renderReaderQuery,
+  admittedReaderQuery,
   readerResponse,
   surfaces,
 } from "./stage-c-visibility-rubric.ts";
@@ -448,13 +449,15 @@ export async function completionJudge(
         attemptHistory(root, dir).length < inputs.calibration.max_attempts,
         "STAGE_C_JUDGE_ATTEMPT_LIMIT",
       );
+      const query =
+        inputs.calibration.version === visibilityV2
+          ? admittedReaderQuery(packet)
+          : undefined;
       const a = reserveJudgeAttempt(d, dir, digest, 1, calibration);
       return {
         ...a,
         packet,
-        ...(inputs.calibration.version === visibilityV2
-          ? { query: renderReaderQuery(packet) }
-          : {}),
+        ...(query === undefined ? {} : { query }),
       };
     }
     const attempt = attemptHistory(root, dir).at(-1);
@@ -472,7 +475,8 @@ export async function completionJudge(
       kind = "SEMANTIC";
     if (
       submission?.mechanical &&
-      mechanicalReasons.includes(submission.mechanical) &&
+      (mechanicalReasons.includes(submission.mechanical) ||
+        (nativeEvidence && submission.mechanical === "UNEXPECTED_FINISH")) &&
       /^[a-f0-9]{64}$/.test(submission.evidence_sha256)
     ) {
       kind = "MECHANICAL";
@@ -529,7 +533,7 @@ export async function completionJudge(
             refs.length > 0 &&
             refs.every((id) => packet.evidence.some((e: any) => e.id === id)) &&
             (visibility === "RESIDENT"
-              ? refs.some((id) => b.wire_ids.includes(id))
+              ? refs.every((id) => b.wire_ids.includes(id))
               : refs.includes(b.coverage_id)));
         if (
           v2Visibility &&
@@ -751,6 +755,17 @@ export function completedBatchReport(root: string, hash: string) {
           ).map((v) => sha(v)),
         };
       });
+      const readerCost: {
+        reader_metered_usd?: number;
+        reader_disputed_usd?: number;
+      } = {};
+      if (end?.reader_evidence) {
+        const transport = end.reader_evidence.transport;
+        const amount = transport.calculated_charge_usd ?? transport.charged_usd;
+        if (end.submission?.rejected === "DISPUTED_CHARGE")
+          readerCost.reader_disputed_usd = amount;
+        else readerCost.reader_metered_usd = amount;
+      }
       return {
         scenario: s.id,
         family: s.family,
@@ -787,13 +802,7 @@ export function completedBatchReport(root: string, hash: string) {
         protocol_gaps: protocol,
         grades,
         c16,
-        ...(end?.reader_evidence
-          ? {
-              reader_metered_usd:
-                end.reader_evidence.transport.calculated_charge_usd ??
-                end.reader_evidence.transport.charged_usd,
-            }
-          : {}),
+        ...readerCost,
         assessment_attempts: history.length,
         assessment_status: end?.status ?? "NOT_TESTED",
         first_assessment_failure:
@@ -807,6 +816,10 @@ export function completedBatchReport(root: string, hash: string) {
   return {
     schema: "issue122-completion-results-v1",
     ...familyResults(rows),
+    candidate_reader_disputed_usd: rows.reduce(
+      (sum, row) => sum + Number(row.reader_disputed_usd ?? 0),
+      0,
+    ),
     candidate_reader_metered_usd: rows.reduce(
       (n, r) => n + Number(r.reader_metered_usd ?? 0),
       0,

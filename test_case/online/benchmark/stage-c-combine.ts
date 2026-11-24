@@ -310,21 +310,50 @@ export function combineResults(snapshots: Snapshot[]) {
         row: { status: "UNRUN", reason: "BATCH_RESULTS_UNAVAILABLE" },
       },
   );
+  const familyRows = rows.map((r) => {
+    const c = caseDefinition(r.case_id);
+    return {
+      family: c.family,
+      source_lineage: r.lane,
+      status: r.row.status,
+      grades:
+        r.row.grades ??
+        Object.fromEntries(c.assertions.map((a) => [a, "NOT_TESTED"])),
+      version: r.reader_version ?? null,
+      rubric_sha256: r.reader_rubric_sha256 ?? null,
+    };
+  });
+  const versions = new Map(
+    snapshots.map((s) => {
+      const grade = effective(s);
+      return [grade.rubric_sha256, grade.version] as const;
+    }),
+  );
+  const familySummary = familyResults(familyRows);
+  // Retain execution denominators across all 99 rows. Only group semantic counts
+  // across observations assessed with the same rubric.
+  const family_counts_by_reader = [...versions].map(
+    ([rubric_sha256, version]) => ({
+      rubric_sha256,
+      version,
+      families: familyResults(
+        familyRows.filter((r) => r.rubric_sha256 === rubric_sha256),
+      ).families,
+    }),
+  );
+  const families =
+    versions.size === 1
+      ? familySummary.families
+      : Object.fromEntries(
+          Object.entries(familySummary.families).map(
+            ([name, { assertions, ...denominators }]) => [name, denominators],
+          ),
+        );
   return {
     schema: "issue122-cross-batch-v1",
-    ...familyResults(
-      rows.map((r) => {
-        const c = caseDefinition(r.case_id);
-        return {
-          family: c.family,
-          source_lineage: r.lane,
-          status: r.row.status,
-          grades:
-            r.row.grades ??
-            Object.fromEntries(c.assertions.map((a) => [a, "NOT_TESTED"])),
-        };
-      }),
-    ),
+    families,
+    excluded: familySummary.excluded,
+    family_counts_by_reader,
     matrix_sha256: matrix,
     expected_lineages: 93,
     expected_observations: 99,
@@ -359,6 +388,13 @@ export function combineResults(snapshots: Snapshot[]) {
       observations: v.observations.size,
       lineages: v.lineages.size,
     })),
+    reader_disputed_usd: snapshots.reduce(
+      (n, s) =>
+        n +
+        Number((s.calibration as { disputed_usd?: number }).disputed_usd ?? 0) +
+        Number(s.result.candidate_reader_disputed_usd ?? 0),
+      0,
+    ),
     reader_metered_usd:
       Math.round(
         snapshots.reduce(

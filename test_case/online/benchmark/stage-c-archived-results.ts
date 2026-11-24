@@ -83,7 +83,9 @@ export function archivedBatch(
   const calibration = {
     ...(calibrationResult?.reader_evidence
       ? {
-          metered_usd:
+          [calibrationResult.submission?.rejected === "DISPUTED_CHARGE"
+            ? "disputed_usd"
+            : "metered_usd"]:
             calibrationResult.reader_evidence.transport.calculated_charge_usd ??
             calibrationResult.reader_evidence.transport.charged_usd,
         }

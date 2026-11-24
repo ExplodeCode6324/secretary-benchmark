@@ -141,6 +141,8 @@ test("combined reports keep the denominator, reject overlapping lineages and bin
   const all = combineResults(snapshots.toReversed());
   assert.equal(all.reported_observations, 99);
   assert.equal(Object.keys(all.families).length, 6);
+  assert.equal(all.family_counts_by_reader.length, 1);
+  assert.deepEqual(all.family_counts_by_reader[0].families, all.families);
   assert(all.excluded.some((x) => x.scenario === "C12a"));
   assert(all.excluded.some((x) => x.reason.includes("#125")));
   for (const [field, value] of [

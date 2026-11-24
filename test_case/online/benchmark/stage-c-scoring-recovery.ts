@@ -1,5 +1,6 @@
 // Closed C04 reader recovery. Reconstruct the outcome from both original receipts.
 import path from "node:path";
+import { flashBilling } from "./stage-c-identity.ts";
 import { execFileSync } from "node:child_process";
 import { read, readJSON, requireThat, sha } from "./io.ts";
 import { gradeJSONBytes } from "./grading-transaction.ts";
@@ -154,12 +155,21 @@ export function verifiedRecovery(
         u.completion_tokens <= transport.max_tokens,
       "STAGE_C_READER_RECOVERY_USAGE",
     );
+    const start = Date.parse(transport.created),
+      end = Date.parse(transport.finished);
+    requireThat(
+      Number.isFinite(start) && Number.isFinite(end) && end >= start,
+      "STAGE_C_READER_RECOVERY_CLOCK",
+    );
     const nanos =
       u.prompt_cache_hit_tokens * 3 +
       u.prompt_cache_miss_tokens * 150 +
       u.completion_tokens * 600;
+    const schedule = flashBilling((2 * nanos) / 1e9, start, end);
     requireThat(
-      Math.round(transport.calculated_charge_usd * 1e9) === nanos,
+      schedule.exact !== null &&
+        Math.round(schedule.exact * 1e9) === nanos &&
+        Math.round(transport.calculated_charge_usd * 1e9) === nanos,
       "STAGE_C_READER_RECOVERY_COST",
     );
     return nanos;

@@ -111,6 +111,17 @@ export function renderReaderQuery(packet: any) {
   ].join("\n");
 }
 
+// Frozen Hermes single-user JSON envelope, excluding the quoted content string.
+export function admittedReaderQuery(packet: any) {
+  const query = renderReaderQuery(packet);
+  const wireBytes = Buffer.byteLength(JSON.stringify(query)) + 194;
+  const ceiling = packet.controls
+    ? readerPolicy.calibration_wire_bytes
+    : readerPolicy.candidate_wire_bytes;
+  requireThat(wireBytes <= ceiling, "STAGE_C_READER_PACKET_TOO_LARGE");
+  return query;
+}
+
 // The raw reply, native send and dispatch record are separately retained in the committed grade transaction.
 export function readerResponse(
   envelope: any,
@@ -149,6 +160,7 @@ export function readerResponse(
       t.raw_sha256 === sha(raw),
     "STAGE_C_READER_WIRE",
   );
+  const evidence_sha256 = sha(gradeJSONBytes(envelope));
   if (
     raw === "" &&
     t.http_status !== 200 &&
@@ -159,11 +171,11 @@ export function readerResponse(
   ) {
     return {
       mechanical: "NO_RESPONSE",
-      evidence_sha256: sha(gradeJSONBytes(envelope)),
+      evidence_sha256,
     };
   }
   requireThat(
-    t.returned_model === t.model && t.http_status === 200,
+    t.http_status === 200 && typeof t.returned_model === "string",
     "STAGE_C_READER_RESPONSE_IDENTITY",
   );
   const u = t.usage;
@@ -199,18 +211,20 @@ export function readerResponse(
         readerPolicy.max_output_tokens * rate.output_rate) /
       1e6;
   const metered = t.calculated_charge_usd ?? t.charged_usd;
-  requireThat(
-    Number.isFinite(metered) &&
-      metered >= billing.minimum - 1e-10 &&
-      metered <= billing.maximum + 1e-10 &&
-      metered <= cap,
-    "STAGE_C_READER_COST",
-  );
-  const evidence_sha256 = sha(gradeJSONBytes(envelope));
+  requireThat(Number.isFinite(metered) && metered >= 0, "STAGE_C_READER_METER");
+  if (
+    metered < billing.minimum - 1e-10 ||
+    metered > billing.maximum + 1e-10 ||
+    metered > cap
+  )
+    return { rejected: "DISPUTED_CHARGE", evidence_sha256 };
+  if (t.returned_model !== t.model)
+    return { rejected: "RETURNED_MODEL_MISMATCH", evidence_sha256 };
   if (t.finish_reason === "length")
     return { mechanical: "TRUNCATED_RESPONSE", evidence_sha256 };
   if (!raw.trim()) return { mechanical: "NO_RESPONSE", evidence_sha256 };
-  requireThat(t.finish_reason === "stop", "STAGE_C_READER_FINISH");
+  if (t.finish_reason !== "stop")
+    return { mechanical: "UNEXPECTED_FINISH", evidence_sha256 };
   try {
     return JSON.parse(
       raw

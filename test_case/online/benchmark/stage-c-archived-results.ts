@@ -1,3 +1,4 @@
+import { amendedFirstAssessment } from "./stage-c-reader-amendment.ts";
 import path from "node:path";
 import { read, readJSON, requireThat, sha, type FileEntry } from "./io.ts";
 import { verifiedArchiveDigest, type ArchiveManifest } from "./archive.ts";
@@ -79,6 +80,25 @@ export function archivedBatch(
     receipt_sha256: entry?.sha256 ?? null,
     packet_sha256: freeze.grade.packet_sha256,
   };
+  const result = exported(
+    "stage-c-results.json",
+    "reports/stage-c-results.json",
+  );
+  const amendment = entries.get("reports/reader-deepseek-v1/assessment.json");
+  requireThat(
+    Boolean(amendment) === Boolean(b.grading_amendment_sha256),
+    "STAGE_C_AGGREGATE_AMENDMENT_INDEX",
+  );
+  const assessment = amendment
+    ? amendedFirstAssessment(
+        b.freeze_sha256,
+        freeze.grade,
+        result,
+        entries,
+        exported,
+        b.grading_amendment_sha256,
+      )
+    : { result, calibration };
   return {
     hash: b.freeze_sha256,
     archive_sha256: b.archive_sha256,
@@ -87,8 +107,7 @@ export function archivedBatch(
       "stage-c-projection.json",
       "reports/stage-c-projection.json",
     ),
-    result: exported("stage-c-results.json", "reports/stage-c-results.json"),
-    calibration,
+    ...assessment,
     decisions: b.decisions,
   };
 }

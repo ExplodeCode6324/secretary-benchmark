@@ -18,6 +18,8 @@ type Snapshot = {
   result: any;
   hash: string;
   archive_sha256: string;
+  assessment_grade?: Snapshot["freeze"]["grade"];
+  assessment_amendment?: string;
   calibration: {
     attempts: number;
     status: string;
@@ -60,7 +62,8 @@ function checkAccounting(s: Snapshot) {
       count(c.attempts) &&
       c.attempts <= 3 &&
       hash(c.packet_sha256) &&
-      c.packet_sha256 === s.freeze.grade.packet_sha256 &&
+      c.packet_sha256 ===
+        (s.assessment_grade ?? s.freeze.grade).packet_sha256 &&
       (c.attempts === 0
         ? c.status === "NOT_TESTED" && c.receipt_sha256 === null
         : c.status === "RESERVED"
@@ -120,9 +123,9 @@ export function combineResults(snapshots: Snapshot[]) {
   let physical = 0,
     known = 0,
     unpriced = 0;
-  const grader = snapshots[0].freeze.grade;
+  const grader = snapshots[0].assessment_grade ?? snapshots[0].freeze.grade;
   for (const s of snapshots) {
-    const g = s.freeze.grade;
+    const g = s.assessment_grade ?? s.freeze.grade;
     requireThat(
       g &&
         reference(g.reader) &&
@@ -310,7 +313,13 @@ export function combineResults(snapshots: Snapshot[]) {
       freeze_sha256: s.hash,
       runner: s.freeze.source.head,
       decisions: s.decisions,
-      grade: s.freeze.grade,
+      grade: s.assessment_grade ?? s.freeze.grade,
+      ...(s.assessment_amendment
+        ? {
+            grading_amendment_sha256: s.assessment_amendment,
+            original_grade: s.freeze.grade,
+          }
+        : {}),
       calibration: s.calibration,
       archive_sha256: s.archive_sha256,
     })),

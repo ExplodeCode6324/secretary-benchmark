@@ -39,21 +39,31 @@ const rubric = {
   visibility:
     "Inspect the entire first eligible request across raw conversation, assistant and tool history, working memory, and the system profile and recall. Classify RESIDENT if the corrected fact is supported on a visible surface, COLD only with complete absence, and OPAQUE if inspection is incomplete. Grade maintenance independently of final use. A partial statement of the restriction alone does not establish the current day.",
 };
-export const hermesReader = "Hermes/opencode-go/deepseek-v4.1-flash/max";
+export const hermesReaders = {
+  "Hermes/opencode-go/deepseek-v4.1-flash/max": {
+    provider: "opencode-go",
+    model: "deepseek-v4.1-flash",
+  },
+  "Hermes/deepseek/deepseek-flash/max": {
+    provider: "deepseek",
+    model: "deepseek-flash",
+  },
+} as const;
 export function scoringRubric(reader: string) {
   requireThat(
-    reader === rubric.reader || reader === hermesReader,
+    reader === rubric.reader || Object.hasOwn(hermesReaders, reader),
     "STAGE_C_UNKNOWN_READER",
   );
   return { ...rubric, reader };
 }
-function matchesReader(submission: any, digest: string, reader: string) {
+export function matchesReader(submission: any, digest: string, reader: string) {
   if (reader === rubric.reader) return boundJudge(submission, digest);
+  const expected = hermesReaders[reader as keyof typeof hermesReaders];
   return (
-    reader === hermesReader &&
+    !!expected &&
     submission.packet_sha256 === digest &&
-    submission.judge?.provider === "opencode-go" &&
-    submission.judge?.model === "deepseek-v4.1-flash" &&
+    submission.judge?.provider === expected.provider &&
+    submission.judge?.model === expected.model &&
     submission.judge?.reasoning_effort === "max"
   );
 }

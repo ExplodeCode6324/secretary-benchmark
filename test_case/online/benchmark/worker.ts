@@ -81,6 +81,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
           evidence: run.evidence,
           model: run.config.model,
           key: run.live.key,
+          route: run.live.route,
           maxSends: run.config.max_sends,
           forbidden: () => forbiddenPayload(run.live!.facility, run.lineage),
         },
@@ -335,6 +336,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
                   run.config.model
                 ].request_service_tier
               : undefined,
+            run.live!.route,
           )
         : { model: fixtureModel, stream },
       run.core_dsn,

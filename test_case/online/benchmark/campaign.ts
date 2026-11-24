@@ -673,7 +673,12 @@ export async function reserve(
         !entries.some(
           (entry) =>
             entry.attempt.model === "deepseek-flash" &&
-            ["EXHAUSTED_QUOTA", "AUTH"].includes(entry.outcome ?? "") &&
+            [
+              "EXHAUSTED_QUOTA",
+              "AUTH",
+              "GO_SUBSCRIPTION_UNAVAILABLE",
+              "GO_RATE_LIMIT",
+            ].includes(entry.outcome ?? "") &&
             !dispatch.repairs[entry.attempt.id],
         ),
         "STAGE_B_PRIMARY_BLOCKED",
@@ -682,7 +687,12 @@ export async function reserve(
         !entries.some(
           (entry) =>
             entry.attempt.lane === details.lane &&
-            ["EXHAUSTED_QUOTA", "AUTH"].includes(entry.outcome ?? ""),
+            [
+              "EXHAUSTED_QUOTA",
+              "AUTH",
+              "GO_SUBSCRIPTION_UNAVAILABLE",
+              "GO_RATE_LIMIT",
+            ].includes(entry.outcome ?? ""),
         ),
         "STAGE_B_LANE_FAILED",
       );

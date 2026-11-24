@@ -55,6 +55,7 @@ import {
   type CompletionConfiguration,
 } from "./memory-config.ts";
 import { rehearsalKey } from "./stage-c-rehearsal.ts";
+import { goCredential } from "./stage-c-go-provider.ts";
 import { credential } from "./live-model.ts";
 import {
   assertCampaignClosed,
@@ -196,7 +197,12 @@ export type WorkerPermit = Pick<
   "id" | "lineage" | "nonce" | "active" | "evidence" | "config"
 > & {
   core_dsn: string;
-  live?: { key: string; facility: string; rehearsal?: boolean };
+  live?: {
+    key: string;
+    facility: string;
+    rehearsal?: boolean;
+    route?: "opencode-go";
+  };
 };
 export function workerPermit(run: Run): WorkerPermit {
   return {
@@ -425,6 +431,7 @@ export class Domains {
   async start(id: string, directC16Domain?: string) {
     const run = this.load(id);
     let rehearsal = false;
+    let route: "opencode-go" | undefined;
     if (run.config.mode === "live") {
       const campaign = assertCampaignSource(this.root);
       if (run.config.version === 2 || run.config.version === 5) {
@@ -442,6 +449,7 @@ export class Domains {
         );
         if (completionPolicy(policy)) {
           rehearsal = policy.rehearsal === true;
+          route = policy.providers[run.config.model].route;
           const config = run.config,
             row = policy.lanes.find((l) => l.lane === config.lane);
           requireThat(
@@ -470,9 +478,12 @@ export class Domains {
       run.config.mode === "live"
         ? {
             rehearsal,
+            route,
             key: rehearsal
               ? rehearsalKey
-              : credential(run.config.model, run.config.version !== 1),
+              : route
+                ? goCredential()
+                : credential(run.config.model, run.config.version !== 1),
             facility: this.root,
           }
         : undefined;

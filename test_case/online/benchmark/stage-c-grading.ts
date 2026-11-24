@@ -1,4 +1,13 @@
 import {
+  goReaderResponse,
+  sourceCalibrationBinding,
+  calibrationAgeOK,
+  verifyGoCalibrationReference,
+  goMetering,
+  goCandidateUsage,
+  goGradeGate,
+} from "./stage-c-go-grading.ts";
+import {
   archivedC04,
   originalC04Input,
   c04Freeze,
@@ -6,6 +15,10 @@ import {
 } from "./stage-c-remaining-series.ts";
 import {
   visibilityV2,
+  nativeVisibility,
+  goReader,
+  goVisibilityVersion,
+  goReaderPolicy,
   visibilityRule,
   newVisibilityControls,
   officialReader,
@@ -67,8 +80,11 @@ export const hermesReaders = {
   },
 } as const;
 export function scoringRubric(reader: string, version = rubric.version) {
-  if (version === visibilityV2) {
-    requireThat(reader === officialReader, "STAGE_C_UNKNOWN_READER");
+  if (nativeVisibility(version)) {
+    requireThat(
+      reader === (version === goVisibilityVersion ? goReader : officialReader),
+      "STAGE_C_UNKNOWN_READER",
+    );
     return { ...rubric, reader, version, visibility: visibilityRule };
   }
   requireThat(version === rubric.version, "STAGE_C_GRADER_CHANGED");
@@ -106,8 +122,15 @@ export function calibrationInputs(root: string) {
     rubric_sha256: sha(gradeJSONBytes(policy)),
     packet_sha256: binding(root, dir),
     key_sha256: sha(readOwnedGradeFile(root, dir + "/key.json")),
-    max_attempts: policy.version === visibilityV2 ? 1 : 3,
-    ...(policy.version === visibilityV2 ? { transport: readerPolicy } : {}),
+    max_attempts: nativeVisibility(policy.version) ? 1 : 3,
+    ...(nativeVisibility(policy.version)
+      ? {
+          transport:
+            policy.version === goVisibilityVersion
+              ? goReaderPolicy
+              : readerPolicy,
+        }
+      : {}),
   };
 }
 export async function prepareCompletionCalibration(
@@ -121,10 +144,9 @@ export async function prepareCompletionCalibration(
       store = assertGradeStore(root);
     if (!store.has(dir + "/blind.json")) {
       const semantic = generateCalibration(),
-        visibility =
-          version === visibilityV2
-            ? newVisibilityControls()
-            : correctionControls();
+        visibility = nativeVisibility(version)
+          ? newVisibilityControls()
+          : correctionControls();
       const packet = {
         rubric: policy,
         controls: [
@@ -204,7 +226,7 @@ export function trialPacket(
   add("Probe", c.probe);
   for (const e of p.physical.excerpts) add(e.kind, e.text);
   const { assertions: hostVerdicts, ...observed } = p.witness;
-  if (version !== visibilityV2)
+  if (!nativeVisibility(version))
     add(
       "Host observation",
       JSON.stringify({
@@ -309,12 +331,12 @@ export function trialPacket(
       }
       surfaceComplete =
         !opaque &&
-        (version !== visibilityV2 ||
+        (!nativeVisibility(version) ||
           (parsed &&
             flags.every((f) => f.measured && !f.truncated && !f.opaque)));
     }
   }
-  if (version === visibilityV2)
+  if (nativeVisibility(version))
     add(
       "First eligible request capture coverage",
       JSON.stringify(
@@ -325,7 +347,7 @@ export function trialPacket(
         })),
       ),
     );
-  if (version === visibilityV2 && p.witness.source_reads?.length)
+  if (nativeVisibility(version) && p.witness.source_reads?.length)
     add(
       "Post-probe tool activity (outside the visibility window)",
       JSON.stringify(
@@ -355,7 +377,7 @@ export function trialPacket(
       JSON.stringify(v.items),
     );
   }
-  if (special && version !== visibilityV2)
+  if (special && !nativeVisibility(version))
     add(
       "Specialized observation",
       JSON.stringify({
@@ -379,7 +401,7 @@ export function trialPacket(
       scenario,
       report_sha256: terminal.report_sha256,
       surfaceComplete,
-      ...(version === visibilityV2
+      ...(nativeVisibility(version)
         ? {
             wire_ids: members.flat(),
             coverage_id: rows.find((r) =>
@@ -405,6 +427,10 @@ export async function completionJudge(
     "STAGE_C_GRADER_CHANGED",
   );
   const calibration = observation === "calibration";
+  const goVersion = inputs.calibration.version === goVisibilityVersion;
+  const continuation = (inputs as any).go_continuation;
+  const shared = goVersion && goGradeGate(continuation, calibration);
+  if (shared) verifyGoCalibrationReference(root, inputs);
   const idx = batch.findIndex(
     (v) => v.lane.lane === observation || v.lane.lane + "-B" === observation,
   );
@@ -414,12 +440,32 @@ export async function completionJudge(
   const dir = base + "/" + observation;
   return Domains.use(root, async (d) => {
     const grade = assertGradeStore(root);
+    let sourceIdentity: ReturnType<typeof sourceCalibrationBinding> | undefined;
     if (!calibration) {
       requireThat(
-        attemptHistory(root, base + "/calibration").at(-1)?.result?.status ===
-          "PASSED",
+        shared ||
+          attemptHistory(root, base + "/calibration").at(-1)?.result?.status ===
+            "PASSED",
         "STAGE_C_CALIBRATION_REQUIRED",
       );
+      if (goVersion) {
+        const sourceTransport = shared
+          ? readOwnedGradeJSON(
+              root,
+              base + "/calibration/go-origin-transport.json",
+            )
+          : attemptHistory(root, base + "/calibration").at(-1)?.result
+              ?.reader_evidence?.transport;
+        sourceIdentity = sourceCalibrationBinding(sourceTransport);
+        if (mode === "begin")
+          requireThat(
+            calibrationAgeOK(
+              sourceIdentity.calibration_native_at,
+              new Date().toISOString(),
+            ),
+            "STAGE_C_GO_CALIBRATION_EXPIRED",
+          );
+      }
       const lane = historic ? archivedC04 : batch[idx].lane.lane,
         c = caseDefinition(
           historic ? "C04-resident" : batch[idx].lane.scenario,
@@ -459,22 +505,34 @@ export async function completionJudge(
         attemptHistory(root, dir).length < inputs.calibration.max_attempts,
         "STAGE_C_JUDGE_ATTEMPT_LIMIT",
       );
-      const query =
-        inputs.calibration.version === visibilityV2
-          ? admittedReaderQuery(packet)
-          : undefined;
+      const query = nativeVisibility(inputs.calibration.version)
+        ? admittedReaderQuery(packet)
+        : undefined;
       const a = reserveJudgeAttempt(d, dir, digest, 1, calibration);
       return {
         ...a,
+        ...(sourceIdentity ?? {}),
         packet,
         ...(query === undefined ? {} : { query }),
       };
     }
     const attempt = attemptHistory(root, dir).at(-1);
     requireThat(attempt && !attempt.result, "STAGE_C_NO_READER_RESERVATION");
-    const nativeEvidence =
-      inputs.calibration.version === visibilityV2 ? submission : undefined;
-    if (inputs.calibration.version === visibilityV2)
+    const nativeEvidence = nativeVisibility(inputs.calibration.version)
+      ? submission
+      : undefined;
+    if (goVersion) {
+      requireThat(
+        nativeEvidence?.transport?.batch === continuation.partition - 1 &&
+          (!sourceIdentity ||
+            (nativeEvidence.transport.calibration_returned_model ===
+              sourceIdentity.calibration_returned_model &&
+              nativeEvidence.transport.calibration_native_at ===
+                sourceIdentity.calibration_native_at)),
+        "STAGE_C_GO_CALIBRATION_REFERENCE_TRANSPORT",
+      );
+      submission = goReaderResponse(nativeEvidence, packet, hash);
+    } else if (nativeVisibility(inputs.calibration.version))
       submission = readerResponse(
         nativeEvidence,
         packet,
@@ -534,7 +592,7 @@ export async function completionJudge(
         const b = readOwnedGradeJSON(root, dir + "/binding.json");
         const visibility = submission.visibility;
         const v2Visibility =
-          inputs.calibration.version === visibilityV2 &&
+          nativeVisibility(inputs.calibration.version) &&
           ["C16-combined", "C06-stale-cold"].includes(b.scenario);
         const refs = submission.visibility_evidence;
         const visibilityBound =
@@ -582,7 +640,7 @@ export async function completionJudge(
 }
 
 export function completedBatchReport(root: string, hash: string) {
-  const { batch, policy } = loadCompletion(
+  const { batch, policy, inputs } = loadCompletion(
     root,
     hash,
     completionApproval(
@@ -593,6 +651,15 @@ export function completedBatchReport(root: string, hash: string) {
   const state = readJSON(path.join(root, "campaign/stage-c-dispatch.json"));
   requireThat(state.freeze_sha256 === hash, "STAGE_C_REPORT_FREEZE");
   const counts = ledger(root);
+  const continuation = (inputs as any).go_continuation;
+  const goVersion = inputs.calibration.version === goVisibilityVersion;
+  const shared =
+    goVersion &&
+    continuation &&
+    !continuation.calibration_withheld &&
+    continuation.partition !== continuation.source_partition
+      ? verifyGoCalibrationReference(root, inputs)
+      : null;
   const rows = batch.flatMap((row) => {
     const lane = row.lane,
       c = caseDefinition(lane.scenario);
@@ -638,8 +705,9 @@ export function completedBatchReport(root: string, hash: string) {
             grades[a] = obs.witness.assertions[a] ?? "UNRESOLVED";
           if (end?.status === "ACCEPTED") {
             requireThat(
-              attemptHistory(root, base + "/calibration").at(-1)?.result
-                ?.status === "PASSED" &&
+              (shared?.status === "PASSED" ||
+                attemptHistory(root, base + "/calibration").at(-1)?.result
+                  ?.status === "PASSED") &&
                 binding(root, dir) === history.at(-1)?.packet_sha256,
               "STAGE_C_GRADE_BINDING",
             );
@@ -747,6 +815,7 @@ export function completedBatchReport(root: string, hash: string) {
       }
       const identities = charged.map((e) => {
         const usage = e.usage as {
+          go_meter?:unknown;
           returned_model?: string;
           wire_identity?: {
             fingerprint_status?: string;
@@ -757,6 +826,7 @@ export function completedBatchReport(root: string, hash: string) {
           send: e.attempt.id,
           at: e.attempt.at,
           outcome: e.outcome ?? "UNSETTLED",
+          ...(goVersion ? {route:"opencode-go",go_meter:usage?.go_meter ?? null}:{}),
           returned_model: usage?.returned_model ?? null,
           fingerprint_status:
             usage?.wire_identity?.fingerprint_status ?? "UNKNOWN",
@@ -768,11 +838,13 @@ export function completedBatchReport(root: string, hash: string) {
       const readerCost: {
         reader_metered_usd?: number;
         reader_disputed_usd?: number;
+        go_reader_metering?: ReturnType<typeof goMetering>;
       } = {};
       if (end?.reader_evidence) {
         const transport = end.reader_evidence.transport;
         const amount = transport.calculated_charge_usd ?? transport.charged_usd;
-        if (end.submission?.rejected === "DISPUTED_CHARGE")
+        if (goVersion) readerCost.go_reader_metering = goMetering(transport);
+        else if (end.submission?.rejected === "DISPUTED_CHARGE")
           readerCost.reader_disputed_usd = amount;
         else readerCost.reader_metered_usd = amount;
       }
@@ -864,16 +936,35 @@ export function completedBatchReport(root: string, hash: string) {
           : 0,
     };
   }
+  const known = [...counts.entries.values()].reduce(
+    (sum, e) => sum + (e.actual_usd ?? 0),
+    0,
+  );
+  const unresolved = [...counts.entries.values()].reduce(
+    (sum, e) => sum + (e.actual_usd == null ? e.attempt.reserved_usd : 0),
+    0,
+  );
   return {
     schema: "issue122-completion-results-v1",
     ...familyResults(rows),
     ...(archived_control ? { archived_control } : {}),
-    candidate_reader_disputed_usd:
-      (archived_control?.disputed_usd ?? 0) +
-      rows.reduce((sum, row) => sum + Number(row.reader_disputed_usd ?? 0), 0),
-    candidate_reader_metered_usd:
-      (archived_control?.metered_usd ?? 0) +
-      rows.reduce((n, r) => n + Number(r.reader_metered_usd ?? 0), 0),
+    ...(goVersion
+      ? {
+          candidate_reader_metered_usd: null,
+          candidate_reader_go: goCandidateUsage(rows),
+          ...(shared ? { go_calibration_reference: shared } : {}),
+        }
+      : {
+          candidate_reader_disputed_usd:
+            (archived_control?.disputed_usd ?? 0) +
+            rows.reduce(
+              (sum, row) => sum + Number(row.reader_disputed_usd ?? 0),
+              0,
+            ),
+          candidate_reader_metered_usd:
+            (archived_control?.metered_usd ?? 0) +
+            rows.reduce((n, r) => n + Number(r.reader_metered_usd ?? 0), 0),
+        }),
     freeze_sha256: hash,
     batch_closed: state.ended,
     rows,
@@ -887,14 +978,21 @@ export function completedBatchReport(root: string, hash: string) {
     physical_sends:
       "rehearsal" in policy && policy.rehearsal ? 0 : counts.entries.size,
     metered_attempts: counts.entries.size,
-    charged_usd: counts.charged_usd,
-    known_usd: [...counts.entries.values()].reduce(
-      (sum, e) => sum + (e.actual_usd ?? 0),
-      0,
-    ),
-    unresolved_cost_reservation_usd: [...counts.entries.values()].reduce(
-      (sum, e) => sum + (e.actual_usd == null ? e.attempt.reserved_usd : 0),
-      0,
-    ),
+    ...(goVersion
+      ? {
+          billing_basis: goReaderPolicy.billing_basis,
+          cash_charge_usd: null,
+          tariff_estimate_usd: known,
+          tariff_guard_usd: counts.charged_usd,
+          unresolved_tariff_reservation_usd: unresolved,
+          charged_usd: null,
+          known_usd: null,
+          unresolved_cost_reservation_usd: null,
+        }
+      : {
+          charged_usd: counts.charged_usd,
+          known_usd: known,
+          unresolved_cost_reservation_usd: unresolved,
+        }),
   };
 }

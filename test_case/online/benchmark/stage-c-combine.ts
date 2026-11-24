@@ -7,7 +7,15 @@ import {
 } from "./stage-c-remaining-series.ts";
 // The aggregate reads portable, hash-bound exports. Only an exact-head runner produces each individual batch result.
 import path from "node:path";
-import { officialReader, visibilityV2 } from "./stage-c-visibility-rubric.ts";
+import { selectGoBatch, beforeGo } from "./stage-c-go-continuation.ts";
+import { isDeepStrictEqual } from "node:util";
+import {
+  goReader,
+  goReaderPolicy,
+  goVisibilityVersion,
+  officialReader,
+  visibilityV2,
+} from "./stage-c-visibility-rubric.ts";
 import { scoringRubric } from "./stage-c-grading.ts";
 import { gradeJSONBytes } from "./grading-transaction.ts";
 import { readJSON, requireThat, sha } from "./io.ts";
@@ -32,6 +40,10 @@ type Snapshot = {
   assessment_amendment?: string;
   original_calibration?: Snapshot["calibration"];
   calibration: {
+    kind?: string;
+    origin?: any;
+    go?: unknown;
+    inference_dispatches?: number;
     attempts: number;
     status: string;
     receipt_sha256: string | null;
@@ -49,6 +61,21 @@ const verdicts = ["PASS", "FAIL", "UNRESOLVED", "NOT_TESTED"];
 function checkAccounting(s: Snapshot) {
   const r = s.result,
     c = s.calibration;
+  const go = Boolean(s.freeze.go_continuation);
+  const known = go ? r.tariff_estimate_usd : r.known_usd;
+  const reserved = go
+    ? r.unresolved_tariff_reservation_usd
+    : r.unresolved_cost_reservation_usd;
+  const limit = go ? r.tariff_guard_usd : r.charged_usd;
+  requireThat(
+    !go ||
+      (r.billing_basis === "opencode_go_subscription_allowance" &&
+        r.cash_charge_usd === null &&
+        r.known_usd === null &&
+        r.charged_usd === null &&
+        r.unresolved_cost_reservation_usd === null),
+    "STAGE_C_GO_ACCOUNTING",
+  );
   requireThat(
     r.schema === "issue122-completion-results-v1" &&
       r.batch_closed === true &&
@@ -57,14 +84,9 @@ function checkAccounting(s: Snapshot) {
       r.lineages === s.freeze.batch.length &&
       count(r.physical_sends) &&
       r.metered_attempts === r.physical_sends &&
-      [r.known_usd, r.unresolved_cost_reservation_usd, r.charged_usd].every(
-        money,
-      ) &&
-      Math.abs(
-        r.charged_usd - r.known_usd - r.unresolved_cost_reservation_usd,
-      ) <=
-        1e-9 * Math.max(1, r.charged_usd) &&
-      (r.physical_sends > 0 || r.charged_usd === 0),
+      [known, reserved, limit].every(money) &&
+      Math.abs(limit - known - reserved) <= 1e-9 * Math.max(1, limit) &&
+      (r.physical_sends > 0 || limit === 0),
     "STAGE_C_AGGREGATE_ACCOUNTING",
   );
   requireThat(
@@ -76,7 +98,13 @@ function checkAccounting(s: Snapshot) {
       c.packet_sha256 ===
         (s.assessment_grade ?? s.freeze.grade).packet_sha256 &&
       (c.attempts === 0
-        ? c.status === "NOT_TESTED" && c.receipt_sha256 === null
+        ? (c.status === "NOT_TESTED" && c.receipt_sha256 === null) ||
+          (go &&
+            c.kind === "REFERENCE" &&
+            c.inference_dispatches === 0 &&
+            c.status === "PASSED" &&
+            c.receipt_sha256 ===
+              s.freeze.go_continuation.calibration_origin?.receipt_sha256)
         : c.status === "RESERVED"
           ? c.receipt_sha256 === null
           : ["PASSED", "FAILED", "REJECTED", "MECHANICAL"].includes(c.status) &&
@@ -140,10 +168,17 @@ export function combineResults(snapshots: Snapshot[]) {
       snapshots[0],
   );
   const recovery = new Map<string, any>();
-  const ordered = [...snapshots].sort(
-    (a, b) =>
-      Number(!!a.freeze.remaining_series) - Number(!!b.freeze.remaining_series),
-  );
+  const quotaRecoveries = new Map<string, any>();
+  const originals = new Map<string, any>();
+  const priorGo: Snapshot[] = [];
+  let goTariff = 0,
+    goReserve = 0,
+    goSends = 0;
+  const order = (s: Snapshot) =>
+    s.freeze.go_continuation
+      ? 10 + s.freeze.batch_index
+      : Number(Boolean(s.freeze.remaining_series));
+  const ordered = [...snapshots].sort((a, b) => order(a) - order(b));
   for (const s of ordered) {
     if (s.freeze.remaining_series) {
       validateSeries(
@@ -156,6 +191,54 @@ export function combineResults(snapshots: Snapshot[]) {
         "STAGE_C_SERIES_MATRIX",
       );
     }
+    const go = s.freeze.go_continuation;
+    if (go) {
+      requireThat(
+        s.freeze.remaining_series &&
+          !priorGo.some((v) => v.freeze.batch_index === s.freeze.batch_index) &&
+          priorGo.every(
+            (v) =>
+              v.freeze.go_continuation.decision_sha256 === go.decision_sha256,
+          ) &&
+          s.freeze.providers["deepseek-flash"].route === "opencode-go",
+        "STAGE_C_GO_AGGREGATE_BINDING",
+      );
+      for (const p of Object.values(beforeGo))
+        requireThat(
+          ordered.some(
+            (x) => x.hash === p.freeze && x.archive_sha256 === p.archive,
+          ),
+          "STAGE_C_GO_PRIOR_ARCHIVE",
+        );
+      if (go.calibration_origin) {
+        const origin = priorGo.find(
+          (x) => x.freeze.batch_index === go.source_partition,
+        );
+        requireThat(
+          origin &&
+            origin.hash === go.calibration_origin.freeze_sha256 &&
+            origin.archive_sha256 === go.calibration_origin.archive_sha256 &&
+            origin.calibration.kind === "ORIGIN" &&
+            origin.calibration.attempts === 1 &&
+            origin.calibration.status === "PASSED" &&
+            isDeepStrictEqual(
+              origin.calibration.origin,
+              go.calibration_origin,
+            ) &&
+            isDeepStrictEqual(s.calibration.origin, go.calibration_origin) &&
+            s.calibration.kind === "REFERENCE",
+          "STAGE_C_GO_CALIBRATION_SOURCE",
+        );
+      }
+      if (go.calibration_withheld)
+        requireThat(
+          s.calibration.attempts === 0 &&
+            s.calibration.status === "NOT_TESTED" &&
+            s.result.rows.every((r: any) => !r.assessment_attempts),
+          "STAGE_C_GO_CALIBRATION_WITHHELD",
+        );
+      priorGo.push(s);
+    }
     const g = s.assessment_grade ?? s.freeze.grade;
     requireThat(
       g &&
@@ -163,20 +246,26 @@ export function combineResults(snapshots: Snapshot[]) {
         reference(g.version) &&
         hash(g.rubric_sha256) &&
         hash(g.key_sha256) &&
-        g.reader === grader.reader &&
-        ((g.version === grader.version &&
-          g.rubric_sha256 === grader.rubric_sha256) ||
-          (grader.version === visibilityV2 &&
-            grader.reader === officialReader &&
-            grader.rubric_sha256 ===
-              sha(
-                gradeJSONBytes(scoringRubric(officialReader, visibilityV2)),
-              ) &&
-            g.version === "issue122-comparison-reader-v1" &&
+        (go
+          ? g.reader === goReader &&
+            g.version === goVisibilityVersion &&
+            isDeepStrictEqual(g.transport, goReaderPolicy) &&
             g.rubric_sha256 ===
-              sha(gradeJSONBytes(scoringRubric(officialReader))) &&
-            s.calibration.status === "FAILED" &&
-            s.result.rows.every((r: any) => r.assessment_attempts === 0))),
+              sha(gradeJSONBytes(scoringRubric(goReader, goVisibilityVersion)))
+          : g.reader === grader.reader &&
+            ((g.version === grader.version &&
+              g.rubric_sha256 === grader.rubric_sha256) ||
+              (grader.version === visibilityV2 &&
+                grader.reader === officialReader &&
+                grader.rubric_sha256 ===
+                  sha(
+                    gradeJSONBytes(scoringRubric(officialReader, visibilityV2)),
+                  ) &&
+                g.version === "issue122-comparison-reader-v1" &&
+                g.rubric_sha256 ===
+                  sha(gradeJSONBytes(scoringRubric(officialReader))) &&
+                s.calibration.status === "FAILED" &&
+                s.result.rows.every((r: any) => r.assessment_attempts === 0)))),
       "STAGE_C_AGGREGATE_RUBRIC",
     );
     requireThat(
@@ -185,8 +274,16 @@ export function combineResults(snapshots: Snapshot[]) {
         s.result.batch_closed &&
         s.result.freeze_sha256 === s.hash &&
         sha(JSON.stringify(s.projection)) === s.freeze.projection_sha256 &&
-        JSON.stringify(s.projection.batches[s.freeze.batch_index - 1]) ===
-          JSON.stringify(s.freeze.batch) &&
+        JSON.stringify(
+          go
+            ? selectGoBatch(
+                s.projection.batches,
+                s.freeze.remaining_series,
+                go,
+                s.freeze.batch_index,
+              )
+            : s.projection.batches[s.freeze.batch_index - 1],
+        ) === JSON.stringify(s.freeze.batch) &&
         sha(JSON.stringify(inventory(s))) === matrix &&
         reference(s.decisions.workload),
       "STAGE_C_AGGREGATE_FREEZE",
@@ -208,6 +305,27 @@ export function combineResults(snapshots: Snapshot[]) {
       );
       const id = key(row.source_lineage, row.scenario);
       const previous = observed.get(id);
+      const quotaOnly =
+        previous?.row.identities?.length === 1 &&
+        previous.row.identities[0].outcome === "EXHAUSTED_QUOTA" &&
+        previous.row.identities[0].returned_model === null &&
+        previous.row.status === "INCOMPLETE" &&
+        previous.row.reason === "SCENARIO_PRODUCT_BLOCKED";
+      const zeroSend =
+        previous?.row.status === "UNRUN" &&
+        previous.row.reason === "HOLD_EXHAUSTED_QUOTA" &&
+        previous.row.identities.length === 0;
+      const goRepeat =
+        go &&
+        [5, 6].includes(go.partition) &&
+        previous?.freeze_sha256 === go.prior_freezes[go.partition] &&
+        !quotaRecoveries.has(id) &&
+        previous.row.assessment_attempts === 0 &&
+        (zeroSend || (go.scope === 84 && quotaOnly));
+      requireThat(
+        !go || (go.partition === 7 ? !previous : goRepeat),
+        "STAGE_C_GO_NO_REPLACEMENT",
+      );
       const authorizedRepeat =
         previous?.freeze_sha256 === firstC16 &&
         s.freeze.remaining_series?.previous_c16 === firstC16 &&
@@ -219,7 +337,7 @@ export function combineResults(snapshots: Snapshot[]) {
 
       requireThat(
         match &&
-          (!previous || authorizedRepeat) &&
+          (!previous || authorizedRepeat || goRepeat) &&
           row.external_recipe_sha256 === match.recipe_sha256 &&
           row.model === match.model &&
           row.repeat === match.repeat &&
@@ -304,6 +422,7 @@ export function combineResults(snapshots: Snapshot[]) {
         )
           continue;
         const stratum = JSON.stringify([
+          ...(go ? ["opencode-go"] : []),
           row.model,
           row.published_version,
           send.returned_model,
@@ -324,7 +443,21 @@ export function combineResults(snapshots: Snapshot[]) {
         );
         identities.set(stratum, included);
       }
-      (authorizedRepeat ? recovery : observed).set(id, {
+      if (goRepeat && zeroSend) originals.set(id, previous);
+      if (goRepeat && quotaOnly)
+        requireThat(!quotaRecoveries.has(id), "STAGE_C_GO_DUPLICATE_RECOVERY");
+      (goRepeat && quotaOnly
+        ? quotaRecoveries
+        : authorizedRepeat
+          ? recovery
+          : observed
+      ).set(id, {
+        ...(go
+          ? {
+              route: "opencode-go",
+              original_freeze_sha256: previous?.freeze_sha256 ?? null,
+            }
+          : {}),
         ...(authorizedRepeat
           ? {
               series: "c16-recovery-1",
@@ -380,8 +513,14 @@ export function combineResults(snapshots: Snapshot[]) {
       });
     }
     physical += s.result.physical_sends;
-    known += s.result.known_usd;
-    unpriced += s.result.unresolved_cost_reservation_usd;
+    if (go) {
+      goTariff += s.result.tariff_estimate_usd;
+      goReserve += s.result.unresolved_tariff_reservation_usd;
+      goSends += s.result.physical_sends;
+    } else {
+      known += s.result.known_usd;
+      unpriced += s.result.unresolved_cost_reservation_usd;
+    }
   }
   const rows = expected.map(
     (r) =>
@@ -390,7 +529,8 @@ export function combineResults(snapshots: Snapshot[]) {
         row: { status: "UNRUN", reason: "BATCH_RESULTS_UNAVAILABLE" },
       },
   );
-  const familyRows = rows.map((r) => {
+  const comparisonRows = rows;
+  const familyRows = comparisonRows.map((r) => {
     const c = caseDefinition(r.case_id);
     return {
       family: c.family,
@@ -439,6 +579,30 @@ export function combineResults(snapshots: Snapshot[]) {
     expected_observations: 99,
     reported_observations: observed.size,
     c16_recovery: [...recovery.values()],
+    ...(priorGo.length
+      ? {
+          go_zero_send_originals: [...originals.values()],
+          go_quota_recovery: [...quotaRecoveries.values()],
+          comparison_rows: comparisonRows,
+          go_subscription: {
+            cash_charge_usd: null,
+            tariff_estimate_usd: goTariff,
+            unresolved_tariff_reservation_usd: goReserve,
+            physical_sends: goSends,
+            reader: priorGo.map((s) => ({
+              freeze: s.hash,
+              calibration: s.calibration,
+              candidates: s.result.candidate_reader_go,
+            })),
+          },
+          comparison_dispositions: Object.fromEntries(
+            ["COMPLETED", "INCOMPLETE", "UNRUN"].map((st) => [
+              st,
+              comparisonRows.filter((r) => r.row.status === st).length,
+            ]),
+          ),
+        }
+      : {}),
     rows,
     proposals: snapshots.map((s) => ({
       freeze_sha256: s.hash,

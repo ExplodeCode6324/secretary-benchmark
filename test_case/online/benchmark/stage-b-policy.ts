@@ -44,7 +44,13 @@ export function stageLane(id: string) {
       .find((slot) => slot.lane === id)
   );
 }
+import {
+  goCatalogue,
+  goCanonicalModel,
+  goModel,
+} from "./stage-c-go-provider.ts";
 export type ProviderRule = {
+  route?: "opencode-go";
   checked_at: string;
   published_version: string;
   allowed_returned_models: string[];
@@ -186,6 +192,10 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
   for (const model of selected) {
     const rule = policy.providers[model];
     const url = new URL(rule.publication_url);
+    const go =
+      completionPolicy(policy) &&
+      rule.route === "opencode-go" &&
+      model === flash;
     requireThat(
       url.protocol === "https:" &&
         !url.username &&
@@ -194,7 +204,9 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
         !url.search &&
         !url.hash &&
         (model === flash
-          ? url.hostname === "api-docs.deepseek.com"
+          ? go
+            ? url.href === goCatalogue
+            : url.hostname === "api-docs.deepseek.com"
           : [
               "openai.com",
               "platform.openai.com",
@@ -204,6 +216,7 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
     );
     requireThat(
       keys(rule, [
+        ...(go ? ["route"] : []),
         "checked_at",
         "published_version",
         "allowed_returned_models",
@@ -243,14 +256,18 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
         !!rule.published_version &&
         Array.isArray(rule.allowed_returned_models) &&
         rule.allowed_returned_models.length <= 4 &&
-        rule.allowed_returned_models.includes(model) &&
+        (go
+          ? JSON.stringify(rule.allowed_returned_models) ===
+            JSON.stringify([goModel, goCanonicalModel])
+          : rule.allowed_returned_models.includes(model)) &&
         new Set(rule.allowed_returned_models).size ===
           rule.allowed_returned_models.length &&
         rule.allowed_returned_models.every(
           (id) =>
             typeof id === "string" &&
             !stageModels.some((other) => other !== model && other === id) &&
-            /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id),
+            ((go && id === goCanonicalModel) ||
+              /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id)),
         ) &&
         digest(rule.provenance_sha256) &&
         [rule.input_rate, rule.output_rate].every(
@@ -479,9 +496,20 @@ export function measuredEstimate(
     const {
       prompt_tokens: input,
       completion_tokens: output,
-      prompt_cache_hit_tokens: hits,
+      prompt_cache_hit_tokens: nativeHits,
       prompt_cache_miss_tokens: miss,
     } = usage;
+    const goHits =
+      rule.route === "opencode-go"
+        ? usage.prompt_tokens_details?.cached_tokens
+        : undefined;
+    const hits = nativeHits ?? goHits;
+    if (
+      nativeHits !== undefined &&
+      goHits !== undefined &&
+      nativeHits !== goHits
+    )
+      return null;
     if (
       !tokens(input) ||
       !tokens(output) ||

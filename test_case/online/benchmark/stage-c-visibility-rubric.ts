@@ -17,6 +17,36 @@ export const readerPolicy = {
   attempts_per_packet: 1,
   pricing_source: "https://api-docs.deepseek.com/quick_start/pricing.md",
 };
+export const goVisibilityVersion = "issue122-comparison-reader-go-v1";
+export const goReader = "Hermes/opencode-go/deepseek-v4.1-flash/max";
+export const goReaderPolicy = {
+  provider: "opencode-go",
+  model: "deepseek-v4.1-flash",
+  canonical_id: "deepseek/deepseek-v4.1-flash-1017",
+  endpoint: "https://opencode.ai/inference/go/openai/v1/chat/completions",
+  models_endpoint: "https://opencode.ai/inference/go/v1/models",
+  usage_endpoint: "https://opencode.ai/inference/go/v1/usage",
+  thinking_type: "enabled",
+  reasoning_effort: "max",
+  max_output_tokens: 49152,
+  calibration_wire_bytes: 32768,
+  candidate_wire_bytes: 524288,
+  attempts_per_packet: 1,
+  wire_envelope_bytes: 199,
+  billing_basis: "opencode_go_subscription_allowance",
+  pricing_source: "https://opencode.ai/docs/console/go/",
+  calibrated_controls: 28,
+  capacity_usd_equivalent: { rolling: 20, weekly: 50, monthly: 100 },
+  request_ceiling_usd_equivalent: {
+    calibration: 0.0688128,
+    candidate: 0.2162688,
+  },
+  calibration_max_age_hours: 24,
+  rounding_margin_percentage_points: 1,
+};
+export const nativeVisibility = (version: string) =>
+  version === visibilityV2 || version === goVisibilityVersion;
+
 export const visibilityRule =
   "Identify the CURRENT target fact asked by the probe. Judge only the first eligible request, not the setup description, later reads, host diagnostics or final answer. Inspect raw conversation, assistant/tool history, working memory, and system profile/recall. RESIDENT: visible captured content sufficiently establishes the current fact, even if a different surface is missing. COLD: none establishes it AND every surface is explicitly complete and inspectable. An explicitly empty captured surface is complete. OPAQUE: no sufficient visible support and at least one surface is missing, uninspected, truncated or unresolved. An old value presented as historical or a constraint that does not establish the target is not current evidence. Content about the user's redaction policy is distinct from redacted or missing capture. Judge maintenance separately from final use.";
 export const surfaces = [
@@ -96,10 +126,14 @@ export function renderReaderQuery(packet: any) {
   const instruction = packet.controls
     ? "Return exactly one JSON object with judge, packet_sha256 and labels. Return one {id,verdict} per control. For visibility use RESIDENT, COLD or OPAQUE. For other assertions use PASS, FAIL or UNRESOLVED."
     : "Return exactly one JSON object with judge, packet_sha256, visibility and assertions. Give one {assertion,verdict,rationale,evidence} for each listed assertion. Cite supplied evidence IDs. Use PASS, FAIL, UNRESOLVED or NOT_TESTED. Use RESIDENT, COLD or OPAQUE for visibility. In visibility_evidence cite first-request message IDs supporting RESIDENT, or the capture-coverage record for COLD or OPAQUE.";
+  const policy =
+    packet.rubric?.version === goVisibilityVersion
+      ? goReaderPolicy
+      : readerPolicy;
   const judge = {
-    provider: readerPolicy.provider,
-    model: readerPolicy.model,
-    reasoning_effort: readerPolicy.reasoning_effort,
+    provider: policy.provider,
+    model: policy.model,
+    reasoning_effort: policy.reasoning_effort,
   };
   return [
     instruction,
@@ -114,7 +148,11 @@ export function renderReaderQuery(packet: any) {
 // Frozen Hermes single-user JSON envelope, excluding the quoted content string.
 export function admittedReaderQuery(packet: any) {
   const query = renderReaderQuery(packet);
-  const wireBytes = Buffer.byteLength(JSON.stringify(query)) + 194;
+  const additive =
+    packet.rubric?.version === goVisibilityVersion
+      ? goReaderPolicy.wire_envelope_bytes
+      : 194;
+  const wireBytes = Buffer.byteLength(JSON.stringify(query)) + additive;
   const ceiling = packet.controls
     ? readerPolicy.calibration_wire_bytes
     : readerPolicy.candidate_wire_bytes;

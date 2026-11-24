@@ -1,3 +1,11 @@
+import { admitGoSend, holdGo } from "./stage-c-go-quota.ts";
+import {
+  goAPI,
+  goModel,
+  goVersion,
+  goTariff,
+  goResponseMeter,
+} from "./stage-c-go-provider.ts";
 import { snapshot } from "./snapshot.ts";
 import { readJSON } from "./io.ts";
 import {
@@ -83,22 +91,40 @@ export const modelIDs = [
 export type ModelID = (typeof modelIDs)[number];
 export type Profile = "RC" | "DEP";
 export const baselineModels = stageModels;
-export function descriptor(id: ModelID | "gpt-6.2-sol"): Model<Api> {
+export function descriptor(
+  id: ModelID | "gpt-6.2-sol",
+  route?: "opencode-go",
+): Model<Api> {
   requireThat(
     id === "gpt-6.2-sol" || modelIDs.includes(id),
     "MODEL_NOT_APPROVED",
   );
+  requireThat(!route || id === "deepseek-flash", "STAGE_C_GO_MODEL");
   if (id === "deepseek-flash") {
-    const m = structuredClone(getModel("deepseek", "deepseek-flash"));
+    const m = structuredClone(
+      route
+        ? getModel("opencode-go", "deepseek-v4.1-flash")
+        : getModel("deepseek", "deepseek-flash"),
+    );
     requireThat(
       m &&
-        m.baseUrl === "https://api.deepseek.com" &&
+        (route
+          ? m.provider === route && m.id === goModel
+          : m.baseUrl === "https://api.deepseek.com") &&
         m.api === "openai-completions",
       "MODEL_REGISTRY_DRIFT",
     );
     // Peak uncached rates are conservative estimates, not a provider invoice.
     return {
       ...m,
+      ...(route
+        ? {
+            provider: "opencode-go",
+            id: goModel,
+            name: goVersion,
+            baseUrl: goAPI,
+          }
+        : {}),
       cost: { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0.3 },
     };
   }
@@ -238,8 +264,9 @@ export function liveRoles(
   key: string,
   evidence: string,
   tier?: "default",
+  route?: "opencode-go",
 ) {
-  const model = descriptor(id);
+  const model = descriptor(id, route);
   const role = (name: "main" | "task") => {
     const config = benchmarkRoleModel(model, key, name, tier);
     const stream: StreamFn = async (m, context, options) => {
@@ -339,17 +366,21 @@ export function meteredFetch(
     evidence: string;
     model: ModelID | StageModel;
     stageFreeze?: string;
+    route?: "opencode-go";
     key: string;
     maxSends: number;
     forbidden?: string[] | (() => string[]);
   },
   transport: typeof fetch = globalThis.fetch,
 ): typeof fetch {
-  const model = descriptor(options.model),
+  const model = descriptor(options.model, options.route),
     base = new URL(model.baseUrl);
-  const endpoint =
-    base.origin +
-    (model.api === "openai-responses" ? "/v1/responses" : "/chat/completions");
+  const endpoint = options.route
+    ? goAPI + "/chat/completions"
+    : base.origin +
+      (model.api === "openai-responses"
+        ? "/v1/responses"
+        : "/chat/completions");
   let sends = 0;
   return async (input, init) => {
     let phase = "PROVIDER_REQUEST_INVALID",
@@ -387,7 +418,7 @@ export function meteredFetch(
       const payload = JSON.parse(body);
       phase = "PROVIDER_MODEL_PROTOCOL_MISMATCH";
       requireThat(
-        payload.model === options.model && payload.stream === true,
+        payload.model === model.id && payload.stream === true,
         "PROVIDER_MODEL_PROTOCOL_MISMATCH",
       );
       phase = "EPISODE_SEND_LIMIT";
@@ -407,7 +438,8 @@ export function meteredFetch(
         limits = campaign.baseline_limits,
         policy = campaign.physical_policy;
       requireThat(
-        policy?.freeze_sha256 === options.stageFreeze,
+        policy?.freeze_sha256 === options.stageFreeze &&
+          policy?.providers[options.model]?.route === options.route,
         "STAGE_B_FREEZE_BINDING",
       );
       const expectedTier =
@@ -483,27 +515,45 @@ export function meteredFetch(
         }
       }
       phase = "CAMPAIGN_RESERVATION_REFUSED";
-      const id = await reserve(
-        options.root,
-        {
-          model: options.model,
-          run: options.run,
-          episode: options.episode ?? options.run,
-          ...(options.lane ? { lane: options.lane } : {}),
-          ...(physical ? { physical } : {}),
-          ...(firstProbe ? { correction_probe_first: true as const } : {}),
-          ...(requestedUsage
-            ? { chat_stream_usage_requested: requestedUsage }
-            : {}),
-          request_sha256: bodyHash,
-          reserved_usd: worst,
-        },
-        options.maxSends,
-      );
+      const commitReservation = () =>
+        reserve(
+          options.root,
+          {
+            model: options.model,
+            run: options.run,
+            episode: options.episode ?? options.run,
+            ...(options.lane ? { lane: options.lane } : {}),
+            ...(physical ? { physical } : {}),
+            ...(firstProbe ? { correction_probe_first: true as const } : {}),
+            ...(requestedUsage
+              ? { chat_stream_usage_requested: requestedUsage }
+              : {}),
+            request_sha256: bodyHash!,
+            reserved_usd: worst,
+          },
+          options.maxSends,
+        );
+      const goAdmission = options.route
+        ? await admitGoSend(
+            options.root,
+            options.stageFreeze!,
+            options.key,
+            worst,
+            transport,
+            commitReservation,
+          )
+        : null;
+      const id = goAdmission ? goAdmission.result : await commitReservation();
       phase = "SENT_OR_RESERVED";
       const reservedAt = Date.now();
       writeJSON(path.join(options.evidence, `send-${id}.json`), {
         id,
+        ...(goAdmission
+          ? {
+              go_usage_before: goAdmission.usage,
+              unsettled_tariff_usd: goAdmission.unsettled,
+            }
+          : {}),
         attribution: attribution.getStore() ?? { role: "component-or-probe" },
         payload,
         at: new Date().toISOString(),
@@ -561,9 +611,16 @@ export function meteredFetch(
             options.model as StageModel,
             response,
           );
-          outcome = observation.category;
+          outcome =
+            options.route && [403, 429].includes(response.status)
+              ? response.status === 403
+                ? "GO_SUBSCRIPTION_UNAVAILABLE"
+                : "GO_RATE_LIMIT"
+              : observation.category;
           failure = observation;
         }
+        if (options.route && [401, 402, 403, 429].includes(response.status))
+          holdGo(options.stageFreeze!, outcome);
         await settle(options.root, id, outcome, failure, null);
         // Error bodies can echo input/headers; SDK only needs the category and status.
         return new Response(
@@ -586,6 +643,7 @@ export function meteredFetch(
       }
       const reader = response.body.getReader(),
         decoder = new TextDecoder();
+      const goMeter = options.route ? goResponseMeter() : undefined;
       const identity = wireIdentity(response.headers, options.key);
       const observedModels: string[] = [];
       const retention = physical?.cache_retention_contract;
@@ -621,6 +679,15 @@ export function meteredFetch(
           } else if (line.startsWith("data: ")) {
             const data = JSON.parse(line.slice(6));
             identity.observe(data);
+            goMeter?.observe(data);
+            if (
+              options.route &&
+              options.lane === "r1-C04-nonexistent--deepseek-flash"
+            )
+              appendJSON(
+                path.join(options.evidence, "go-native-" + id + ".jsonl"),
+                data,
+              );
             const mismatch = expectedTier && tierMismatch(data, expectedTier);
             const snapshot = retention
               ? retentionFrame(data, ++frameIndex)
@@ -750,7 +817,11 @@ export function meteredFetch(
           completionPolicy(policy) &&
           options.model === "deepseek-flash" &&
           upper !== null
-            ? flashBilling(upper, reservedAt, Date.now())
+            ? (options.route ? goTariff : flashBilling)(
+                upper,
+                reservedAt,
+                Date.now(),
+              )
             : null;
         await settle(
           options.root,
@@ -774,6 +845,14 @@ export function meteredFetch(
               : {}),
             ...(invalidLongWriteCount
               ? { invalid_long_write_count: true }
+              : {}),
+            ...(options.route
+              ? {
+                  route: options.route,
+                  billing_basis: "opencode_go_subscription_allowance",
+                  cash_charge_usd: null,
+                  go_meter: goMeter!.receipt,
+                }
               : {}),
             returned_model: returnedModel,
             ...(flashSchedule ? { scheduled_cost_usd: flashSchedule } : {}),
@@ -868,7 +947,7 @@ export function meteredFetch(
           at: new Date().toISOString(),
           phase: "BEFORE_PROVIDER_SEND",
           reason,
-          request_sha256: bodyHash,
+          request_sha256: bodyHash!,
           physical_send: false,
         });
         if (

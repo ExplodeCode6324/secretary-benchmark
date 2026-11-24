@@ -26,9 +26,17 @@ type State = {
   repairs: Record<string, never>;
   current: string | null;
 };
+import {
+  assertGoAvailable,
+  claimGoFacility,
+  closeGoFacility,
+  checkGoHeadroom,
+  holdGo,
+} from "./stage-c-go-quota.ts";
+import { checkGoProvider } from "./stage-c-go-provider.ts";
 export async function completionCommand(
   root: string,
-  mode: "start" | "dispatch" | "stop",
+  mode: "start" | "dispatch" | "stop" | "first-contact",
   approval: string,
   hash: string,
 ) {
@@ -37,22 +45,28 @@ export async function completionCommand(
   const stateFile = path.join(root, "campaign", "stage-c-dispatch.json"),
     activeFile = path.join(root, "campaign", "active-stage-c.json");
   const publication = () =>
-    checkPublication(
-      [
-        {
-          url: officialFlash,
-          sha256: policy.providers["deepseek-flash"].provenance_sha256,
-        },
-      ],
-      "rehearsal" in policy && policy.rehearsal
-        ? async () =>
-            new Response(
-              read(
-                path.join(root, "inputs/official/flash-pricing.md"),
-              ).toString(),
-            )
-        : fetch,
-    );
+    policy.providers["deepseek-flash"].route
+      ? checkGoProvider(policy.providers["deepseek-flash"])
+      : checkPublication(
+          [
+            {
+              url: officialFlash,
+              sha256: policy.providers["deepseek-flash"].provenance_sha256,
+            },
+          ],
+          "rehearsal" in policy && policy.rehearsal
+            ? async () =>
+                new Response(
+                  read(
+                    path.join(root, "inputs/official/flash-pricing.md"),
+                  ).toString(),
+                )
+            : fetch,
+        );
+  const go = inputs.go_continuation;
+  const contact = "r1-C04-nonexistent--deepseek-flash";
+  if (mode === "first-contact")
+    requireThat(go?.partition === 5, "GO_FIRST_CONTACT_SCOPE");
   return Domains.use(root, async (d) => {
     if (mode === "start") {
       requireThat(
@@ -69,6 +83,7 @@ export async function completionCommand(
           "preflight",
           Date.now(),
         );
+      if (go) await claimGoFacility(root, hash);
       await publication();
       await createCampaign(root, approval, undefined, undefined, policy);
       const state: State = {
@@ -120,8 +135,24 @@ export async function completionCommand(
       state.current = null;
       writeJSON(stateFile, state);
     }
-    if (mode === "dispatch")
-      for (const row of batch) {
+    if (go && mode === "dispatch" && go.partition === 5) {
+      const replay = readJSON(
+        path.join(root, "reports/go-first-contact-replay.json"),
+      );
+      requireThat(
+        state.terminals[contact]?.run &&
+          replay.freeze === hash &&
+          replay.lane === contact &&
+          replay.sut === "PASS" &&
+          replay.hermes === "PASS" &&
+          /^[a-f0-9]{64}$/.test(replay.frames_sha256),
+        "GO_FIRST_CONTACT_REPLAY_REQUIRED",
+      );
+    }
+    if (mode === "dispatch" || mode === "first-contact")
+      for (const row of batch.filter(
+        (r) => mode !== "first-contact" || r.lane.lane === contact,
+      )) {
         const l = row.lane;
         if (state.terminals[l.lane]) continue;
         const record = ledger(root);
@@ -137,6 +168,8 @@ export async function completionCommand(
               "IDENTITY_MISMATCH_FIRST_CONTACT",
               "AUTH",
               "EXHAUSTED_QUOTA",
+              "GO_SUBSCRIPTION_UNAVAILABLE",
+              "GO_RATE_LIMIT",
             ].includes(e.outcome ?? ""),
         );
         if (held) {
@@ -161,7 +194,11 @@ export async function completionCommand(
           hold = "BATCH_OR_SOURCE_WINDOW";
         else
           try {
-            await publication();
+            if (go) {
+              assertGoAvailable();
+              const usage = await publication();
+              checkGoHeadroom(usage, 0.7718592);
+            } else await publication();
           } catch (error) {
             hold =
               error instanceof Error
@@ -169,6 +206,7 @@ export async function completionCommand(
                 : "PUBLICATION_UNAVAILABLE";
           }
         if (hold) {
+          if (go) holdGo(hash, hold);
           for (const remaining of batch)
             state.terminals[remaining.lane.lane] ??= {
               status: "UNRUN",
@@ -242,12 +280,14 @@ export async function completionCommand(
           writeJSON(stateFile, state);
         }
       }
+    if (mode === "first-contact") return state;
     for (const row of batch)
       state.terminals[row.lane.lane] ??= {
         status: "UNRUN",
         reason: "BATCH_STOPPED",
       };
     await d.closeStoppedCampaign();
+    if (go) await closeGoFacility(root, hash);
     state.ended = true;
     writeJSON(stateFile, state);
     return state;

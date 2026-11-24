@@ -1,4 +1,14 @@
 import {
+  selectGoBatch,
+  type GoContinuation,
+} from "./stage-c-go-continuation.ts";
+import { goModelRule } from "./stage-c-go-provider.ts";
+import {
+  goVisibilityVersion,
+  goReader,
+  goReaderPolicy,
+} from "./stage-c-visibility-rubric.ts";
+import {
   validateSeries,
   type RemainingSeries,
 } from "./stage-c-remaining-series.ts";
@@ -47,6 +57,7 @@ export type Preflight = {
   evidence_class?: "OFFLINE_SSE";
   c16_dedicated_batch?: true;
   remaining_series?: RemainingSeries;
+  go_continuation?: GoContinuation;
   first_contact?: {
     ledger_sha256: string;
     first_bytes: number;
@@ -86,7 +97,7 @@ export type Preflight = {
     packet_sha256: string;
     key_sha256: string;
     max_attempts: number;
-    transport?: typeof readerPolicy;
+    transport?: typeof readerPolicy | typeof goReaderPolicy;
   };
   source: ReturnType<typeof fingerprint>;
 };
@@ -208,6 +219,15 @@ export function projectCampaign(
     );
   }
   const grade = inputs.calibration;
+  const go = Boolean(inputs.go_continuation);
+  requireThat(
+    go === (providers["deepseek-flash"]?.route === "opencode-go") &&
+      go === (grade.version === goVisibilityVersion) &&
+      (!go ||
+        (inputs.remaining_series && inputs.c16_dedicated_batch && !rehearsal)),
+    "STAGE_C_GO_FREEZE_BINDING",
+  );
+  const transport = go ? goReaderPolicy : readerPolicy;
   requireThat(
     grade.reader &&
       grade.version &&
@@ -216,10 +236,10 @@ export function projectCampaign(
       ) &&
       grade.packet_sha256 !== grade.key_sha256 &&
       Number.isSafeInteger(grade.max_attempts) &&
-      (grade.version === visibilityV2
-        ? grade.reader === officialReader &&
+      (go || grade.version === visibilityV2
+        ? grade.reader === (go ? goReader : officialReader) &&
           grade.max_attempts === 1 &&
-          JSON.stringify(grade.transport) === JSON.stringify(readerPolicy)
+          JSON.stringify(grade.transport) === JSON.stringify(transport)
         : grade.max_attempts === 3),
     "STAGE_C_GRADER_FREEZE",
   );
@@ -469,7 +489,7 @@ export function projectCampaign(
     requireThat(
       !rehearsal &&
         firstContact &&
-        grade.version === visibilityV2 &&
+        (go || grade.version === visibilityV2) &&
         dedicated.length === 3 &&
         dedicated.reduce((n, r) => n + r.lane.seconds, 0) <= 43200,
       "STAGE_C_DEDICATED_C16",
@@ -520,21 +540,21 @@ export function projectCampaign(
       source_checks: batches.length + lanes.length,
       operator_approval_wait: "UNBOUNDED",
       reader_latency: "ESTIMATE_ONLY",
-      ...(grade.version === visibilityV2
+      ...(go || grade.version === visibilityV2
         ? {
             reader: grade.reader,
             transport: grade.transport,
             limits_at_peak_usd: {
               calibration:
-                (readerPolicy.calibration_wire_bytes *
+                (transport.calibration_wire_bytes *
                   providers["deepseek-flash"].input_rate +
-                  readerPolicy.max_output_tokens *
+                  transport.max_output_tokens *
                     providers["deepseek-flash"].output_rate) /
                 1e6,
               candidate:
-                (readerPolicy.candidate_wire_bytes *
+                (transport.candidate_wire_bytes *
                   providers["deepseek-flash"].input_rate +
-                  readerPolicy.max_output_tokens *
+                  transport.max_output_tokens *
                     providers["deepseek-flash"].output_rate) /
                 1e6,
             },
@@ -630,10 +650,7 @@ export function loadCompletion(root: string, hash: string, approval: string) {
       inputs.models[0] === primaryModels[0],
     "STAGE_C_INPUT_CHANGED",
   );
-  const sourceBytes = read(
-    path.join(root, "inputs", "official", "flash-pricing.md"),
-  );
-  const rule = flashRule(sourceBytes, frozen.checked_at);
+  const rule = frozenProvider(root, inputs, frozen.checked_at);
   requireThat(
     JSON.stringify(rule) === JSON.stringify(frozen.providers["deepseek-flash"]),
     "STAGE_C_PUBLICATION_CHANGED",
@@ -648,8 +665,9 @@ export function loadCompletion(root: string, hash: string, approval: string) {
       JSON.stringify(frozen.grade) === JSON.stringify(inputs.calibration) &&
       Number.isSafeInteger(frozen.batch_index) &&
       frozen.batch_index >= 1 &&
-      JSON.stringify(projection.batches[frozen.batch_index - 1]) ===
-        JSON.stringify(frozen.batch) &&
+      JSON.stringify(
+        selected(projection.batches, inputs, frozen.batch_index),
+      ) === JSON.stringify(frozen.batch) &&
       frozen.projection_sha256 === sha(JSON.stringify(projection)) &&
       sha(
         JSON.stringify(
@@ -659,8 +677,10 @@ export function loadCompletion(root: string, hash: string, approval: string) {
     "STAGE_C_PROJECTION_CHANGED",
   );
   requireThat(
-    JSON.stringify(inputs.remaining_series) ===
-      JSON.stringify(frozen.remaining_series),
+    JSON.stringify(inputs.go_continuation) ===
+      JSON.stringify(frozen.go_continuation) &&
+      JSON.stringify(inputs.remaining_series) ===
+        JSON.stringify(frozen.remaining_series),
     "STAGE_C_SERIES_BINDING",
   );
   if (inputs.remaining_series) {
@@ -691,7 +711,10 @@ export function loadCompletion(root: string, hash: string, approval: string) {
   return { frozen, inputs, policy, batch: frozen.batch as FrozenBatch };
 }
 function roleSettings(inputs: Preflight) {
-  const model = descriptor("deepseek-flash");
+  const model = descriptor(
+    "deepseek-flash",
+    inputs.go_continuation ? "opencode-go" : undefined,
+  );
   return {
     main: model.id,
     task: model.id,
@@ -714,6 +737,22 @@ function roleSettings(inputs: Preflight) {
       "Host lineage and recipe identifier; the paired branches share it",
     provider_seed: "UNAVAILABLE",
   };
+}
+function selected(batches: FrozenBatch[], inputs: Preflight, index: number) {
+  return inputs.go_continuation
+    ? selectGoBatch(
+        batches,
+        inputs.remaining_series!,
+        inputs.go_continuation,
+        index,
+      )
+    : batches[index - 1];
+}
+function frozenProvider(root: string, inputs: Preflight, checked: string) {
+  const dir = path.join(root, "inputs/official");
+  return inputs.go_continuation
+    ? goModelRule(readJSON(path.join(dir, "go-model.json")), checked)
+    : flashRule(read(path.join(dir, "flash-pricing.md")), checked);
 }
 export function freezeBatch(root: string, index: number, checked: string) {
   deploymentGuard(repository, root);
@@ -742,13 +781,10 @@ export function freezeBatch(root: string, index: number, checked: string) {
     "STAGE_C_CURRENT_FLASH_SOURCE_REQUIRED",
   );
   const providers = {
-    "deepseek-flash": flashRule(
-      read(path.join(root, "inputs", "official", "flash-pricing.md")),
-      checked,
-    ),
+    "deepseek-flash": frozenProvider(root, inputs, checked),
   };
   const projection = projectCampaign(inputs, providers),
-    batch = projection.batches[index - 1];
+    batch = selected(projection.batches, inputs, index);
   requireThat(batch, "STAGE_C_BATCH_INDEX");
   if (inputs.remaining_series)
     validateSeries(inputs.remaining_series, index, projection.batches);
@@ -762,6 +798,9 @@ export function freezeBatch(root: string, index: number, checked: string) {
       ? { remaining_series: inputs.remaining_series }
       : {}),
     checked_at: checked,
+    ...(inputs.go_continuation
+      ? { go_continuation: inputs.go_continuation }
+      : {}),
     providers,
     inputs_sha256: sha(read(inputFile)),
     batch_index: index,

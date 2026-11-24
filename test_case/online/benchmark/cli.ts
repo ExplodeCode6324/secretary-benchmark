@@ -229,6 +229,7 @@ async function main() {
       [
         "baseline-stage-c-start",
         "baseline-stage-c-dispatch",
+        "baseline-stage-c-first-contact",
         "baseline-stage-c-stop",
       ].includes(command)
     ) {
@@ -239,7 +240,7 @@ async function main() {
         "STAGE_C_OFFLINE_ONLY",
       );
       const mode = command.slice("baseline-stage-c-".length) as
-        "start" | "dispatch" | "stop";
+        "start" | "dispatch" | "stop" | "first-contact";
       console.log(
         JSON.stringify(
           await completionCommand(

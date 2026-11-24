@@ -1,3 +1,5 @@
+import { archivedGoAssessment } from "./stage-c-go-grading.ts";
+import { goVisibilityVersion } from "./stage-c-visibility-rubric.ts";
 import {
   verifiedRecovery,
   officialC04Decision,
@@ -45,7 +47,7 @@ export function archivedBatch(
   );
   const entries = new Map(manifest.entries.map((e: FileEntry) => [e.path, e]));
   const dir = path.join(exportsRoot, b.freeze_sha256);
-  function exported(name: string, archived: string) {
+  function exportBytes(name: string, archived: string) {
     const data = read(path.join(dir, name));
     const entry = entries.get(archived);
     requireThat(
@@ -54,8 +56,10 @@ export function archivedBatch(
         entry.bytes === data.length,
       "STAGE_C_AGGREGATE_ARCHIVED_EXPORT",
     );
-    return JSON.parse(data.toString());
+    return data;
   }
+  const exported = (name: string, archived: string) =>
+    JSON.parse(exportBytes(name, archived).toString());
   const freeze = exported("stage-c-freeze.json", "configs/stage-c-freeze.json");
   requireThat(
     entries.get("configs/stage-c-freeze.json")?.sha256 === b.freeze_sha256,
@@ -67,6 +71,36 @@ export function archivedBatch(
       entries.get(prefix + "key.json")?.sha256 === freeze.grade.key_sha256,
     "STAGE_C_AGGREGATE_CALIBRATION",
   );
+  if (freeze.grade.version === goVisibilityVersion) {
+    requireThat(
+      !b.grading_amendment_sha256 &&
+        !b.reader_recovery &&
+        !entries.has("reports/reader-deepseek-v1/assessment.json"),
+      "STAGE_C_GO_ARCHIVED_AMENDMENT",
+    );
+    const result = exported(
+      "stage-c-results.json",
+      "reports/stage-c-results.json",
+    );
+    return {
+      hash: b.freeze_sha256,
+      archive_sha256: b.archive_sha256,
+      freeze,
+      projection: exported(
+        "stage-c-projection.json",
+        "reports/stage-c-projection.json",
+      ),
+      ...archivedGoAssessment(
+        freeze,
+        b.freeze_sha256,
+        b.archive_sha256,
+        result,
+        entries,
+        exportBytes,
+      ),
+      decisions: b.decisions,
+    };
+  }
   const reservations = [1, 2, 3].filter((n) =>
     entries.has(prefix + "attempt-" + n + ".json"),
   );

@@ -1,4 +1,10 @@
 import {
+  archivedC04,
+  originalC04Input,
+  c04Freeze,
+  c04Trial,
+} from "./stage-c-remaining-series.ts";
+import {
   visibilityV2,
   visibilityRule,
   newVisibilityControls,
@@ -402,7 +408,9 @@ export async function completionJudge(
   const idx = batch.findIndex(
     (v) => v.lane.lane === observation || v.lane.lane + "-B" === observation,
   );
-  requireThat(calibration || idx >= 0, "STAGE_C_GRADE_LANE");
+  const historic =
+    observation === archivedC04 && inputs.remaining_series?.partition === 2;
+  requireThat(calibration || idx >= 0 || historic, "STAGE_C_GRADE_LANE");
   const dir = base + "/" + observation;
   return Domains.use(root, async (d) => {
     const grade = assertGradeStore(root);
@@ -412,10 +420,12 @@ export async function completionJudge(
           "PASSED",
         "STAGE_C_CALIBRATION_REQUIRED",
       );
-      const row = batch[idx],
-        c = caseDefinition(row.lane.scenario);
+      const lane = historic ? archivedC04 : batch[idx].lane.lane,
+        c = caseDefinition(
+          historic ? "C04-resident" : batch[idx].lane.scenario,
+        );
       const s =
-        observation === row.lane.lane
+        observation === lane
           ? c
           : stageCases().find(
               (v) =>
@@ -425,8 +435,8 @@ export async function completionJudge(
       if (!grade.has(dir + "/blind.json")) {
         requireThat(mode === "begin", "STAGE_C_GRADE_UNPREPARED");
         const b = trialPacket(
-          root,
-          row.lane.lane,
+          historic ? originalC04Input(root) : root,
+          lane,
           s.id,
           inputs.calibration.reader,
           inputs.calibration.version,
@@ -813,17 +823,57 @@ export function completedBatchReport(root: string, hash: string) {
       };
     });
   });
+  const historicGrade =
+    policy.lanes.every((l) => l.scenario === "C16-combined") &&
+    readJSON(freezeFile(root)).remaining_series?.partition === 2
+      ? attemptHistory(root, base + "/" + archivedC04).at(-1)
+      : undefined;
+  let archived_control;
+  if (historicGrade?.result) {
+    const result = historicGrade.result,
+      dir = base + "/" + archivedC04,
+      b = readOwnedGradeJSON(root, dir + "/binding.json");
+    requireThat(
+      b.report_sha256 === c04Trial &&
+        b.lane === archivedC04 &&
+        b.scenario === "C04-resident" &&
+        binding(root, dir) === historicGrade.packet_sha256 &&
+        attemptHistory(root, base + "/calibration").at(-1)?.result?.status ===
+          "PASSED",
+      "STAGE_C_ARCHIVED_C04_GRADE",
+    );
+    const t = result.reader_evidence.transport;
+    archived_control = {
+      source_freeze: c04Freeze,
+      trial_sha256: c04Trial,
+      packet_sha256: historicGrade.packet_sha256,
+      status: result.status,
+      verdict:
+        result.status === "ACCEPTED"
+          ? result.submission.assertions.find(
+              (a: any) => a.assertion === "natural_access",
+            )?.verdict
+          : null,
+      metered_usd:
+        result.submission?.rejected === "DISPUTED_CHARGE"
+          ? 0
+          : (t.calculated_charge_usd ?? t.charged_usd ?? 0),
+      disputed_usd:
+        result.submission?.rejected === "DISPUTED_CHARGE"
+          ? (t.calculated_charge_usd ?? t.charged_usd)
+          : 0,
+    };
+  }
   return {
     schema: "issue122-completion-results-v1",
     ...familyResults(rows),
-    candidate_reader_disputed_usd: rows.reduce(
-      (sum, row) => sum + Number(row.reader_disputed_usd ?? 0),
-      0,
-    ),
-    candidate_reader_metered_usd: rows.reduce(
-      (n, r) => n + Number(r.reader_metered_usd ?? 0),
-      0,
-    ),
+    ...(archived_control ? { archived_control } : {}),
+    candidate_reader_disputed_usd:
+      (archived_control?.disputed_usd ?? 0) +
+      rows.reduce((sum, row) => sum + Number(row.reader_disputed_usd ?? 0), 0),
+    candidate_reader_metered_usd:
+      (archived_control?.metered_usd ?? 0) +
+      rows.reduce((n, r) => n + Number(r.reader_metered_usd ?? 0), 0),
     freeze_sha256: hash,
     batch_closed: state.ended,
     rows,

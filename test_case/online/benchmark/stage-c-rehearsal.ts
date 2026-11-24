@@ -13,9 +13,11 @@ export const rehearsalKey = "offline-completion-sse";
 export function rehearsalFetch(reader?: {
   evidence: string;
   probe: string;
+  correction: string;
   mode: "ORIGINAL_OFFSET" | "OTHER_EVENT";
 }): typeof fetch {
   let number = 0;
+  let pendingProposals = 0;
   return async (input, init) => {
     const req = new Request(input, init);
     requireThat(
@@ -97,6 +99,35 @@ export function rehearsalFetch(reader?: {
           }
         : { path: "continuity.txt", content: "alpha" });
     const latest = body.messages.at(-1);
+    if (
+      reader &&
+      ((latest?.role === "user" &&
+        textOf(latest.content) === reader.correction) ||
+        (reader.mode === "OTHER_EVENT" &&
+          pendingProposals === 1 &&
+          latest?.role === "tool" &&
+          body.messages.findLast((m: any) => m.role === "user")?.content ===
+            reader.correction))
+    ) {
+      pendingProposals++;
+      const original = readJSON(
+        path.join(reader.evidence, "stage-c-trail.json"),
+      ).inputs[0].source_event;
+      requireThat(typeof original === "string", "REHEARSAL_SOURCE_MISSING");
+      name = choose("memory_propose_change");
+      requireThat(name, "REHEARSAL_PROPOSAL_TOOL_MISSING");
+      args = {
+        changes: [
+          {
+            intent: "CREATE_ENTITY",
+            local_ref: "$fern",
+            entity_kind: "PROJECT",
+            display_name: "Fern",
+            source_event_ids: [original],
+          },
+        ],
+      };
+    }
     if (
       reader &&
       latest?.role === "user" &&

@@ -90,6 +90,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
                 ? {
                     evidence: run.evidence,
                     probe: caseDefinition("C16-combined").probe,
+                    correction: caseDefinition("C16-combined").setup[1],
                     mode: readMode,
                   }
                 : undefined,

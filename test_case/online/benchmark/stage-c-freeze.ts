@@ -1,4 +1,8 @@
 import {
+  validateSeries,
+  type RemainingSeries,
+} from "./stage-c-remaining-series.ts";
+import {
   visibilityV2,
   readerPolicy,
   officialReader,
@@ -42,6 +46,7 @@ type Sample = { bytes: number; output_cap: number; sha256: string };
 export type Preflight = {
   evidence_class?: "OFFLINE_SSE";
   c16_dedicated_batch?: true;
+  remaining_series?: RemainingSeries;
   first_contact?: {
     ledger_sha256: string;
     first_bytes: number;
@@ -653,7 +658,26 @@ export function loadCompletion(root: string, hash: string, approval: string) {
       ) === frozen.projection_sha256,
     "STAGE_C_PROJECTION_CHANGED",
   );
-  if (inputs.c16_dedicated_batch)
+  requireThat(
+    JSON.stringify(inputs.remaining_series) ===
+      JSON.stringify(frozen.remaining_series),
+    "STAGE_C_SERIES_BINDING",
+  );
+  if (inputs.remaining_series) {
+    requireThat(
+      inputs.c16_dedicated_batch && !rehearsal,
+      "STAGE_C_SERIES_TRANSPORT",
+    );
+    validateSeries(
+      inputs.remaining_series,
+      frozen.batch_index,
+      projection.batches,
+    );
+  }
+  if (
+    inputs.c16_dedicated_batch &&
+    (!inputs.remaining_series || frozen.batch_index === 2)
+  )
     validateC16Limits(frozen.batch_index, frozen.batch, projection);
   const policy: PhysicalPolicy = {
     schema: "issue122-completion-physical-v1",
@@ -726,11 +750,17 @@ export function freezeBatch(root: string, index: number, checked: string) {
   const projection = projectCampaign(inputs, providers),
     batch = projection.batches[index - 1];
   requireThat(batch, "STAGE_C_BATCH_INDEX");
-  if (inputs.c16_dedicated_batch) validateC16Limits(index, batch, projection);
+  if (inputs.remaining_series)
+    validateSeries(inputs.remaining_series, index, projection.batches);
+  if (inputs.c16_dedicated_batch && (!inputs.remaining_series || index === 2))
+    validateC16Limits(index, batch, projection);
   const document = {
     schema: "issue122-completion-freeze-v1",
     evidence_class: inputs.evidence_class ?? "LIVE",
     source,
+    ...(inputs.remaining_series
+      ? { remaining_series: inputs.remaining_series }
+      : {}),
     checked_at: checked,
     providers,
     inputs_sha256: sha(read(inputFile)),

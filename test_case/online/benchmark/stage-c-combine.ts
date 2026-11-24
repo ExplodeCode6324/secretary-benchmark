@@ -1,3 +1,10 @@
+import {
+  archivedC04,
+  c04Freeze,
+  firstC16,
+  c04Trial,
+  validateSeries,
+} from "./stage-c-remaining-series.ts";
 // The aggregate reads portable, hash-bound exports. Only an exact-head runner produces each individual batch result.
 import path from "node:path";
 import { officialReader, visibilityV2 } from "./stage-c-visibility-rubric.ts";
@@ -132,7 +139,23 @@ export function combineResults(snapshots: Snapshot[]) {
     snapshots.find((s) => effective(s).version === visibilityV2) ??
       snapshots[0],
   );
-  for (const s of snapshots) {
+  const recovery = new Map<string, any>();
+  const ordered = [...snapshots].sort(
+    (a, b) =>
+      Number(!!a.freeze.remaining_series) - Number(!!b.freeze.remaining_series),
+  );
+  for (const s of ordered) {
+    if (s.freeze.remaining_series) {
+      validateSeries(
+        s.freeze.remaining_series,
+        s.freeze.batch_index,
+        s.projection.batches,
+      );
+      requireThat(
+        s.freeze.remaining_series.matrix_sha256 === matrix,
+        "STAGE_C_SERIES_MATRIX",
+      );
+    }
     const g = s.assessment_grade ?? s.freeze.grade;
     requireThat(
       g &&
@@ -184,9 +207,19 @@ export function combineResults(snapshots: Snapshot[]) {
         (r) => r.lane === row.source_lineage && r.case_id === row.scenario,
       );
       const id = key(row.source_lineage, row.scenario);
+      const previous = observed.get(id);
+      const authorizedRepeat =
+        previous?.freeze_sha256 === firstC16 &&
+        s.freeze.remaining_series?.previous_c16 === firstC16 &&
+        s.freeze.batch_index === 2 &&
+        row.scenario === "C16-combined" &&
+        previous.row.status === "INCOMPLETE" &&
+        previous.row.reason === "UNSUPPORTED_OPERATION_STATE" &&
+        previous.row.assessment_attempts === 0;
+
       requireThat(
         match &&
-          !observed.has(id) &&
+          (!previous || authorizedRepeat) &&
           row.external_recipe_sha256 === match.recipe_sha256 &&
           row.model === match.model &&
           row.repeat === match.repeat &&
@@ -281,11 +314,24 @@ export function combineResults(snapshots: Snapshot[]) {
           observations: new Set(),
           lineages: new Set(),
         };
-        included.observations.add(id);
-        included.lineages.add(row.source_lineage);
+        included.observations.add(
+          authorizedRepeat ? "c16-recovery-1/" + id : id,
+        );
+        included.lineages.add(
+          authorizedRepeat
+            ? "c16-recovery-1/" + row.source_lineage
+            : row.source_lineage,
+        );
         identities.set(stratum, included);
       }
-      observed.set(id, {
+      (authorizedRepeat ? recovery : observed).set(id, {
+        ...(authorizedRepeat
+          ? {
+              series: "c16-recovery-1",
+              lane_identity: "c16-recovery-1/" + row.source_lineage,
+              original_freeze_sha256: firstC16,
+            }
+          : {}),
         ...match,
         freeze_sha256: s.hash,
         reader_version: g.version,
@@ -299,6 +345,40 @@ export function combineResults(snapshots: Snapshot[]) {
         lineages.size === s.result.lineages,
       "STAGE_C_AGGREGATE_ACCOUNTING",
     );
+    const amendment = s.result.archived_control;
+    if (amendment) {
+      const id = key(archivedC04, "C04-resident"),
+        original = observed.get(id);
+      requireThat(
+        s.freeze.remaining_series?.partition === 2 &&
+          s.calibration.status === "PASSED" &&
+          original?.freeze_sha256 === c04Freeze &&
+          original.row.assessment_attempts === 0 &&
+          amendment.source_freeze === c04Freeze &&
+          amendment.trial_sha256 === c04Trial &&
+          hash(amendment.packet_sha256) &&
+          ["ACCEPTED", "REJECTED", "MECHANICAL"].includes(amendment.status) &&
+          (amendment.status === "ACCEPTED"
+            ? verdicts.includes(amendment.verdict)
+            : amendment.verdict === null),
+        "STAGE_C_ARCHIVED_C04_ASSESSMENT",
+      );
+      const row = {
+        ...original.row,
+        assessment_attempts: 1,
+        assessment_status: amendment.status,
+      };
+      if (amendment.status === "ACCEPTED")
+        row.grades = { ...row.grades, natural_access: amendment.verdict };
+      observed.set(id, {
+        ...original,
+        row,
+        previous_assessment: original.row,
+        assessment_freeze_sha256: s.hash,
+        reader_version: g.version,
+        reader_rubric_sha256: g.rubric_sha256,
+      });
+    }
     physical += s.result.physical_sends;
     known += s.result.known_usd;
     unpriced += s.result.unresolved_cost_reservation_usd;
@@ -358,6 +438,7 @@ export function combineResults(snapshots: Snapshot[]) {
     expected_lineages: 93,
     expected_observations: 99,
     reported_observations: observed.size,
+    c16_recovery: [...recovery.values()],
     rows,
     proposals: snapshots.map((s) => ({
       freeze_sha256: s.hash,
@@ -380,7 +461,7 @@ export function combineResults(snapshots: Snapshot[]) {
         rows.filter((r) => r.row.status === status).length,
       ]),
     ),
-    c16_closed: rows.filter(
+    c16_closed: (recovery.size ? [...recovery.values()] : rows).filter(
       (r) => r.case_id === "C16-combined" && r.row.c16?.gate === "CLOSED",
     ).length,
     strata: [...identities].map(([stratum, v]) => ({

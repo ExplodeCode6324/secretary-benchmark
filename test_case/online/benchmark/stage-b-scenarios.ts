@@ -112,7 +112,12 @@ export function secretaryHost(
       checkAbort(signal);
       await d.stop(old.id);
       checkAbort(signal);
-      run = await d.start(old.id);
+      run = await d.start(
+        old.id,
+        old.config.version === 5 && old.config.case_id === "C16-combined"
+          ? old.endpoint?.data_domain_id
+          : undefined,
+      );
       requireThat(
         old.endpoint?.data_domain_id === run.endpoint?.data_domain_id &&
           old.id === run.id &&

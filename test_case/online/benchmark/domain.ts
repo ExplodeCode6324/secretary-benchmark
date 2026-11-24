@@ -422,7 +422,7 @@ export class Domains {
       throw e;
     }
   }
-  async start(id: string) {
+  async start(id: string, directC16Domain?: string) {
     const run = this.load(id);
     let rehearsal = false;
     if (run.config.mode === "live") {
@@ -486,12 +486,24 @@ export class Domains {
       JSON.stringify(run.frozen) === JSON.stringify(fingerprint()),
       "FROZEN_SOURCE_CHANGED",
     );
+    if (directC16Domain)
+      requireThat(
+        run.config.version === 5 &&
+          run.config.case_id === "C16-combined" &&
+          !run.parent &&
+          !run.restoredFrom &&
+          run.endpoint?.data_domain_id === directC16Domain &&
+          run.process &&
+          processStatus(run.process) === "STOPPED",
+        "C16_DIRECT_RESTART_IDENTITY",
+      );
     if (fs.existsSync(path.join(run.active, "core/journal.jsonl")))
       restorePreflight(
         path.join(run.active, "core"),
         path.join(run.active, "core"),
         this.sink(run),
         run.config.mode === "live" || run.config.version === 4,
+        directC16Domain,
       );
     if (!pgRunning(run.database)) startDatabase(run.database);
     await verifyDatabase(run.database);

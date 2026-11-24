@@ -1,5 +1,7 @@
 // Run separately before the C16 freeze. Both scenarios use only in-memory provider streams.
 import { assertCombinedRehearsal } from "./stage-c-combine-rehearsal.ts";
+import { verifyPendingWorld } from "../../../online/benchmark/stage-c-pending-world.ts";
+import { recoveryClass, snapshot } from "../../../online/benchmark/snapshot.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -78,6 +80,74 @@ for (const mode of ["ORIGINAL_OFFSET", "OTHER_EVENT"] as const) {
       observed.witness.probe_chain.original_delivered,
       mode === "ORIGINAL_OFFSET",
     );
+    const run = readJSON(path.join(root, "runs", terminal.run! + ".json")),
+      journal = snapshot(path.join(run.active, "core"));
+    const auths = journal.records.filter(
+      (r) =>
+        r.record_type === "AuthorizationRequest" &&
+        r.action.action === "world.change",
+    );
+    assert.equal(auths.length, mode === "OTHER_EVENT" ? 2 : 1);
+    for (const pending of auths) {
+      assert(
+        pending.record_type === "AuthorizationRequest" &&
+          pending.state === "PENDING",
+      );
+      const op = journal.records.find(
+        (r) => r.record_type === "Operation" && r.id === pending.operation_id,
+      );
+      assert(
+        op?.record_type === "Operation" &&
+          op.state === "WAIT_AUTH" &&
+          op.effect === "NOT_STARTED" &&
+          op.authorization_id === pending.id,
+      );
+      const proof = {
+        history: journal.operationHistory,
+        transactions: journal.transactions,
+        value: (ref: any) => readJSON(path.join(run.active, "core", ref.path)),
+      };
+      const domain = run.endpoint.data_domain_id;
+      assert.throws(() => verifyPendingWorld(op, proof, "different-domain"));
+      for (const patch of [
+        { state: "AUTHORIZED" },
+        { state: "DISPATCHED" },
+        { effect: "APPLIED" },
+        { revision: 2 },
+        { process: {} },
+        { authorization_id: "different" },
+      ])
+        assert.throws(() =>
+          verifyPendingWorld({ ...op, ...patch } as typeof op, proof, domain),
+        );
+      const withoutModel = {
+        ...proof,
+        transactions: proof.transactions.map((tx) => ({
+          ...tx,
+          records: tx.records.filter((r) => r.record_type !== "ModelCall"),
+        })),
+      };
+      assert.throws(
+        () => verifyPendingWorld(op, withoutModel, domain),
+        /MODEL_PROVENANCE/,
+      );
+      assert.equal(recoveryClass("file.write", "RESULT_UNKNOWN"), "U");
+    }
+    assert(
+      !journal.transactions.some((t) =>
+        t.events.some(
+          (e) =>
+            e.event_type === "world.changed" &&
+            auths.some(
+              (a) =>
+                a.record_type === "AuthorizationRequest" &&
+                readJSON(path.join(run.active, "core", e.payload.path))
+                  .batch_id === a.action.intent_id,
+            ),
+        ),
+      ),
+    );
+    assert.equal(cold.restart_observed, true);
     assert.equal(trial.physical_provider_sends, 0);
     for (const observation of ["calibration", lane]) {
       const a = await completionJudge(

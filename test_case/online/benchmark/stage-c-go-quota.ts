@@ -43,7 +43,11 @@ export function holdGo(freeze: string, reason: string) {
 export function assertGoAvailable() {
   requireThat(!fs.existsSync(holdFile), "GO_ACCOUNT_ON_HOLD");
 }
-export async function claimGoFacility(root: string, freeze: string) {
+export async function claimGoFacility(
+  root: string,
+  freeze: string,
+  residualSource?: string,
+) {
   await lease(account, async () => {
     assertGoAvailable();
     const prev = fs.existsSync(activeFile) ? readJSON(activeFile) : null;
@@ -51,6 +55,20 @@ export async function claimGoFacility(root: string, freeze: string) {
       !prev || prev.closed || (prev.root === root && prev.freeze === freeze),
       "GO_OTHER_FACILITY_ACTIVE",
     );
+    if (residualSource) {
+      const claim = path.join(
+        account,
+        "residual-claims",
+        residualSource + ".json",
+      );
+      if (fs.existsSync(claim)) {
+        const prior = readJSON(claim);
+        requireThat(
+          prior.root === root && prior.freeze === freeze,
+          "GO_RESIDUAL_ALREADY_CLAIMED",
+        );
+      } else writeJSON(claim, { root, freeze });
+    }
     writeJSON(activeFile, { root, freeze, closed: false });
   });
 }

@@ -1,3 +1,4 @@
+import { checkGoResidualFiles, residualParent } from "./stage-c-go-residual.ts";
 import {
   selectGoBatch,
   type GoContinuation,
@@ -658,6 +659,7 @@ export function loadCompletion(root: string, hash: string, approval: string) {
       inputs.models[0] === primaryModels[0],
     "STAGE_C_INPUT_CHANGED",
   );
+  if (residualParent(inputs.go_continuation)) checkGoResidualFiles(root);
   const rule = frozenProvider(root, inputs, frozen.checked_at);
   requireThat(
     JSON.stringify(rule) === JSON.stringify(frozen.providers["deepseek-flash"]),
@@ -796,6 +798,7 @@ export function freezeBatch(root: string, index: number, checked: string) {
       inputs.models[0] === "deepseek-flash",
     "STAGE_C_CURRENT_FLASH_SOURCE_REQUIRED",
   );
+  if (residualParent(inputs.go_continuation)) checkGoResidualFiles(root);
   const providers = {
     "deepseek-flash": frozenProvider(root, inputs, checked),
   };

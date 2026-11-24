@@ -1,3 +1,4 @@
+import { goResidualSource, residualParent } from "./stage-c-go-residual.ts";
 import { localGoAmounts } from "./stage-c-go-local-usage.ts";
 import fs from "node:fs";
 import path from "node:path";
@@ -67,7 +68,10 @@ export async function completionCommand(
   const go = inputs.go_continuation;
   const contact = "r1-C04-nonexistent--deepseek-flash";
   if (mode === "first-contact")
-    requireThat(go?.partition === 5, "GO_FIRST_CONTACT_SCOPE");
+    requireThat(
+      go?.partition === 5 && !residualParent(go),
+      "GO_FIRST_CONTACT_SCOPE",
+    );
   return Domains.use(root, async (d) => {
     if (mode === "start") {
       requireThat(
@@ -84,7 +88,12 @@ export async function completionCommand(
           "preflight",
           Date.now(),
         );
-      if (go) await claimGoFacility(root, hash);
+      if (go)
+        await claimGoFacility(
+          root,
+          hash,
+          residualParent(go) ? goResidualSource.freeze : undefined,
+        );
       await publication();
       await createCampaign(root, approval, undefined, undefined, policy);
       const state: State = {
@@ -136,7 +145,12 @@ export async function completionCommand(
       state.current = null;
       writeJSON(stateFile, state);
     }
-    if (go && mode === "dispatch" && go.partition === 5) {
+    if (
+      go &&
+      mode === "dispatch" &&
+      go.partition === 5 &&
+      !residualParent(go)
+    ) {
       const replay = readJSON(
         path.join(root, "reports/go-first-contact-replay.json"),
       );

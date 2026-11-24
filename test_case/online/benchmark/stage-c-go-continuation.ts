@@ -1,3 +1,4 @@
+import { goResidualSource, residualParent } from "./stage-c-go-residual.ts";
 import { isDeepStrictEqual } from "node:util";
 import { requireThat, sha } from "./io.ts";
 import type { FrozenBatch } from "./stage-c-freeze.ts";
@@ -18,6 +19,7 @@ export const beforeGo = {
 } as const;
 export type GoContinuation = {
   scope: 84;
+  residual?: typeof goResidualSource;
   decision_sha256: string;
   prior_decision_sha256: string;
   matrix_sha256: string;
@@ -62,6 +64,7 @@ export function selectGoBatch(
   index: number,
 ) {
   const decision = goDecision(g.scope, series);
+  const residual = residualParent(g);
   requireThat(
     g.scope === 84 &&
       g.partition === index &&
@@ -82,7 +85,7 @@ export function selectGoBatch(
       sha(JSON.stringify(decision)) === g.decision_sha256 &&
       !g.calibration_origin &&
       !g.calibration_withheld &&
-      (index === g.source_partition
+      (index === g.source_partition && !residual
         ? !g.pending_calibration
         : g.pending_calibration &&
           [
@@ -98,6 +101,24 @@ export function selectGoBatch(
     "STAGE_C_GO_SCOPE",
   );
   const batch = batches[index - 1];
+  if (residual) {
+    requireThat(
+      index === goResidualSource.partition &&
+        g.pending_calibration?.freeze_sha256 === goResidualSource.freeze,
+      "GO_RESIDUAL_PARTITION",
+    );
+    const subset = batch.filter((row) =>
+      goResidualSource.lanes.includes(row.lane.lane),
+    );
+    requireThat(
+      isDeepStrictEqual(
+        subset.map((row) => row.lane.lane),
+        goResidualSource.lanes,
+      ) && subset.every((row) => row.lane.cap === 87),
+      "GO_RESIDUAL_INVENTORY",
+    );
+    return subset;
+  }
   if (index === 7) return batch;
   const spent = beforeGo[index as 5 | 6].spent;
   requireThat(batch[0].lane.lane === spent, "STAGE_C_GO_PRIOR_ATTEMPT");

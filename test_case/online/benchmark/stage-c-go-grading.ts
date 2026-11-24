@@ -1,3 +1,4 @@
+import { residualParent } from "./stage-c-go-residual.ts";
 import { isDeepStrictEqual } from "node:util";
 import { Domains } from "./domain.ts";
 import {
@@ -492,7 +493,7 @@ export function verifyGoCalibrationTemplate(root: string, inputs: any) {
     store = assertGradeStore(root);
   requireThat(
     c?.source_partition === 5 &&
-      [6, 7].includes(c?.partition) &&
+      ([6, 7].includes(c?.partition) || residualParent(c)) &&
       !c.calibration_origin &&
       !c.calibration_withheld &&
       ["go-pending.json", "blind.json", "key.json"].every((n) =>
@@ -651,7 +652,7 @@ export function verifyGoCalibrationReference(root: string, inputs: any) {
     continuation &&
       !continuation.calibration_withheld &&
       continuation.source_partition === 5 &&
-      [6, 7].includes(continuation.partition),
+      ([6, 7].includes(continuation.partition) || residualParent(continuation)),
     "STAGE_C_GO_REFERENCE_BINDING",
   );
   requireThat(
@@ -730,7 +731,9 @@ export function goGradeGate(continuation: any, calibration: boolean) {
     continuation.calibration_withheld !== true,
     "STAGE_C_GO_CALIBRATION_WITHHELD",
   );
-  const shared = continuation.partition !== continuation.source_partition;
+  const shared =
+    continuation.partition !== continuation.source_partition ||
+    residualParent(continuation);
   requireThat(
     !(shared && calibration),
     "STAGE_C_GO_SHARED_CALIBRATION_ALREADY_SCORED",
@@ -877,7 +880,7 @@ export function archivedGoAssessment(
   if (pending) {
     requireThat(
       c.source_partition === 5 &&
-        [6, 7].includes(c.partition) &&
+        ([6, 7].includes(c.partition) || residualParent(c)) &&
         !c.calibration_origin &&
         !c.calibration_withheld &&
         isDeepStrictEqual(
@@ -894,7 +897,11 @@ export function archivedGoAssessment(
     );
   const failed = entries.has(base + "calibration/go-withheld.json");
   requireThat(!failed || pending, "STAGE_C_GO_WITHHELD_SOURCE");
-  if (failed || c.calibration_withheld || c.partition === c.source_partition)
+  if (
+    failed ||
+    c.calibration_withheld ||
+    (c.partition === c.source_partition && !residualParent(c))
+  )
     requireThat(
       [
         "go-origin.json",
@@ -927,7 +934,7 @@ export function archivedGoAssessment(
       "STAGE_C_GO_WITHHELD_ATTEMPT",
     );
     calibration = { ...basics, kind: "WITHHELD" };
-  } else if (c.partition !== c.source_partition) {
+  } else if (c.partition !== c.source_partition || residualParent(c)) {
     const origin = parsed(files("calibration", "go-origin.json"));
     requireThat(
       !h.reserved &&

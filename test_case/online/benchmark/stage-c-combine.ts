@@ -1,3 +1,4 @@
+import { goResidualSource, residualParent } from "./stage-c-go-residual.ts";
 import {
   archivedC04,
   c04Freeze,
@@ -171,12 +172,15 @@ export function combineResults(snapshots: Snapshot[]) {
   const quotaRecoveries = new Map<string, any>();
   const originals = new Map<string, any>();
   const priorGo: Snapshot[] = [];
+  const residualOriginals = new Map<string, any>();
   let goTariff = 0,
     goReserve = 0,
     goSends = 0;
   const order = (s: Snapshot) =>
     s.freeze.go_continuation
-      ? 10 + s.freeze.batch_index
+      ? 10 +
+        s.freeze.batch_index +
+        (residualParent(s.freeze.go_continuation) ? 0.5 : 0)
       : Number(Boolean(s.freeze.remaining_series));
   const ordered = [...snapshots].sort((a, b) => order(a) - order(b));
   for (const s of ordered) {
@@ -192,10 +196,21 @@ export function combineResults(snapshots: Snapshot[]) {
       );
     }
     const go = s.freeze.go_continuation;
+    const residual = residualParent(go);
     if (go) {
       requireThat(
         s.freeze.remaining_series &&
-          !priorGo.some((v) => v.freeze.batch_index === s.freeze.batch_index) &&
+          !priorGo.some(
+            (v) =>
+              v.freeze.batch_index === s.freeze.batch_index &&
+              residualParent(v.freeze.go_continuation) === residual,
+          ) &&
+          (!residual ||
+            priorGo.some(
+              (v) =>
+                v.hash === goResidualSource.freeze &&
+                v.result.physical_sends === 413,
+            )) &&
           priorGo.every(
             (v) =>
               v.freeze.go_continuation.decision_sha256 === go.decision_sha256,
@@ -325,15 +340,19 @@ export function combineResults(snapshots: Snapshot[]) {
         previous.row.reason === "SCENARIO_PRODUCT_BLOCKED";
       const zeroSend =
         previous?.row.status === "UNRUN" &&
-        previous.row.reason === "HOLD_EXHAUSTED_QUOTA" &&
+        previous.row.reason ===
+          (residual ? "GO_ACCOUNT_ON_HOLD" : "HOLD_EXHAUSTED_QUOTA") &&
         previous.row.identities.length === 0;
       const goRepeat =
         go &&
         [5, 6].includes(go.partition) &&
-        previous?.freeze_sha256 === go.prior_freezes[go.partition] &&
+        previous?.freeze_sha256 ===
+          (residual
+            ? goResidualSource.freeze
+            : go.prior_freezes[go.partition]) &&
         !quotaRecoveries.has(id) &&
         previous.row.assessment_attempts === 0 &&
-        (zeroSend || (go.scope === 84 && quotaOnly));
+        (zeroSend || (!residual && go.scope === 84 && quotaOnly));
       requireThat(
         !go || (go.partition === 7 ? !previous : goRepeat),
         "STAGE_C_GO_NO_REPLACEMENT",
@@ -455,7 +474,8 @@ export function combineResults(snapshots: Snapshot[]) {
         );
         identities.set(stratum, included);
       }
-      if (goRepeat && zeroSend) originals.set(id, previous);
+      if (goRepeat && zeroSend)
+        (residual ? residualOriginals : originals).set(id, previous);
       if (goRepeat && quotaOnly)
         requireThat(!quotaRecoveries.has(id), "STAGE_C_GO_DUPLICATE_RECOVERY");
       (goRepeat && quotaOnly
@@ -623,6 +643,13 @@ export function combineResults(snapshots: Snapshot[]) {
     ...(priorGo.length
       ? {
           go_zero_send_originals: [...originals.values()],
+          ...(residualOriginals.size
+            ? {
+                go_residual_zero_send_originals: [
+                  ...residualOriginals.values(),
+                ],
+              }
+            : {}),
           go_quota_recovery: [...quotaRecoveries.values()],
           comparison_rows: comparisonRows,
           go_subscription: {

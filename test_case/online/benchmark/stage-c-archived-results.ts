@@ -1,3 +1,4 @@
+import { goResidualSource, residualParent } from "./stage-c-go-residual.ts";
 import { archivedGoAssessment } from "./stage-c-go-grading.ts";
 import { goVisibilityVersion } from "./stage-c-visibility-rubric.ts";
 import {
@@ -65,6 +66,18 @@ export function archivedBatch(
     entries.get("configs/stage-c-freeze.json")?.sha256 === b.freeze_sha256,
     "STAGE_C_AGGREGATE_DIGEST",
   );
+  if (residualParent(freeze.go_continuation)) {
+    for (const [name, expected] of [
+      ["stage-c-freeze.json", goResidualSource.freeze],
+      ["stage-c-dispatch.json", goResidualSource.dispatch],
+      ["manifest.json", goResidualSource.manifest],
+      ["attempts.jsonl", goResidualSource.ledger],
+    ])
+      requireThat(
+        entries.get("inputs/go-residual-parent/" + name)?.sha256 === expected,
+        "GO_RESIDUAL_ARCHIVE_PARENT",
+      );
+  }
   const prefix = "oracles/completion/calibration/";
   requireThat(
     entries.get(prefix + "blind.json")?.sha256 === freeze.grade.packet_sha256 &&

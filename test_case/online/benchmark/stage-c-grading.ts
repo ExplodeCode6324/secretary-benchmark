@@ -1,3 +1,4 @@
+import { residualParent } from "./stage-c-go-residual.ts";
 import {
   goReaderResponse,
   sourceCalibrationBinding,
@@ -658,7 +659,8 @@ export function completedBatchReport(root: string, hash: string) {
     goVersion &&
     continuation &&
     !continuation.calibration_withheld &&
-    continuation.partition !== continuation.source_partition
+    (continuation.partition !== continuation.source_partition ||
+      residualParent(continuation))
       ? goCalibrationReportReference(root, inputs)
       : null;
   const rows = batch.flatMap((row) => {

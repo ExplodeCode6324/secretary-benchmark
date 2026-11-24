@@ -219,6 +219,14 @@ export function projectCampaign(
     );
   }
   const grade = inputs.calibration;
+  const pending = inputs.go_continuation?.pending_calibration;
+  requireThat(
+    !pending ||
+      (pending.packet_sha256 === grade.packet_sha256 &&
+        pending.key_sha256 === grade.key_sha256 &&
+        pending.rubric_sha256 === grade.rubric_sha256),
+    "GO_PENDING_TEMPLATE_BINDING",
+  );
   const go = Boolean(inputs.go_continuation);
   requireThat(
     go === (providers["deepseek-flash"]?.route === "opencode-go") &&
@@ -721,6 +729,14 @@ function roleSettings(inputs: Preflight) {
     provider: model.provider,
     api: model.api,
     base_url: model.baseUrl,
+    ...(inputs.go_continuation
+      ? {
+          thinking_type: "enabled",
+          reasoning_effort: "low",
+          session_header: "x-opencode-session",
+          first_contact_lane: "r1-C04-nonexistent--deepseek-flash",
+        }
+      : {}),
     effective_limits_by_profile: inputs.capacities.map((c) => ({
       profile: c.profile,
       main: c.budget,

@@ -42,6 +42,7 @@ type Snapshot = {
   calibration: {
     kind?: string;
     origin?: any;
+    source_failure?: any;
     go?: unknown;
     inference_dispatches?: number;
     attempts: number;
@@ -103,8 +104,7 @@ function checkAccounting(s: Snapshot) {
             c.kind === "REFERENCE" &&
             c.inference_dispatches === 0 &&
             c.status === "PASSED" &&
-            c.receipt_sha256 ===
-              s.freeze.go_continuation.calibration_origin?.receipt_sha256)
+            c.receipt_sha256 === s.calibration.origin?.receipt_sha256)
         : c.status === "RESERVED"
           ? c.receipt_sha256 === null
           : ["PASSED", "FAILED", "REJECTED", "MECHANICAL"].includes(c.status) &&
@@ -210,33 +210,45 @@ export function combineResults(snapshots: Snapshot[]) {
           ),
           "STAGE_C_GO_PRIOR_ARCHIVE",
         );
-      if (go.calibration_origin) {
-        const origin = priorGo.find(
-          (x) => x.freeze.batch_index === go.source_partition,
+      if (go.pending_calibration) {
+        const source = priorGo.find(
+          (x) => x.hash === go.pending_calibration.freeze_sha256,
         );
         requireThat(
-          origin &&
-            origin.hash === go.calibration_origin.freeze_sha256 &&
-            origin.archive_sha256 === go.calibration_origin.archive_sha256 &&
-            origin.calibration.kind === "ORIGIN" &&
-            origin.calibration.attempts === 1 &&
-            origin.calibration.status === "PASSED" &&
-            isDeepStrictEqual(
-              origin.calibration.origin,
-              go.calibration_origin,
-            ) &&
-            isDeepStrictEqual(s.calibration.origin, go.calibration_origin) &&
-            s.calibration.kind === "REFERENCE",
-          "STAGE_C_GO_CALIBRATION_SOURCE",
+          source &&
+            source.freeze.batch_index === go.source_partition &&
+            source.calibration.kind === "ORIGIN" &&
+            ["packet_sha256", "key_sha256", "rubric_sha256"].every(
+              (k) => source.freeze.grade[k] === go.pending_calibration[k],
+            ),
+          "GO_AGGREGATE_SOURCE_TEMPLATE",
         );
+        if (source.calibration.status === "PASSED") {
+          requireThat(
+            source.calibration.attempts === 1 &&
+              s.calibration.kind === "REFERENCE" &&
+              source.archive_sha256 === s.calibration.origin?.archive_sha256 &&
+              isDeepStrictEqual(
+                source.calibration.origin,
+                s.calibration.origin,
+              ),
+            "STAGE_C_GO_CALIBRATION_SOURCE",
+          );
+        } else {
+          const withheld = s.calibration.source_failure;
+          requireThat(
+            s.calibration.kind === "WITHHELD" &&
+              s.calibration.status === "NOT_TESTED" &&
+              s.calibration.attempts === 0 &&
+              withheld?.freeze_sha256 === source.hash &&
+              withheld?.archive_sha256 === source.archive_sha256 &&
+              withheld?.receipt_sha256 === source.calibration.receipt_sha256 &&
+              withheld?.status === source.calibration.status &&
+              s.result.rows.every((r: any) => !r.assessment_attempts),
+            "STAGE_C_GO_CALIBRATION_WITHHELD",
+          );
+        }
       }
-      if (go.calibration_withheld)
-        requireThat(
-          s.calibration.attempts === 0 &&
-            s.calibration.status === "NOT_TESTED" &&
-            s.result.rows.every((r: any) => !r.assessment_attempts),
-          "STAGE_C_GO_CALIBRATION_WITHHELD",
-        );
       priorGo.push(s);
     }
     const g = s.assessment_grade ?? s.freeze.grade;
@@ -466,6 +478,14 @@ export function combineResults(snapshots: Snapshot[]) {
             }
           : {}),
         ...match,
+        ...(go
+          ? {
+              workload_settings: s.freeze.role_model,
+              official_settings: ordered.find(
+                (v) => v.hash === beforeGo[5].freeze,
+              )?.freeze.role_model,
+            }
+          : {}),
         freeze_sha256: s.hash,
         reader_version: g.version,
         reader_rubric_sha256: g.rubric_sha256,
@@ -539,6 +559,7 @@ export function combineResults(snapshots: Snapshot[]) {
       grades:
         r.row.grades ??
         Object.fromEntries(c.assertions.map((a) => [a, "NOT_TESTED"])),
+      route: r.route ?? "deepseek-official",
       version: r.reader_version ?? null,
       rubric_sha256: r.reader_rubric_sha256 ?? null,
     };
@@ -574,6 +595,26 @@ export function combineResults(snapshots: Snapshot[]) {
     families,
     excluded: familySummary.excluded,
     family_counts_by_reader,
+    ...(priorGo.length
+      ? {
+          family_counts_by_route: [
+            ...new Set(
+              familyRows.map((r) => JSON.stringify([r.route, r.rubric_sha256])),
+            ),
+          ].map((id) => {
+            const [route, rubric_sha256] = JSON.parse(id);
+            return {
+              route,
+              rubric_sha256,
+              families: familyResults(
+                familyRows.filter(
+                  (r) => r.route === route && r.rubric_sha256 === rubric_sha256,
+                ),
+              ).families,
+            };
+          }),
+        }
+      : {}),
     matrix_sha256: matrix,
     expected_lineages: 93,
     expected_observations: 99,

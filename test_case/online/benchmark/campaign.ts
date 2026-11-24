@@ -1,3 +1,4 @@
+import { settleGoReservation } from "./stage-c-go-local-usage.ts";
 import {
   echoContract,
   echoScope,
@@ -932,6 +933,18 @@ export async function settle(
           }
         : {}),
     });
+    if (
+      campaign.physical_policy?.providers[item.attempt.model]?.route ===
+      "opencode-go"
+    ) {
+      const meter = (usage as { go_meter?: { list_cost?: number } } | null)
+        ?.go_meter;
+      const cost =
+        typeof meter?.list_cost === "number"
+          ? Math.max(actualUSD ?? 0, meter.list_cost)
+          : actualUSD;
+      settleGoReservation(root, id, cost);
+    }
   });
 }
 export async function closeCampaign(root: string): Promise<ClosedCampaign> {

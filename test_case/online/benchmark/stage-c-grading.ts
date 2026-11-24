@@ -3,6 +3,7 @@ import {
   sourceCalibrationBinding,
   calibrationAgeOK,
   verifyGoCalibrationReference,
+  goCalibrationReportReference,
   goMetering,
   goCandidateUsage,
   goGradeGate,
@@ -658,7 +659,7 @@ export function completedBatchReport(root: string, hash: string) {
     continuation &&
     !continuation.calibration_withheld &&
     continuation.partition !== continuation.source_partition
-      ? verifyGoCalibrationReference(root, inputs)
+      ? goCalibrationReportReference(root, inputs)
       : null;
   const rows = batch.flatMap((row) => {
     const lane = row.lane,
@@ -815,7 +816,7 @@ export function completedBatchReport(root: string, hash: string) {
       }
       const identities = charged.map((e) => {
         const usage = e.usage as {
-          go_meter?:unknown;
+          go_meter?: unknown;
           returned_model?: string;
           wire_identity?: {
             fingerprint_status?: string;
@@ -826,7 +827,9 @@ export function completedBatchReport(root: string, hash: string) {
           send: e.attempt.id,
           at: e.attempt.at,
           outcome: e.outcome ?? "UNSETTLED",
-          ...(goVersion ? {route:"opencode-go",go_meter:usage?.go_meter ?? null}:{}),
+          ...(goVersion
+            ? { route: "opencode-go", go_meter: usage?.go_meter ?? null }
+            : {}),
           returned_model: usage?.returned_model ?? null,
           fingerprint_status:
             usage?.wire_identity?.fingerprint_status ?? "UNKNOWN",
@@ -854,6 +857,15 @@ export function completedBatchReport(root: string, hash: string) {
         repeat: lane.repeat,
         model: lane.model,
         architecture: "Secretary",
+        ...(goVersion
+          ? {
+              workload_provider: "opencode-go",
+              workload_model:
+                policy.providers[lane.model].allowed_returned_models[0],
+              workload_thinking_type: "enabled",
+              workload_reasoning_effort: "low",
+            }
+          : {}),
         profile: lane.profile,
         source_lineage: lane.lane,
         pair_position: s.pair?.position ?? null,
@@ -982,6 +994,15 @@ export function completedBatchReport(root: string, hash: string) {
       ? {
           billing_basis: goReaderPolicy.billing_basis,
           cash_charge_usd: null,
+          provider_cash_known_usd: [...counts.entries.values()].reduce(
+            (n, e) =>
+              n + Number((e.usage as any)?.go_meter?.cash_debit_usd ?? 0),
+            0,
+          ),
+          provider_cash_unknown_requests: [...counts.entries.values()].filter(
+            (e) =>
+              typeof (e.usage as any)?.go_meter?.cash_debit_usd !== "number",
+          ).length,
           tariff_estimate_usd: known,
           tariff_guard_usd: counts.charged_usd,
           unresolved_tariff_reservation_usd: unresolved,

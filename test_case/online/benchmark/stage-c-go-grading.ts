@@ -53,25 +53,49 @@ function windows(value: any, before: boolean) {
   );
 }
 
-export function goHeadroom(value: any, calibrated: boolean) {
+export function goHeadroom(
+  value: any,
+  calibrated: boolean,
+  local: Record<string, number>,
+) {
+  const capacities = policy.capacity_usd_equivalent,
+    names = Object.keys(capacities);
+  requireThat(
+    local &&
+      !Array.isArray(local) &&
+      Object.keys(local).length === names.length &&
+      names.every((name) => number(local[name])),
+    "STAGE_C_GO_LOCAL_RESERVATIONS",
+  );
   const cap =
     policy.request_ceiling_usd_equivalent[
       calibrated ? "calibration" : "candidate"
     ];
-  const remaining = Object.fromEntries(
-    Object.entries(policy.capacity_usd_equivalent).map(([key, capacity]) => [
-      key,
-      (capacity * Math.max(0, 99 - Math.ceil(value?.data?.[key]?.percent))) /
-        100,
-    ]),
-  );
+  const scale = 1_000_000_000,
+    gross: Record<string, number> = {},
+    net: Record<string, number> = {},
+    projected: Record<string, number> = {};
+  for (const [name, capacity] of Object.entries(capacities)) {
+    const observed =
+      capacity *
+      Math.max(0, 99 - Math.ceil(value?.data?.[name]?.percent)) *
+      (scale / 100);
+    const localUnits = Math.ceil(Math.min(capacity, local[name]) * scale);
+    const netUnits = Math.max(0, observed - localUnits);
+    gross[name] = observed / scale;
+    net[name] = netUnits / scale;
+    projected[name] = (netUnits - Math.round(cap * scale)) / scale;
+  }
   return {
     request_ceiling_usd_equivalent: cap,
-    capacity_usd_equivalent: policy.capacity_usd_equivalent,
-    remaining_usd_equivalent: remaining,
+    capacity_usd_equivalent: capacities,
+    observed_headroom_usd_equivalent: gross,
+    go_local_unreflected_usd: local,
+    remaining_usd_equivalent: net,
+    after_request_usd_equivalent: projected,
     rounding_margin_percentage_points: 1,
     admitted:
-      windows(value, true) && Object.values(remaining).every((r) => r >= cap),
+      windows(value, true) && Object.values(projected).every((v) => v >= 0),
   };
 }
 
@@ -130,6 +154,21 @@ export function goReaderResponse(envelope: any, packet: any, freeze: string) {
     inference_dispatches: 1,
     billing_basis: policy.billing_basis,
   };
+  const bindingMetadata = {
+    stage: identity.stage,
+    batch: t?.batch,
+    slot: t?.slot,
+    query_sha256: input,
+    packet_sha256: packetSha,
+    decision_sha256: freeze,
+    go_local_unreflected_usd: t?.go_local_unreflected_usd,
+    ...(calibrated
+      ? {}
+      : {
+          calibration_returned_model: t?.calibration_returned_model,
+          calibration_native_at: t?.calibration_native_at,
+        }),
+  };
   requireThat(
     hex(freeze) &&
       typeof raw === "string" &&
@@ -143,6 +182,10 @@ export function goReaderResponse(envelope: any, packet: any, freeze: string) {
       Buffer.byteLength(serialized) === wire &&
       t.wire_sha256 === sha(serialized) &&
       t.wire_sha256 === d.wire_sha256 &&
+      typeof t.binding_metadata_utf8 === "string" &&
+      t.binding_metadata_utf8 === d.binding_metadata_utf8 &&
+      sha(t.binding_metadata_utf8) === t.metadata_sha256 &&
+      isDeepStrictEqual(JSON.parse(t.binding_metadata_utf8), bindingMetadata) &&
       hex(t.metadata_sha256) &&
       t.metadata_sha256 === d.metadata_sha256 &&
       Number.isInteger(t.batch) &&
@@ -161,13 +204,22 @@ export function goReaderResponse(envelope: any, packet: any, freeze: string) {
       snapshot(t.go_catalog, policy.models_endpoint) &&
       t.go_catalog.data?.id === policy.model &&
       t.go_catalog.data?.canonical_id === policy.canonical_id &&
+      t.go_catalog.data.reasoning_supported === true &&
+      Array.isArray(t.go_catalog.data.reasoning_efforts) &&
+      t.go_catalog.data.reasoning_efforts.includes("max") &&
+      Number.isSafeInteger(t.go_catalog.data.output_token_limit) &&
+      t.go_catalog.data.output_token_limit >= policy.max_output_tokens &&
       isDeepStrictEqual(t.go_usage_before, d.go_usage_before) &&
       windows(t.go_usage_before, true) &&
       t.go_headroom?.admitted === true &&
+      isDeepStrictEqual(
+        t.go_local_unreflected_usd,
+        d.go_local_unreflected_usd,
+      ) &&
       isDeepStrictEqual(t.go_headroom, d.go_headroom) &&
       isDeepStrictEqual(
         t.go_headroom,
-        goHeadroom(t.go_usage_before, calibrated),
+        goHeadroom(t.go_usage_before, calibrated, t.go_local_unreflected_usd),
       ) &&
       (calibrated ||
         ([policy.model, policy.canonical_id].includes(
@@ -185,6 +237,10 @@ export function goReaderResponse(envelope: any, packet: any, freeze: string) {
     "STAGE_C_GO_READER_BINDING",
   );
   const evidence_sha256 = sha(gradeJSONBytes(envelope));
+  if (t.go_billing_source === "balance") {
+    requireThat(t.quota_stop === true, "STAGE_C_GO_BALANCE_BILLING_HOLD");
+    return { rejected: "BALANCE_BILLING", evidence_sha256 };
+  }
   if (
     raw === "" &&
     (t.http_status === null ||
@@ -239,6 +295,10 @@ export function goMetering(transport: any) {
     billing_basis: policy.billing_basis,
     charged_usd: null,
     reported_cost: transport.go_reported_cost ?? null,
+    reported_cash_usd: transport.go_reported_cash_usd ?? null,
+    billing_source: transport.go_billing_source ?? null,
+    list_cost_usd: transport.go_list_cost_usd ?? null,
+    cost_estimated: transport.go_cost_estimated ?? null,
     allowance: transport.go_allowance ?? null,
     usage: transport.usage ?? null,
     usage_before: transport.go_usage_before,
@@ -330,6 +390,194 @@ const sources = [
   ["a-transport.json", "go-origin-transport.json"],
 ] as const;
 
+export type GoCalibrationPending = Pick<
+  GoCalibrationOrigin,
+  "freeze_sha256" | "packet_sha256" | "key_sha256" | "rubric_sha256"
+>;
+export type GoCalibrationFailure = GoCalibrationPending & {
+  archive_sha256: string;
+  receipt_sha256: string | null;
+  status: string;
+};
+
+const pendingKeys = [
+  "freeze_sha256",
+  "packet_sha256",
+  "key_sha256",
+  "rubric_sha256",
+] as const;
+function verifyPendingBytes(
+  packet: Buffer,
+  key: Buffer,
+  pending: GoCalibrationPending,
+) {
+  const p = JSON.parse(packet.toString()),
+    k = JSON.parse(key.toString());
+  requireThat(
+    pending &&
+      Object.keys(pending).length === pendingKeys.length &&
+      pendingKeys.every((n) => hex(pending[n])) &&
+      sha(packet) === pending.packet_sha256 &&
+      sha(key) === pending.key_sha256 &&
+      sha(gradeJSONBytes(p.rubric)) === pending.rubric_sha256 &&
+      p.rubric.reader === goReader &&
+      p.rubric.version === goVisibilityVersion &&
+      Array.isArray(p.controls) &&
+      p.controls.length === 28 &&
+      Array.isArray(k) &&
+      k.length === 28,
+    "STAGE_C_GO_PENDING_TEMPLATE",
+  );
+}
+function matchesPending(binding: any, pending: GoCalibrationPending) {
+  return pendingKeys.every((k) => binding?.[k] === pending[k]);
+}
+function confirmFailure(
+  failure: GoCalibrationFailure,
+  pending: GoCalibrationPending,
+) {
+  requireThat(
+    failure &&
+      Object.keys(failure).length === 7 &&
+      matchesPending(failure, pending) &&
+      hex(failure.archive_sha256) &&
+      (["FAILED", "REJECTED", "MECHANICAL"].includes(failure.status)
+        ? hex(failure.receipt_sha256)
+        : ["NOT_TESTED", "RESERVED"].includes(failure.status) &&
+          failure.receipt_sha256 === null),
+    "STAGE_C_GO_WITHHELD_SOURCE",
+  );
+}
+
+export async function prepareGoCalibrationTemplate(
+  root: string,
+  blindBytes: Buffer,
+  keyBytes: Buffer,
+  pending: GoCalibrationPending,
+) {
+  verifyPendingBytes(blindBytes, keyBytes, pending);
+  await Domains.use(root, async (d) => {
+    const store = assertGradeStore(root);
+    const files = [
+      { name: dir + "/blind.json", content: blindBytes },
+      { name: dir + "/key.json", content: keyBytes },
+      { name: dir + "/go-pending.json", content: gradeJSONBytes(pending) },
+    ];
+    if (
+      files.every(
+        (f) =>
+          store.has(f.name) &&
+          readOwnedGradeFile(root, f.name).equals(f.content),
+      )
+    )
+      return;
+    requireThat(
+      files.every((f) => !store.has(f.name)) &&
+        !store.has(dir + "/attempt-1.json"),
+      "STAGE_C_GO_TEMPLATE_CONFLICT",
+    );
+    commitGradeFiles(
+      root,
+      d.assertControllerLease(),
+      "completion-go-calibration-template",
+      files,
+    );
+  });
+  return { kind: "PENDING", pending, inference_dispatches: 0 };
+}
+
+export function verifyGoCalibrationTemplate(root: string, inputs: any) {
+  const c = inputs?.go_continuation,
+    pending = c?.pending_calibration,
+    store = assertGradeStore(root);
+  requireThat(
+    c?.source_partition === 5 &&
+      [6, 7].includes(c?.partition) &&
+      !c.calibration_origin &&
+      !c.calibration_withheld &&
+      ["go-pending.json", "blind.json", "key.json"].every((n) =>
+        store.has(dir + "/" + n),
+      ) &&
+      isDeepStrictEqual(
+        readOwnedGradeJSON(root, dir + "/go-pending.json"),
+        pending,
+      ),
+    "STAGE_C_GO_PENDING_BINDING",
+  );
+  verifyPendingBytes(
+    readOwnedGradeFile(root, dir + "/blind.json"),
+    readOwnedGradeFile(root, dir + "/key.json"),
+    pending,
+  );
+  return { kind: "PENDING", pending, inference_dispatches: 0 };
+}
+
+export async function withholdGoCalibrationReference(
+  root: string,
+  inputs: any,
+  failure: GoCalibrationFailure,
+) {
+  const { pending } = verifyGoCalibrationTemplate(root, inputs);
+  confirmFailure(failure, pending);
+  await Domains.use(root, async (d) => {
+    const store = assertGradeStore(root),
+      name = dir + "/go-withheld.json",
+      content = gradeJSONBytes(failure);
+    requireThat(
+      !store.has(dir + "/go-origin.json") &&
+        !store.has(dir + "/attempt-1.json"),
+      "STAGE_C_GO_WITHHELD_CONFLICT",
+    );
+    if (store.has(name)) {
+      requireThat(
+        readOwnedGradeFile(root, name).equals(content),
+        "STAGE_C_GO_WITHHELD_CONFLICT",
+      );
+      return;
+    }
+    commitGradeFiles(
+      root,
+      d.assertControllerLease(),
+      "completion-go-calibration-withheld",
+      [{ name, content }],
+    );
+  });
+  return {
+    kind: "WITHHELD",
+    status: "NOT_TESTED",
+    attempts: 0,
+    receipt_sha256: null,
+    inference_dispatches: 0,
+    source_failure: failure,
+  };
+}
+
+export function goCalibrationReportReference(root: string, inputs: any) {
+  const store = assertGradeStore(root);
+  if (
+    inputs?.go_continuation?.pending_calibration &&
+    store.has(dir + "/go-withheld.json")
+  ) {
+    const { pending } = verifyGoCalibrationTemplate(root, inputs);
+    const failure = readOwnedGradeJSON(root, dir + "/go-withheld.json");
+    confirmFailure(failure, pending);
+    requireThat(
+      !store.has(dir + "/go-origin.json") &&
+        !store.has(dir + "/attempt-1.json"),
+      "STAGE_C_GO_WITHHELD_CONFLICT",
+    );
+    return {
+      kind: "WITHHELD",
+      status: "NOT_TESTED",
+      attempts: 0,
+      receipt_sha256: null,
+      inference_dispatches: 0,
+      source_failure: failure,
+    };
+  }
+  return verifyGoCalibrationReference(root, inputs);
+}
+
 export async function prepareGoCalibrationReference(
   root: string,
   sourceFilesDir: string,
@@ -349,6 +597,27 @@ export async function prepareGoCalibrationReference(
       name: dir + "/go-origin.json",
       content: gradeJSONBytes(origin),
     });
+    requireThat(
+      !store.has(dir + "/go-withheld.json") &&
+        !store.has(dir + "/attempt-1.json"),
+      "STAGE_C_GO_REFERENCE_CONFLICT",
+    );
+    if (store.has(dir + "/go-pending.json")) {
+      const pending = readOwnedGradeJSON(root, dir + "/go-pending.json");
+      verifyPendingBytes(bytes[0], bytes[1], pending);
+      requireThat(
+        matchesPending(origin, pending) &&
+          files
+            .slice(0, 2)
+            .every(
+              (f) =>
+                store.has(f.name) &&
+                readOwnedGradeFile(root, f.name).equals(f.content),
+            ),
+        "STAGE_C_GO_PENDING_BINDING",
+      );
+      files.splice(0, 2);
+    }
     if (
       files.every(
         (f) =>
@@ -368,25 +637,43 @@ export async function prepareGoCalibrationReference(
       files,
     );
   });
+  return {
+    kind: "REFERENCE",
+    status: "PASSED",
+    inference_dispatches: 0,
+    origin,
+  };
 }
 
 export function verifyGoCalibrationReference(root: string, inputs: any) {
-  const continuation = inputs?.go_continuation,
-    origin = continuation?.calibration_origin;
+  const continuation = inputs?.go_continuation;
   requireThat(
     continuation &&
       !continuation.calibration_withheld &&
       continuation.source_partition === 5 &&
-      [6, 7].includes(continuation.partition) &&
-      isDeepStrictEqual(
-        readOwnedGradeJSON(root, dir + "/go-origin.json"),
-        origin,
-      ),
+      [6, 7].includes(continuation.partition),
     "STAGE_C_GO_REFERENCE_BINDING",
   );
+  requireThat(
+    assertGradeStore(root).has(dir + "/go-origin.json"),
+    "STAGE_C_GO_CALIBRATION_REFERENCE_PENDING_OR_WITHHELD",
+  );
+  const origin = readOwnedGradeJSON(root, dir + "/go-origin.json");
+  if (continuation.pending_calibration) {
+    const { pending } = verifyGoCalibrationTemplate(root, inputs);
+    requireThat(
+      matchesPending(origin, pending),
+      "STAGE_C_GO_REFERENCE_BINDING",
+    );
+  } else
+    requireThat(
+      isDeepStrictEqual(origin, continuation.calibration_origin),
+      "STAGE_C_GO_REFERENCE_BINDING",
+    );
   const store = assertGradeStore(root);
   requireThat(
-    !store.has(dir + "/attempt-1.json") &&
+    !store.has(dir + "/go-withheld.json") &&
+      !store.has(dir + "/attempt-1.json") &&
       [...sources.map(([, n]) => n), "go-origin.json"].every((n) =>
         store.has(dir + "/" + n),
       ),
@@ -586,7 +873,28 @@ export function archivedGoAssessment(
     status: "NOT_TESTED",
     inference_dispatches: 0,
   };
-  if (c.calibration_withheld || c.partition === c.source_partition)
+  const pending = c.pending_calibration;
+  if (pending) {
+    requireThat(
+      c.source_partition === 5 &&
+        [6, 7].includes(c.partition) &&
+        !c.calibration_origin &&
+        !c.calibration_withheld &&
+        isDeepStrictEqual(
+          parsed(files("calibration", "go-pending.json")),
+          pending,
+        ),
+      "STAGE_C_GO_PENDING_BINDING",
+    );
+    verifyPendingBytes(packet, key, pending);
+  } else
+    requireThat(
+      !entries.has(base + "calibration/go-pending.json"),
+      "STAGE_C_GO_PENDING_BINDING",
+    );
+  const failed = entries.has(base + "calibration/go-withheld.json");
+  requireThat(!failed || pending, "STAGE_C_GO_WITHHELD_SOURCE");
+  if (failed || c.calibration_withheld || c.partition === c.source_partition)
     requireThat(
       [
         "go-origin.json",
@@ -597,7 +905,23 @@ export function archivedGoAssessment(
     );
   let calibration: any;
   let sourceIdentity: ReturnType<typeof sourceCalibrationBinding> | undefined;
-  if (c.calibration_withheld) {
+  if (failed) {
+    const failure = parsed(files("calibration", "go-withheld.json"));
+    confirmFailure(failure, pending);
+    const ref = {
+      kind: "WITHHELD",
+      status: "NOT_TESTED",
+      attempts: 0,
+      receipt_sha256: null,
+      inference_dispatches: 0,
+      source_failure: failure,
+    };
+    requireThat(
+      !h.reserved && isDeepStrictEqual(result.go_calibration_reference, ref),
+      "STAGE_C_GO_WITHHELD_ATTEMPT",
+    );
+    calibration = { ...basics, ...ref };
+  } else if (c.calibration_withheld) {
     requireThat(
       !h.reserved && !c.calibration_origin && !result.go_calibration_reference,
       "STAGE_C_GO_WITHHELD_ATTEMPT",
@@ -606,7 +930,10 @@ export function archivedGoAssessment(
   } else if (c.partition !== c.source_partition) {
     const origin = parsed(files("calibration", "go-origin.json"));
     requireThat(
-      !h.reserved && isDeepStrictEqual(origin, c.calibration_origin),
+      !h.reserved &&
+        (pending
+          ? matchesPending(origin, pending)
+          : isDeepStrictEqual(origin, c.calibration_origin)),
       "STAGE_C_GO_REFERENCE_BINDING",
     );
     confirmGoOrigin(

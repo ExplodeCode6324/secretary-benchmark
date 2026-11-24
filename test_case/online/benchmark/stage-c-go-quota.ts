@@ -3,11 +3,23 @@ import path from "node:path";
 import { lease, readJSON, requireThat, repository, writeJSON } from "./io.ts";
 import { checkGoUsage } from "./stage-c-go-provider.ts";
 import { ledger } from "./campaign.ts";
-const account = path.join(repository, ".local/benchmark/.issue122-go-account");
+import {
+  goAccount,
+  goWindows,
+  localGoAmounts,
+  hasGoReservation,
+  recordGoReservation,
+  type LocalAmounts,
+} from "./stage-c-go-local-usage.ts";
+const account = goAccount;
 const activeFile = path.join(account, "active.json");
 const holdFile = path.join(account, "hold.json");
-const windows = { rolling: 20, weekly: 50, monthly: 100 };
-export function checkGoHeadroom(usage: any, worst: number) {
+const windows = goWindows;
+export function checkGoHeadroom(
+  usage: any,
+  worst: number,
+  local: LocalAmounts = { rolling: 0, weekly: 0, monthly: 0 },
+) {
   requireThat(
     Number.isFinite(worst) &&
       worst >= 0 &&
@@ -17,7 +29,8 @@ export function checkGoHeadroom(usage: any, worst: number) {
           m?.status === "ok" &&
           Number.isFinite(m.percent) &&
           m.percent >= 0 &&
-          ((100 - Math.ceil(m.percent) - 1) * limit) / 100 >= worst
+          ((100 - Math.ceil(m.percent) - 1) * limit) / 100 >=
+            worst + local[k as keyof LocalAmounts]
         );
       }),
     "GO_INSUFFICIENT_WINDOW",
@@ -51,13 +64,13 @@ export async function closeGoFacility(root: string, freeze: string) {
     writeJSON(activeFile, { ...current, closed: true });
   });
 }
-export async function admitGoSend<T>(
+export async function admitGoSend(
   root: string,
   freeze: string,
   key: string,
   worst: number,
   transport: typeof fetch,
-  admit: () => Promise<T>,
+  admit: () => Promise<string>,
 ) {
   return lease(account, async () => {
     assertGoAvailable();
@@ -66,13 +79,18 @@ export async function admitGoSend<T>(
       !active.closed && active.freeze === freeze && active.root === root,
       "GO_FACILITY_BINDING",
     );
+    const local = localGoAmounts(root);
     const unsettled = [...ledger(root).entries.values()]
-      .filter((e) => !e.settled)
+      .filter((e) => !e.settled && !hasGoReservation(root, e.attempt.id))
       .reduce((n, e) => n + e.attempt.reserved_usd, 0);
     let usage;
     try {
       usage = await checkGoUsage(key, transport);
-      checkGoHeadroom(usage, unsettled + worst);
+      checkGoHeadroom(usage, worst, {
+        rolling: local.rolling + unsettled,
+        weekly: local.weekly + unsettled,
+        monthly: local.monthly + unsettled,
+      });
     } catch (e) {
       const reason =
         e instanceof Error ? e.message : "GO_REQUEST_ADMISSION_FAILED";
@@ -82,6 +100,8 @@ export async function admitGoSend<T>(
       );
       throw e;
     }
-    return { result: await admit(), usage, unsettled };
+    const result = await admit();
+    recordGoReservation(root, result, freeze, worst, usage);
+    return { result, usage, unsettled, local };
   });
 }

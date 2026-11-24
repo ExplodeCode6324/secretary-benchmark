@@ -1,3 +1,4 @@
+import { localGoAmounts } from "./stage-c-go-local-usage.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { Domains } from "./domain.ts";
@@ -197,7 +198,7 @@ export async function completionCommand(
             if (go) {
               assertGoAvailable();
               const usage = await publication();
-              checkGoHeadroom(usage, 0.7718592);
+              checkGoHeadroom(usage, 0.7718592, localGoAmounts(root));
             } else await publication();
           } catch (error) {
             hold =

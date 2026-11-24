@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { sha } from "../../online/benchmark/io.ts";
+import { sha, repository } from "../../online/benchmark/io.ts";
 import { gradeJSONBytes } from "../../online/benchmark/grading-transaction.ts";
 import { generateCalibration } from "../../online/benchmark/stage-b-report-calibration.ts";
 import { scoringRubric } from "../../online/benchmark/stage-c-grading.ts";
@@ -24,6 +24,26 @@ import {
   verifyGoCalibrationReference,
 } from "../../online/benchmark/stage-c-go-grading.ts";
 
+const unreflected = { rolling: 0.0111, weekly: 0.0111, monthly: 0.0111 };
+function bindFixtureMetadata(t: any) {
+  const b = {
+    stage: t.stage,
+    batch: t.batch,
+    slot: t.slot,
+    packet_sha256: t.packet_sha256,
+    query_sha256: t.input_sha256,
+    decision_sha256: t.decision_sha256,
+    go_local_unreflected_usd: t.go_local_unreflected_usd,
+    ...(t.stage === "candidate"
+      ? {
+          calibration_returned_model: t.calibration_returned_model,
+          calibration_native_at: t.calibration_native_at,
+        }
+      : {}),
+  };
+  t.binding_metadata_utf8 = JSON.stringify(b, null, 2) + "\n";
+  t.metadata_sha256 = sha(t.binding_metadata_utf8);
+}
 function fixture() {
   const rubric = scoringRubric(goReader, goVisibilityVersion),
     semantic = generateCalibration(),
@@ -89,17 +109,26 @@ function fixture() {
     batch: 4,
     created: at,
     go_usage_before: { url: p.usage_endpoint, status: 200, at, data: windows },
+    go_local_unreflected_usd: unreflected,
     go_headroom: goHeadroom(
       { url: p.usage_endpoint, status: 200, at, data: windows },
       true,
+      unreflected,
     ),
     go_catalog: {
       url: p.models_endpoint,
       status: 200,
       at,
-      data: { id: p.model, canonical_id: p.canonical_id },
+      data: {
+        id: p.model,
+        canonical_id: p.canonical_id,
+        reasoning_supported: true,
+        reasoning_efforts: ["low", "high", "max"],
+        output_token_limit: 384000,
+      },
     },
   };
+  bindFixtureMetadata(d);
   const t = {
     ...d,
     raw_sha256: sha(raw),
@@ -291,6 +320,11 @@ test("one original 28/28 source receipt authorizes two reference partitions with
 import {
   archivedGoAssessment,
   goCandidateUsage,
+  prepareGoCalibrationTemplate,
+  prepareGoCalibrationReference,
+  verifyGoCalibrationTemplate,
+  withholdGoCalibrationReference,
+  goCalibrationReportReference,
   goHeadroom,
   calibrationAgeOK,
   goGradeGate,
@@ -360,7 +394,11 @@ test("archive replays source and candidate native transports and binds two zero-
         stage: lane === "calibration" ? "calibration" : "candidate",
         batch: 4,
         slot,
-        go_headroom: goHeadroom(t.go_usage_before, lane === "calibration"),
+        go_headroom: goHeadroom(
+          t.go_usage_before,
+          lane === "calibration",
+          t.go_local_unreflected_usd,
+        ),
         ...(lane === "calibration"
           ? {}
           : {
@@ -372,6 +410,8 @@ test("archive replays source and candidate native transports and binds two zero-
         wire_bytes: Buffer.byteLength(serialized),
         wire_sha256: sha(serialized),
       });
+    for (const t of [envelope.dispatch, envelope.transport])
+      bindFixtureMetadata(t);
     envelope.transport.raw_sha256 = sha(envelope.raw);
     const r = {
       submission: answer,
@@ -565,14 +605,80 @@ test("archive replays source and candidate native transports and binds two zero-
       /REFERENCE_BINDING/,
     );
   }
+  const pending = {
+    freeze_sha256: sourceHash,
+    packet_sha256: origin.packet_sha256,
+    key_sha256: origin.key_sha256,
+    rubric_sha256: origin.rubric_sha256,
+  };
+  const later = {
+    ...freeze,
+    batch_index: 7,
+    go_continuation: {
+      source_partition: 5,
+      partition: 7,
+      pending_calibration: pending,
+    },
+  };
+  const linked = {
+    status: "PASSED",
+    kind: "REFERENCE",
+    inference_dispatches: 0,
+    origin,
+  };
+  put("calibration", "go-pending.json", pending);
+  assert.equal(
+    check(later, { ...idleResult, go_calibration_reference: linked })
+      .calibration.kind,
+    "REFERENCE",
+  );
+  for (const f of [
+    "go-origin.json",
+    "go-origin-result.json",
+    "go-origin-transport.json",
+  ])
+    files.delete("oracles/completion/calibration/" + f);
+  assert.throws(() => check(later, idleResult));
+  const failure = {
+    ...pending,
+    archive_sha256: archiveHash,
+    receipt_sha256: "9".repeat(64),
+    status: "FAILED",
+  };
+  const ref = {
+    status: "NOT_TESTED",
+    kind: "WITHHELD",
+    attempts: 0,
+    inference_dispatches: 0,
+    receipt_sha256: null,
+    source_failure: failure,
+  };
+  put("calibration", "go-withheld.json", failure);
+  const failed = check(later, {
+    ...idleResult,
+    go_calibration_reference: ref,
+  }).calibration;
+  assert.equal(failed.attempts, 0);
+  assert.deepEqual(failed.source_failure, failure);
+  assert.throws(
+    () =>
+      check(later, {
+        ...idleResult,
+        go_calibration_reference: {
+          ...ref,
+          source_failure: { ...failure, status: "PASSED" },
+        },
+      }),
+    /WITHHELD/,
+  );
 });
 
 test("Go quota ceiling, exact 24-hour reuse boundary and canonical serving ID", () => {
   const { envelope, packet, freeze, answer } = fixture(),
     before = structuredClone(envelope.transport.go_usage_before);
   before.data.rolling.percent = 97.1;
-  assert.equal(goHeadroom(before, true).admitted, true);
-  assert.equal(goHeadroom(before, false).admitted, false);
+  assert.equal(goHeadroom(before, true, unreflected).admitted, true);
+  assert.equal(goHeadroom(before, false, unreflected).admitted, false);
   const lo = "2026-11-25T01:02:03Z",
     hi = "2026-11-26T01:02:03Z";
   assert.equal(calibrationAgeOK(lo, hi), true);
@@ -580,4 +686,158 @@ test("Go quota ceiling, exact 24-hour reuse boundary and canonical serving ID", 
   assert.equal(calibrationAgeOK(hi, lo), false);
   envelope.transport.returned_model = p.canonical_id;
   assert.deepEqual(goReaderResponse(envelope, packet, freeze), answer);
+});
+
+test("stale usage snapshot subtracts each outstanding window; native balance stops scoring", () => {
+  const { envelope, freeze, packet } = fixture(),
+    w = envelope.transport.go_usage_before;
+  assert.equal(
+    goHeadroom(w, true, { rolling: 0, weekly: 49, monthly: 0 }).admitted,
+    false,
+  );
+  assert.equal(
+    goHeadroom(w, true, { rolling: 0, weekly: 0, monthly: 98 }).admitted,
+    false,
+  );
+  const near = { rolling: 19.6 - 0.2162688, weekly: 0, monthly: 0 };
+  assert.equal(goHeadroom(w, false, near).admitted, true);
+  assert.equal(
+    goHeadroom(w, false, { ...near, rolling: near.rolling + 0.00000001 })
+      .admitted,
+    false,
+  );
+  assert.throws(
+    () => goHeadroom(w, true, { rolling: 0, monthly: 0 }),
+    /LOCAL_RESERVATIONS/,
+  );
+  assert.throws(
+    () => goHeadroom(w, true, { ...unreflected, weekly: -1 }),
+    /LOCAL_RESERVATIONS/,
+  );
+  const forged = structuredClone(envelope);
+  forged.transport.go_local_unreflected_usd = { ...unreflected, weekly: 99 };
+  assert.throws(() => goReaderResponse(forged, packet, freeze), /BINDING/);
+  const billing: any = structuredClone(envelope);
+  Object.assign(billing.transport, {
+    go_billing_source: "balance",
+    go_reported_cash_usd: 0.02,
+    go_list_cost_usd: 0.03,
+    quota_stop: true,
+  });
+  assert.equal(
+    goReaderResponse(billing, packet, freeze).rejected,
+    "BALANCE_BILLING",
+  );
+  const metering = goMetering(billing.transport);
+  assert.equal(metering.charged_usd, null);
+  assert.equal(metering.reported_cash_usd, 0.02);
+  assert.equal(metering.list_cost_usd, 0.03);
+  billing.transport.quota_stop = false;
+  assert.throws(
+    () => goReaderResponse(billing, packet, freeze),
+    /BALANCE_BILLING_HOLD/,
+  );
+  billing.transport.go_catalog.data.output_token_limit = 49151;
+  assert.throws(() => goReaderResponse(billing, packet, freeze), /BINDING/);
+});
+
+test("deferred template survives workload freeze and is bound once after a real source result", async () => {
+  const { packet, key, freeze, answer, envelope } = fixture(),
+    b = gradeJSONBytes(packet),
+    k = gradeJSONBytes(key);
+  const pending = {
+    freeze_sha256: freeze,
+    packet_sha256: sha(b),
+    key_sha256: sha(k),
+    rubric_sha256: sha(gradeJSONBytes(packet.rubric)),
+  };
+  const receipt = {
+    status: "PASSED",
+    submission: answer,
+    reader_evidence: envelope,
+    reader_query_sha256: sha(admittedReaderQuery(packet)),
+    response_sha256: sha(gradeJSONBytes(answer)),
+  };
+  const rb = gradeJSONBytes(receipt),
+    tb = gradeJSONBytes(envelope.transport),
+    origin = {
+      ...pending,
+      archive_sha256: "6".repeat(64),
+      receipt_sha256: sha(rb),
+      transport_sha256: sha(tb),
+    };
+  const inputs = {
+    go_continuation: {
+      source_partition: 5,
+      partition: 6,
+      pending_calibration: pending,
+    },
+  };
+  const base = path.join(
+      repository,
+      ".local/benchmark/tests",
+      "go-deferred-" + randomUUID(),
+    ),
+    root = path.join(base, "passed"),
+    failed = path.join(base, "failed");
+  const src = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "go-source-fixture-")),
+  );
+  try {
+    for (const [name, data] of [
+      ["blind.json", b],
+      ["key.json", k],
+      ["attempt-1-result.json", rb],
+      ["a-transport.json", tb],
+    ] as const)
+      fs.writeFileSync(path.join(src, name), data, { mode: 0o600 });
+    for (const f of [root, failed]) {
+      const initial = await prepareGoCalibrationTemplate(f, b, k, pending);
+      assert.equal(initial.kind, "PENDING");
+      assert.deepEqual(verifyGoCalibrationTemplate(f, inputs), initial);
+      assert.throws(
+        () => verifyGoCalibrationReference(f, inputs),
+        /PENDING_OR_WITHHELD/,
+      );
+    }
+    const proof = await prepareGoCalibrationReference(root, src, origin);
+    assert.deepEqual(
+      await prepareGoCalibrationReference(root, src, origin),
+      proof,
+    );
+    assert.deepEqual(verifyGoCalibrationReference(root, inputs), proof);
+    assert.equal(
+      fs.existsSync(
+        path.join(root, "oracles/completion/calibration/attempt-1.json"),
+      ),
+      false,
+    );
+    const failure = {
+      ...pending,
+      archive_sha256: "3".repeat(64),
+      receipt_sha256: "4".repeat(64),
+      status: "MECHANICAL",
+    };
+    await assert.rejects(
+      () => withholdGoCalibrationReference(root, inputs, failure),
+      /WITHHELD_CONFLICT/,
+    );
+    const withheld = await withholdGoCalibrationReference(
+      failed,
+      inputs,
+      failure,
+    );
+    assert.deepEqual(goCalibrationReportReference(failed, inputs), withheld);
+    assert.throws(
+      () => verifyGoCalibrationReference(failed, inputs),
+      /PENDING_OR_WITHHELD/,
+    );
+    await assert.rejects(
+      () => prepareGoCalibrationReference(failed, src, origin),
+      /REFERENCE_CONFLICT/,
+    );
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+    fs.rmSync(src, { recursive: true, force: true });
+  }
 });

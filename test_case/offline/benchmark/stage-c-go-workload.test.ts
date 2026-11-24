@@ -95,7 +95,48 @@ test("Go requires headroom in every window and retains a disputed tariff interva
   });
   assert.deepEqual(m.receipt, {
     reported_cost: 0.002,
+    cash_debit_usd: null,
+    list_cost: null,
+    billing_source: null,
     allowance: { base: 1 },
     identity: { provider: "mock" },
   });
+});
+
+test("account admission retains locally settled usage until the individual window ends", async () => {
+  const { recordGoReservation, settleGoReservation, localGoAmounts } =
+    await import("../../online/benchmark/stage-c-go-local-usage.ts");
+  const { repository } = await import("../../online/benchmark/io.ts");
+  const path = await import("node:path"),
+    fs = await import("node:fs"),
+    { randomUUID } = await import("node:crypto");
+  const root = path.join(repository, ".local/benchmark/tests", randomUUID()),
+    t = Date.now();
+  try {
+    const usage = {
+      rolling: { resetsAt: new Date(t + 3600000).toISOString() },
+      weekly: { resetsAt: new Date(t + 7200000).toISOString() },
+      monthly: { resetsAt: new Date(t + 10800000).toISOString() },
+    };
+    recordGoReservation(root, "one", "freeze", 0.7, usage);
+    assert.deepEqual(localGoAmounts(root, t), {
+      rolling: 0.7,
+      weekly: 0.7,
+      monthly: 0.7,
+    });
+    settleGoReservation(root, "one", 0.05);
+    assert.deepEqual(localGoAmounts(root, t + 3600001), {
+      rolling: 0,
+      weekly: 0.05,
+      monthly: 0.05,
+    });
+    const full = {
+      rolling: { status: "ok", percent: 98 },
+      weekly: { status: "ok", percent: 0 },
+      monthly: { status: "ok", percent: 0 },
+    };
+    assert.throws(() => checkGoHeadroom(full, 0.18, localGoAmounts(root, t)));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

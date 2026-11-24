@@ -421,6 +421,14 @@ export function meteredFetch(
         payload.model === model.id && payload.stream === true,
         "PROVIDER_MODEL_PROTOCOL_MISMATCH",
       );
+      if (options.route)
+        requireThat(
+          payload.thinking?.type === "enabled" &&
+            payload.reasoning_effort === "low" &&
+            !!request.headers.get("x-opencode-session") &&
+            request.headers.get("user-agent") === "secretary-pi-demo/0.2",
+          "GO_ROLE_SETTINGS_CHANGED",
+        );
       phase = "EPISODE_SEND_LIMIT";
       requireThat(++sends <= options.maxSends, "EPISODE_SEND_LIMIT");
       const maxOutput =
@@ -552,6 +560,7 @@ export function meteredFetch(
           ? {
               go_usage_before: goAdmission.usage,
               unsettled_tariff_usd: goAdmission.unsettled,
+              local_unreflected_usd: goAdmission.local,
             }
           : {}),
         attribution: attribution.getStore() ?? { role: "component-or-probe" },
@@ -680,6 +689,14 @@ export function meteredFetch(
             const data = JSON.parse(line.slice(6));
             identity.observe(data);
             goMeter?.observe(data);
+            if (
+              goMeter &&
+              (["balance", "byok"].includes(
+                goMeter.receipt.billing_source ?? "",
+              ) ||
+                (goMeter.receipt.cash_debit_usd ?? 0) > 0)
+            )
+              holdGo(options.stageFreeze!, "GO_UNEXPECTED_BILLING_SOURCE");
             if (
               options.route &&
               options.lane === "r1-C04-nonexistent--deepseek-flash"

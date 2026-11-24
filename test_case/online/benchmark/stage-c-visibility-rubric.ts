@@ -36,6 +36,12 @@ export const goReaderPolicy = {
   billing_basis: "opencode_go_subscription_allowance",
   pricing_source: "https://opencode.ai/docs/console/go/",
   calibrated_controls: 28,
+  capability_sources: {
+    catalog: "https://opencode.ai/docs/console/api/models",
+    thinking_protocol: "https://api-docs.deepseek.com/guides/thinking_mode/",
+    reported_cost: "https://opencode.ai/docs/console/api/inference/",
+  },
+  local_unreflected_usage: "REQUIRED_PER_WINDOW_EXCLUDING_CURRENT_REQUEST",
   capacity_usd_equivalent: { rolling: 20, weekly: 50, monthly: 100 },
   request_ceiling_usd_equivalent: {
     calibration: 0.0688128,

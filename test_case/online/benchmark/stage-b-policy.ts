@@ -503,7 +503,20 @@ export function measuredEstimate(
       rule.route === "opencode-go"
         ? usage.prompt_tokens_details?.cached_tokens
         : undefined;
-    const hits = nativeHits ?? goHits;
+    const goTokens =
+      rule.route === "opencode-go" ? usage.opencode?.tokens : undefined;
+    const nativeGoCache =
+      goTokens &&
+      tokens(goTokens.input) &&
+      tokens(goTokens.cache_read) &&
+      goTokens.input + goTokens.cache_read === input &&
+      !goTokens.cache_write_5m &&
+      !goTokens.cache_write_1h &&
+      goTokens.output === output
+        ? goTokens.cache_read
+        : undefined;
+    const hits = nativeHits ?? goHits ?? nativeGoCache;
+    if (nativeGoCache !== undefined && nativeGoCache !== hits) return null;
     if (
       nativeHits !== undefined &&
       goHits !== undefined &&

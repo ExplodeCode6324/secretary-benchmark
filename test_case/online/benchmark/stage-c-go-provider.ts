@@ -183,8 +183,18 @@ export function goResponseMeter() {
   const receipt: {
     allowance: unknown;
     reported_cost: unknown;
+    list_cost: number | null;
+    cash_debit_usd: number | null;
+    billing_source: string | null;
     identity: Record<string, string>;
-  } = { allowance: null, reported_cost: null, identity: {} };
+  } = {
+    allowance: null,
+    reported_cost: null,
+    list_cost: null,
+    cash_debit_usd: null,
+    billing_source: null,
+    identity: {},
+  };
   function amount(v: unknown): boolean {
     return (
       (typeof v === "number" && Number.isFinite(v) && v >= 0) ||
@@ -196,8 +206,17 @@ export function goResponseMeter() {
   return {
     receipt,
     observe(frame: any) {
+      if (amount(frame.usage?.cost))
+        receipt.cash_debit_usd = Number(frame.usage.cost);
       for (const data of [frame?.opencode, frame?.usage?.opencode]) {
         if (!data || typeof data !== "object") continue;
+        if (amount(data.list_cost)) receipt.list_cost = Number(data.list_cost);
+        if (
+          ["free", "balance", "go", "go-plus", "go-teams", "byok"].includes(
+            data.billing_source,
+          )
+        )
+          receipt.billing_source = data.billing_source;
         if (amount(data.cost)) receipt.reported_cost = data.cost;
         if (amount(data.allowance)) receipt.allowance = data.allowance;
         else if (data.allowance && typeof data.allowance === "object")

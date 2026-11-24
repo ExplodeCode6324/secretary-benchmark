@@ -25,6 +25,10 @@ export type GoContinuation = {
   prior_archives: Record<string, string>;
   source_partition: 5 | 7;
   partition: 5 | 6 | 7;
+  pending_calibration?: Pick<
+    GoCalibrationOrigin,
+    "freeze_sha256" | "packet_sha256" | "key_sha256" | "rubric_sha256"
+  >;
   calibration_origin?: GoCalibrationOrigin;
   calibration_withheld?: true;
 };
@@ -37,6 +41,8 @@ export function goDecision(scope: GoContinuation["scope"], s: RemainingSeries) {
     checkpoint_policy: "RETAIN_CURRENT",
     quota_admission: "PER_REQUEST_20_50_100_USD_EQUIVALENT_ONE_PERCENT_MARGIN",
     calibration_valid_hours: 24,
+    calibration_starts_after: "ALL_GO_WORKLOADS_TERMINAL",
+    local_meter_lag: "INCLUDE_EACH_LOCAL_SEND_UNTIL_WINDOW_RESET",
     trajectories: scope,
     scope: "all-zero-send-and-two-402",
     supplement_calls: 10620,
@@ -74,11 +80,21 @@ export function selectGoBatch(
         6: beforeGo[6].archive,
       }) &&
       sha(JSON.stringify(decision)) === g.decision_sha256 &&
+      !g.calibration_origin &&
+      !g.calibration_withheld &&
       (index === g.source_partition
-        ? !g.calibration_origin && !g.calibration_withheld
-        : Number(Boolean(g.calibration_origin)) +
-            Number(g.calibration_withheld === true) ===
-          1),
+        ? !g.pending_calibration
+        : g.pending_calibration &&
+          [
+            "freeze_sha256",
+            "packet_sha256",
+            "key_sha256",
+            "rubric_sha256",
+          ].every((k) =>
+            /^[a-f0-9]{64}$/.test(
+              (g.pending_calibration as Record<string, string>)[k],
+            ),
+          )),
     "STAGE_C_GO_SCOPE",
   );
   const batch = batches[index - 1];

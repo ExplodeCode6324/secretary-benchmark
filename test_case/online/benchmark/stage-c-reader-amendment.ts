@@ -75,8 +75,36 @@ export function amendedFirstAssessment(
       cal.attempts <= 3,
     "STAGE_C_ARCHIVED_AMENDED_CONTROLS",
   );
-  if (cal.status !== "MECHANICAL") {
-    const submission = get("calibration-receipt.json"),
+  const transport = get("calibration-transport.json"),
+    receipt = get("calibration-receipt.json");
+  requireThat(
+    cal.transport_sha256 === entryHash(base + "calibration-transport.json") &&
+      transport.model === decision.judge.model &&
+      transport.provider === decision.judge.provider &&
+      transport.reasoning_effort === decision.wire_effort &&
+      transport.input_sha256 === decision.calibration_query_sha256 &&
+      transport.input_sha256 === entryHash(base + "calibration-query.txt") &&
+      transport.inference_dispatches === 1 &&
+      transport.tools === 0 &&
+      transport.fallback === false,
+    "STAGE_C_ARCHIVED_READER_TRANSPORT",
+  );
+  if (cal.status === "MECHANICAL") {
+    requireThat(
+      !assessment.candidate &&
+        assessment.candidate_dispatches === 0 &&
+        receipt.kind === "MECHANICAL" &&
+        receipt.packet_sha256 === cal.packet_sha256 &&
+        receipt.transport_sha256 === cal.transport_sha256 &&
+        receipt.mechanical === "TRUNCATED_RESPONSE" &&
+        transport.finish_reason === "length" &&
+        transport.usage?.completion_tokens === transport.max_tokens &&
+        transport.usage?.completion_tokens_details?.reasoning_tokens ===
+          transport.max_tokens,
+      "STAGE_C_ARCHIVED_TRUNCATED_CALIBRATION",
+    );
+  } else {
+    const submission = receipt,
       key = exported(
         "reader-deepseek-v1/private-key.json",
         "oracles/completion/calibration/key.json",
@@ -153,6 +181,7 @@ export function amendedFirstAssessment(
       version: rubric.version,
       rubric_sha256: decision.rubric_sha256,
       packet_sha256: cal.packet_sha256,
+      max_attempts: decision.attempt_limit_per_packet,
     },
     assessment_amendment: decisionHash,
   };

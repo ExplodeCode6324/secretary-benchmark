@@ -73,10 +73,10 @@ export function archivedBatch(
   const attempt = reservations.length;
   const last = prefix + "attempt-" + attempt + "-result.json";
   const entry = entries.get(last);
-  const result = entry ? exported("calibration-result.json", last) : undefined;
+  const calibrationResult = entry ? exported("calibration-result.json", last) : undefined;
   const calibration = {
     attempts: attempt,
-    status: result?.status ?? (attempt ? "RESERVED" : "NOT_TESTED"),
+    status: calibrationResult?.status ?? (attempt ? "RESERVED" : "NOT_TESTED"),
     receipt_sha256: entry?.sha256 ?? null,
     packet_sha256: freeze.grade.packet_sha256,
   };

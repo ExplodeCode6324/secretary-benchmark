@@ -8,6 +8,7 @@ export const goResidualSource = {
   dispatch: "fde48c7e6727c89bbec5c33f9353c4d5381237088f62361da26a71709c2490db",
   manifest: "d634b96459531684f3789e588b4de2f657a1266ef44a88b82fa88c283d2d2068",
   ledger: "cf001036622f73d15b384d570ca5bd58b595e51d20637e8b6c3569098bb8b051",
+  replay: "30216e18e1cfd38f1d00d51def3478ae13d9e27bb1ccd9ef928b99a97b88c644",
   partition: 5,
   lanes: [
     "r2-C07-cancelled--deepseek-flash",
@@ -29,6 +30,7 @@ export function checkGoResidualFiles(root: string) {
     dispatch: "stage-c-dispatch.json",
     manifest: "manifest.json",
     ledger: "attempts.jsonl",
+    replay: "go-first-contact-replay.json",
   } as const;
   for (const key of Object.keys(files) as (keyof typeof files)[]) {
     requireThat(

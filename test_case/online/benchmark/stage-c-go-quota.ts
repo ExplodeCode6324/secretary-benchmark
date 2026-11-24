@@ -1,6 +1,7 @@
+import { goResidualSource } from "./stage-c-go-residual.ts";
 import fs from "node:fs";
 import path from "node:path";
-import { lease, readJSON, requireThat, repository, writeJSON } from "./io.ts";
+import { lease, read, readJSON, requireThat, sha, writeJSON } from "./io.ts";
 import { checkGoUsage } from "./stage-c-go-provider.ts";
 import { ledger } from "./campaign.ts";
 import {
@@ -56,20 +57,35 @@ export async function claimGoFacility(
       "GO_OTHER_FACILITY_ACTIVE",
     );
     if (residualSource) {
-      const claim = path.join(
-        account,
-        "residual-claims",
-        residualSource + ".json",
+      requireThat(
+        residualSource === goResidualSource.freeze,
+        "GO_RESIDUAL_PARENT_CHANGED",
       );
-      if (fs.existsSync(claim)) {
-        const prior = readJSON(claim);
-        requireThat(
-          prior.root === root && prior.freeze === freeze,
-          "GO_RESIDUAL_ALREADY_CLAIMED",
+      for (const lane of goResidualSource.lanes) {
+        const claim = path.join(
+          account,
+          "residual-claims",
+          residualSource,
+          lane + ".json",
         );
-      } else writeJSON(claim, { root, freeze });
+        if (fs.existsSync(claim)) {
+          const prev = readJSON(claim);
+          requireThat(
+            prev.root === root &&
+              prev.freeze === freeze &&
+              prev.lane === lane &&
+              prev.parent === residualSource,
+            "GO_RESIDUAL_ALREADY_CLAIMED",
+          );
+        } else writeJSON(claim, { root, freeze, lane, parent: residualSource });
+      }
     }
-    writeJSON(activeFile, { root, freeze, closed: false });
+    writeJSON(activeFile, {
+      root,
+      freeze,
+      closed: false,
+      ...(residualSource ? { residual_source: residualSource } : {}),
+    });
   });
 }
 export async function closeGoFacility(root: string, freeze: string) {
@@ -97,6 +113,35 @@ export async function admitGoSend(
       !active.closed && active.freeze === freeze && active.root === root,
       "GO_FACILITY_BINDING",
     );
+    if (active.residual_source) {
+      const frozen = read(path.join(root, "configs/stage-c-freeze.json"));
+      const lane = readJSON(path.join(root, "campaign/active-stage-c.json"));
+      requireThat(
+        sha(frozen) === freeze &&
+          JSON.parse(frozen.toString()).go_continuation.residual.freeze ===
+            goResidualSource.freeze &&
+          active.residual_source === goResidualSource.freeze &&
+          lane.state === "OPEN" &&
+          lane.freeze_sha256 === freeze &&
+          goResidualSource.lanes.includes(lane.lane),
+        "GO_RESIDUAL_SEND_BINDING",
+      );
+      const claim = readJSON(
+        path.join(
+          account,
+          "residual-claims",
+          goResidualSource.freeze,
+          lane.lane + ".json",
+        ),
+      );
+      requireThat(
+        claim.root === root &&
+          claim.freeze === freeze &&
+          claim.parent === goResidualSource.freeze &&
+          claim.lane === lane.lane,
+        "GO_RESIDUAL_SEND_CLAIM",
+      );
+    }
     const local = localGoAmounts(root);
     const unsettled = [...ledger(root).entries.values()]
       .filter((e) => !e.settled && !hasGoReservation(root, e.attempt.id))

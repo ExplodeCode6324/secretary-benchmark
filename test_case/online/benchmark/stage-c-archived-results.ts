@@ -72,6 +72,7 @@ export function archivedBatch(
       ["stage-c-dispatch.json", goResidualSource.dispatch],
       ["manifest.json", goResidualSource.manifest],
       ["attempts.jsonl", goResidualSource.ledger],
+      ["go-first-contact-replay.json", goResidualSource.replay],
     ])
       requireThat(
         entries.get("inputs/go-residual-parent/" + name)?.sha256 === expected,

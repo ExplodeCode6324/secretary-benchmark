@@ -102,7 +102,9 @@ export function targetedResult(
         );
         requireThat(
           "official" in replay &&
-            isDeepStrictEqual(replay, original.assessment) &&
+            gradeJSONBytes(replay).equals(
+              gradeJSONBytes(original.assessment),
+            ) &&
             sha(gradeJSONBytes(replay.official)) === row.official_sha256 &&
             sha(gradeJSONBytes(replay.supplemental)) ===
               row.supplemental_sha256 &&

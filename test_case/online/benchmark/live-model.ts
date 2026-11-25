@@ -5,6 +5,7 @@ import {
   goVersion,
   goTariff,
   goResponseMeter,
+  targetedBillingHold,
 } from "./stage-c-go-provider.ts";
 import { snapshot } from "./snapshot.ts";
 import { readJSON } from "./io.ts";
@@ -597,6 +598,8 @@ export function meteredFetch(
           new Request(request, { redirect: "error", signal }),
         );
       } catch (error) {
+        if (goAdmission?.targeted)
+          holdGo(options.stageFreeze!, "GO_TARGETED_TRANSPORT_UNCERTAIN");
         await settle(
           options.root,
           id,
@@ -795,6 +798,13 @@ export function meteredFetch(
         }
       };
       const commitSettlement = async (outcome: string) => {
+        if (goAdmission?.targeted && goMeter) {
+          const reason = targetedBillingHold(
+            goMeter.receipt,
+            completed && outcome === "RESPONSE_COMPLETE",
+          );
+          if (reason) holdGo(options.stageFreeze!, reason);
+        }
         if (
           firstEcho &&
           !tierChanged &&

@@ -235,3 +235,18 @@ export function goResponseMeter() {
     },
   };
 }
+
+export function targetedBillingHold(
+  receipt: ReturnType<typeof goResponseMeter>["receipt"],
+  complete: boolean,
+) {
+  if (!complete) return "GO_TARGETED_TRANSPORT_UNCERTAIN";
+  if (
+    !["free", "go", "go-plus", "go-teams"].includes(
+      receipt.billing_source ?? "",
+    ) ||
+    receipt.cash_debit_usd !== 0
+  )
+    return "GO_UNCONFIRMED_SUBSCRIPTION_BILLING";
+  return null;
+}

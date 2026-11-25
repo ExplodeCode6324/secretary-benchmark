@@ -215,6 +215,6 @@ export async function admitGoSend(
     }
     const result = await admit();
     recordGoReservation(root, result, freeze, worst, usage);
-    return { result, usage, unsettled, local };
+    return { result, usage, unsettled, local, targeted };
   });
 }

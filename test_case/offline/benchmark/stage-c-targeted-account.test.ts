@@ -93,3 +93,26 @@ test("an open workload lane must be one of the two approved names and belong to 
     assert.throws(() => checkTargetedSend(r, freeze), /LANE/);
   }
 });
+
+test("an incomplete Go response or unconfirmed subscription billing stops the supplement", async () => {
+  const { goResponseMeter, targetedBillingHold } =
+    await import("../../online/benchmark/stage-c-go-provider.ts");
+  const meter = goResponseMeter();
+  assert.equal(
+    targetedBillingHold(meter.receipt, true),
+    "GO_UNCONFIRMED_SUBSCRIPTION_BILLING",
+  );
+  meter.observe({
+    usage: { cost: 0, opencode: { billing_source: "go", list_cost: 0.004 } },
+  });
+  assert.equal(targetedBillingHold(meter.receipt, true), null);
+  assert.equal(
+    targetedBillingHold(meter.receipt, false),
+    "GO_TARGETED_TRANSPORT_UNCERTAIN",
+  );
+  meter.observe({ usage: { cost: 0.01 } });
+  assert.equal(
+    targetedBillingHold(meter.receipt, true),
+    "GO_UNCONFIRMED_SUBSCRIPTION_BILLING",
+  );
+});

@@ -102,20 +102,32 @@ export function targetedWorkloadResult(
     sha(raw) === terminal.report_sha256 &&
       trial.run === terminal.run &&
       trial.descriptor.scenario === scenario &&
-      trial.evidence_class === "LIVE",
+      trial.evidence_class === "LIVE" &&
+      trial.physical_provider_sends === attempts.length &&
+      attempts.every((e) => e.attempt.run === terminal.run),
     "TARGETED_SEALED_TRIAL",
   );
   const obs = trial.observations.find(
     (o: any) => o.physical && o.run === terminal.run,
   );
-  if (!obs) {
+  const hasResponse = attempts.some(
+    (e) =>
+      e.settled &&
+      e.outcome === "RESPONSE_COMPLETE" &&
+      (e.usage as { response_complete?: boolean; route?: string } | null)
+        ?.response_complete === true &&
+      (e.usage as { route?: string } | null)?.route === "opencode-go",
+  );
+  if (!obs || !hasResponse) {
     requireThat(!semanticGrades, "TARGETED_UNBOUND_GRADE");
     return {
       ...base,
       assertions,
       gate,
       verdict,
-      gaps: ["NO_PHYSICAL_OBSERVATION"],
+      gaps: [
+        obs ? "NO_COMPLETED_PROVIDER_RESPONSE" : "NO_PHYSICAL_OBSERVATION",
+      ],
       mechanical,
       pending_proposals: pendingProposals,
     };

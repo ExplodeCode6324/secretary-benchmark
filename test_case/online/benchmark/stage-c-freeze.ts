@@ -1,4 +1,10 @@
 import {
+  targetedWorkload,
+  targetedLanes,
+  checkTargetedInputs,
+} from "./stage-c-targeted-policy.ts";
+import { nativeWriteRecipe } from "./stage-c-fault.ts";
+import {
   checkGoResidualFiles,
   residualDefinition,
 } from "./stage-c-go-residual.ts";
@@ -62,6 +68,7 @@ export type Preflight = {
   c16_dedicated_batch?: true;
   remaining_series?: RemainingSeries;
   go_continuation?: GoContinuation;
+  targeted_supplement?: typeof targetedWorkload;
   first_contact?: {
     ledger_sha256: string;
     first_bytes: number;
@@ -231,12 +238,26 @@ export function projectCampaign(
         pending.rubric_sha256 === grade.rubric_sha256),
     "GO_PENDING_TEMPLATE_BINDING",
   );
-  const go = Boolean(inputs.go_continuation);
+  const supplement = inputs.targeted_supplement;
+  if (supplement) {
+    checkTargetedInputs(supplement);
+    requireThat(
+      !inputs.go_continuation &&
+        !inputs.remaining_series &&
+        inputs.c16_dedicated_batch &&
+        !rehearsal &&
+        models.length === 1,
+      "TARGETED_WORKLOAD_SCOPE",
+    );
+  }
+  const go = Boolean(inputs.go_continuation || supplement);
   requireThat(
     go === (providers["deepseek-flash"]?.route === "opencode-go") &&
       go === (grade.version === goVisibilityVersion) &&
       (!go ||
-        (inputs.remaining_series && inputs.c16_dedicated_batch && !rehearsal)),
+        ((inputs.remaining_series || supplement) &&
+          inputs.c16_dedicated_batch &&
+          !rehearsal)),
     "STAGE_C_GO_FREEZE_BINDING",
   );
   const transport = go ? goReaderPolicy : readerPolicy;
@@ -259,6 +280,7 @@ export function projectCampaign(
     (c) =>
       c.status === "READY_FOR_OFFLINE_VALIDATION" &&
       c.pair?.position !== "B" &&
+      (!supplement || targetedLanes.some((l) => l.scenario === c.id)) &&
       (!rehearsal ||
         (inputs.rehearsal_scenario
           ? c.id === inputs.rehearsal_scenario
@@ -286,8 +308,21 @@ export function projectCampaign(
                 bytes_each: plan.bytes_each,
               }
             : undefined;
-      for (let repeat = 1; repeat <= (rehearsal ? 1 : 3); repeat++) {
-        const spec = describeTrial(c.id, repeat, model, "BASELINE", recipe);
+      for (
+        let repeat = 1;
+        repeat <= (rehearsal || supplement ? 1 : 3);
+        repeat++
+      ) {
+        const taskRecipe =
+          supplement && c.id === "C12b" ? nativeWriteRecipe : undefined;
+        const spec = describeTrial(
+          c.id,
+          repeat,
+          model,
+          "BASELINE",
+          recipe,
+          taskRecipe,
+        );
         const b =
           c.pair &&
           stageCases().find(
@@ -430,6 +465,8 @@ export function projectCampaign(
           model,
         };
         lanes.push({
+          ...(supplement ? { targeted_supplement: true as const } : {}),
+          ...(taskRecipe ? { task_recipe: taskRecipe } : {}),
           rehearsal,
           lane,
           recipe,
@@ -497,7 +534,26 @@ export function projectCampaign(
   const dedicated = inputs.c16_dedicated_batch
     ? lanes.filter((r) => r.lane.scenario === "C16-combined")
     : [];
-  if (inputs.c16_dedicated_batch) {
+  if (supplement) {
+    requireThat(
+      lanes.length === 2 &&
+        lanes.every((row) => {
+          const bound = targetedLanes.find(
+            (l) => l.scenario === row.lane.scenario,
+          );
+          return (
+            bound &&
+            row.lane.seed === bound.seed &&
+            row.lane.profile === bound.profile &&
+            row.lane.repeat === 1 &&
+            row.lane.cap <= bound.cap &&
+            row.lane.seconds <= bound.seconds
+          );
+        }),
+      "TARGETED_PROJECTED_LANES",
+    );
+    batches.push(lanes);
+  } else if (inputs.c16_dedicated_batch) {
     requireThat(
       !rehearsal &&
         firstContact &&
@@ -510,7 +566,7 @@ export function projectCampaign(
   }
   let cost = firstContact ? 43200 : 0;
   for (const row of lanes) {
-    if (row === firstContact || dedicated.includes(row)) continue;
+    if (supplement || row === firstContact || dedicated.includes(row)) continue;
     if (!batches.length || cost + row.lane.seconds > 43200) {
       batches.push([]);
       cost = 0;
@@ -531,7 +587,9 @@ export function projectCampaign(
       ),
     "STAGE_C_READER_TIMING",
   );
-  const observationCount = lanes.length + lanes.filter((l) => l.pair).length;
+  const observationCount = supplement
+    ? 4
+    : lanes.length + lanes.filter((l) => l.pair).length;
   const expectedReader =
     batches.length * timing.calibration.median_seconds +
     observationCount * timing.batch.median_seconds;
@@ -576,7 +634,14 @@ export function projectCampaign(
     },
     models,
     estimated_lineages: lanes.length,
-    candidate_observations: lanes.length + lanes.filter((l) => l.pair).length,
+    candidate_observations: observationCount,
+    ...(supplement
+      ? {
+          archived_reader_only: 2,
+          workload_equivalent_cap: supplement.workload_equivalent_cap,
+          reader_equivalent_cap: supplement.reader_equivalent_cap,
+        }
+      : {}),
     scheduled_seconds: lanes.reduce((s, l) => s + l.lane.seconds, 0),
     maximum_physical_requests: lanes.reduce((s, l) => s + l.lane.cap, 0),
     expected_usd_at_peak_rates: lanes.reduce(
@@ -662,6 +727,8 @@ export function loadCompletion(root: string, hash: string, approval: string) {
       inputs.models[0] === primaryModels[0],
     "STAGE_C_INPUT_CHANGED",
   );
+  if (inputs.targeted_supplement)
+    checkTargetedInputs(inputs.targeted_supplement, root);
   const residual = residualDefinition(inputs.go_continuation);
   if (residual) checkGoResidualFiles(root, residual);
   const rule = frozenProvider(root, inputs, frozen.checked_at);
@@ -691,8 +758,10 @@ export function loadCompletion(root: string, hash: string, approval: string) {
     "STAGE_C_PROJECTION_CHANGED",
   );
   requireThat(
-    JSON.stringify(inputs.go_continuation) ===
-      JSON.stringify(frozen.go_continuation) &&
+    JSON.stringify(inputs.targeted_supplement) ===
+      JSON.stringify(frozen.targeted_supplement) &&
+      JSON.stringify(inputs.go_continuation) ===
+        JSON.stringify(frozen.go_continuation) &&
       JSON.stringify(inputs.remaining_series) ===
         JSON.stringify(frozen.remaining_series),
     "STAGE_C_SERIES_BINDING",
@@ -710,6 +779,7 @@ export function loadCompletion(root: string, hash: string, approval: string) {
   }
   if (
     inputs.c16_dedicated_batch &&
+    !inputs.targeted_supplement &&
     (!inputs.remaining_series || frozen.batch_index === 2)
   )
     validateC16Limits(frozen.batch_index, frozen.batch, projection);
@@ -727,7 +797,9 @@ export function loadCompletion(root: string, hash: string, approval: string) {
 function roleSettings(inputs: Preflight) {
   const model = descriptor(
     "deepseek-flash",
-    inputs.go_continuation ? "opencode-go" : undefined,
+    inputs.go_continuation || inputs.targeted_supplement
+      ? "opencode-go"
+      : undefined,
   );
   return {
     main: model.id,
@@ -735,12 +807,14 @@ function roleSettings(inputs: Preflight) {
     provider: model.provider,
     api: model.api,
     base_url: model.baseUrl,
-    ...(inputs.go_continuation
+    ...(inputs.go_continuation || inputs.targeted_supplement
       ? {
           thinking_type: "enabled",
           reasoning_effort: "low",
           session_header: "x-opencode-session",
-          first_contact_lane: "r1-C04-nonexistent--deepseek-flash",
+          ...(inputs.targeted_supplement
+            ? {}
+            : { first_contact_lane: "r1-C04-nonexistent--deepseek-flash" }),
         }
       : {}),
     effective_limits_by_profile: inputs.capacities.map((c) => ({
@@ -772,7 +846,7 @@ function selected(batches: FrozenBatch[], inputs: Preflight, index: number) {
 }
 function frozenProvider(root: string, inputs: Preflight, checked: string) {
   const dir = path.join(root, "inputs/official");
-  return inputs.go_continuation
+  return inputs.go_continuation || inputs.targeted_supplement
     ? goModelRule(readJSON(path.join(dir, "go-model.json")), checked)
     : flashRule(read(path.join(dir, "flash-pricing.md")), checked);
 }
@@ -802,6 +876,8 @@ export function freezeBatch(root: string, index: number, checked: string) {
       inputs.models[0] === "deepseek-flash",
     "STAGE_C_CURRENT_FLASH_SOURCE_REQUIRED",
   );
+  if (inputs.targeted_supplement)
+    checkTargetedInputs(inputs.targeted_supplement, root);
   const residual = residualDefinition(inputs.go_continuation);
   if (residual) checkGoResidualFiles(root, residual);
   const providers = {
@@ -812,7 +888,11 @@ export function freezeBatch(root: string, index: number, checked: string) {
   requireThat(batch, "STAGE_C_BATCH_INDEX");
   if (inputs.remaining_series)
     validateSeries(inputs.remaining_series, index, projection.batches);
-  if (inputs.c16_dedicated_batch && (!inputs.remaining_series || index === 2))
+  if (
+    inputs.c16_dedicated_batch &&
+    !inputs.targeted_supplement &&
+    (!inputs.remaining_series || index === 2)
+  )
     validateC16Limits(index, batch, projection);
   const document = {
     schema: "issue122-completion-freeze-v1",
@@ -822,6 +902,9 @@ export function freezeBatch(root: string, index: number, checked: string) {
       ? { remaining_series: inputs.remaining_series }
       : {}),
     checked_at: checked,
+    ...(inputs.targeted_supplement
+      ? { targeted_supplement: inputs.targeted_supplement }
+      : {}),
     ...(inputs.go_continuation
       ? { go_continuation: inputs.go_continuation }
       : {}),

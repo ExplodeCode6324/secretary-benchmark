@@ -65,6 +65,11 @@ export async function completionCommand(
                 )
             : fetch,
         );
+  // A supplemental freeze may be projected before its account carry-forward has been installed.
+  requireThat(
+    !inputs.targeted_supplement,
+    "TARGETED_ACCOUNT_ADMISSION_PENDING",
+  );
   const go = inputs.go_continuation;
   const contact = "r1-C04-nonexistent--deepseek-flash";
   if (mode === "first-contact")
@@ -231,6 +236,7 @@ export async function completionCommand(
           l.model,
           "BASELINE",
           row.recipe,
+          row.task_recipe,
         );
         requireThat(
           inputs.models.includes(l.model) &&

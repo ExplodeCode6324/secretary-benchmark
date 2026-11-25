@@ -328,6 +328,33 @@ export function blockedTargetedResult(facility: string, receiptPath: string) {
       uncertain[0].actual_usd === null,
     "TARGETED_PREACTIVATION_SETTLEMENT",
   );
+  const last = uncertain[0];
+  const observedSHA =
+    "cfdd1a05e30dbc3d82182c924ed06a89d508c5b2ed5ce6d8b1e46b32d82a1819";
+  const observed = json(
+    path.join(facility, "evidence", last.attempt.run, "observed.json"),
+    observedSHA,
+  );
+  const session = observed.sessions.find(
+    (s: { id: string }) => s.id === observed.session_id,
+  );
+  requireThat(
+    last === entries.at(-1) &&
+      last.attempt.lane === summary.workloads[0].lane &&
+      session?.state === "RECOVERY_BLOCKED" &&
+      last.settled_at && session.updated_at > last.settled_at,
+    "TARGETED_PREACTIVATION_SESSION",
+  );
+  const interruption = {
+    observed_sha256: observedSHA,
+    session_state: session.state,
+    session_revision: session.revision,
+    session_updated_at: session.updated_at,
+    request_ordinal: entries.length,
+    request_reserved_at: last.attempt.at,
+    request_settled_at: last.settled_at,
+    transport_cause: "UNKNOWN",
+  };
   const readers = targetedRoutes.map((route) => {
     const r = reader.routes[route];
     requireThat(
@@ -354,6 +381,7 @@ export function blockedTargetedResult(facility: string, receiptPath: string) {
   return {
     schema: "issue122-supplement-result-v1",
     ...summary,
+    workloads: [{ ...summary.workloads[0], interruption }, summary.workloads[1]],
     workload_freeze_sha256: closure.freeze_sha256,
     dispatch_sha256: closure.dispatch_sha256,
     workload_attempts_sha256: attemptsSHA,

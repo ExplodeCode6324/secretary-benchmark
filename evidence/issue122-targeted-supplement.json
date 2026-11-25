@@ -33,7 +33,17 @@
         "NO_PHYSICAL_OBSERVATION"
       ],
       "mechanical": null,
-      "pending_proposals": null
+      "pending_proposals": null,
+      "interruption": {
+        "observed_sha256": "cfdd1a05e30dbc3d82182c924ed06a89d508c5b2ed5ce6d8b1e46b32d82a1819",
+        "session_state": "RECOVERY_BLOCKED",
+        "session_revision": 348,
+        "session_updated_at": "2026-11-25T18:43:08.440Z",
+        "request_ordinal": 97,
+        "request_reserved_at": "2026-11-25T18:43:01.911Z",
+        "request_settled_at": "2026-11-25T18:43:03.180Z",
+        "transport_cause": "UNKNOWN"
+      }
     },
     {
       "case": "C12b",

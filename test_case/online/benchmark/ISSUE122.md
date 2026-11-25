@@ -72,7 +72,7 @@ For full byte-for-byte regeneration, supply the retained private completion rece
 
 ### November 26 targeted supplement
 
-Master approved freeze `fa647e16b20f30f7f66ffb93ec62a7044f2764ccd74297f29931cc560b7cf60a` at runner `74a8c1e50838bbbab21ab7f56bdde38d8f1fc016`, including a permanent workload stop on uncertain transmission. Both lanes used the frozen Go DeepSeek V4.1 Flash 1017 configuration. The first 96 requests returned complete responses. C16's 97th request settled as `NETWORK_UNCERTAIN`, with no HTTP receipt. The account recorded `GO_TARGETED_TRANSPORT_UNCERTAIN`. The trial recorded 64 inputs and two maintenance cycles but sealed zero physical observations. The underlying transport cause is unknown. An authenticated quota GET after closure returned HTTP 200.
+Master approved freeze `fa647e16b20f30f7f66ffb93ec62a7044f2764ccd74297f29931cc560b7cf60a` at runner `74a8c1e50838bbbab21ab7f56bdde38d8f1fc016`, including a permanent workload stop on uncertain transmission. Both lanes were frozen on Go DeepSeek V4.1 Flash 1017. Only C16 sent requests. The first 96 requests returned complete responses. C16's 97th request settled as `NETWORK_UNCERTAIN`, with no HTTP receipt. The account recorded `GO_TARGETED_TRANSPORT_UNCERTAIN`. The trial recorded 64 inputs and two maintenance cycles but sealed zero physical observations. On November 25 UTC, request 97 was reserved at 18:43:01.911 and settled uncertain at 18:43:03.180. The sealed session changed from RUNNING (revision 347) to RECOVERY_BLOCKED (revision 348, updated 18:43:08.440 and committed at 18:43:08.455 in journal transaction 1363). This was the first blocked state in the 348 session revisions. The underlying transport cause is unknown. An authenticated quota GET after closure returned HTTP 200.
 
 | Position | Measured outcome |
 |---|---|
@@ -87,4 +87,13 @@ The 96 confirmed responses reported Go list cost of US$0.14001463 equivalent and
 
 The stopped workload archive contained 4,462 files (SHA-256 `54b082d2a0604d48fb0d042e1584496be21107db1f39936c34dda1a27a3d88f7`). The independent reader archive contained 24 payloads and a manifest (SHA-256 `c0626df88464da4dada5d66e5f8a0efd7abde0986aa41c70002adca035b846d3`). Both were read back from NAS. The public result binds the workload freeze, dispatch, attempts, trial and independent pre-activation disposition. [Supplement](../../../evidence/issue122-targeted-supplement.json) · [Independent operator disposition](../../../evidence/issue122-reader-activation-blocked.json)
 
-Run `python3 scripts/export-issue122-coverage.py --output coverage.json` to rebuild both the historical and effective assertion tables. The historical 99 observations remain intact. The preregistered effective table has 93 PASS, 12 FAIL, one UNRESOLVED and 83 NOT_TESTED assertion positions across 33 branches. The two open live gates prevent merge readiness. To replay the pre-activation result from private verified archive members, run `node --import tsx test_case/online/benchmark/targeted-result.ts --activation-blocked ABSOLUTE_WORKLOAD_DIRECTORY evidence/issue122-reader-activation-blocked.json`.
+Run `python3 scripts/export-issue122-coverage.py --output coverage.json` to rebuild both the historical and effective assertion tables. Both tables cover 189 assertion positions across 33 branches. The 99 historical observations remain intact.
+
+| Table | PASS | FAIL | UNRESOLVED | NOT_TESTED |
+|---|---:|---:|---:|---:|
+| Historical | 96 | 12 | 2 | 79 |
+| Effective under the frozen position rule | 93 | 12 | 1 | 83 |
+
+At C16 repeat 1 the historical official result had PASS for `natural_access`, `use_current` and `authority_chain`, and UNRESOLVED for `maintenance_current`. All four are NOT_TESTED in the unassessed Go position. Its fifth assertion, `item_lineage`, was already NOT_TESTED. The other replacements leave the counts unchanged.
+
+A copied evidence bundle with the published supplement produces the same two tables. A baseline-only copy produces the historical table. The CLI summary and output file identify the included tables in `tables`. The two open live gates prevent merge readiness. To replay the pre-activation result from private verified archive members, run `node --import tsx test_case/online/benchmark/targeted-result.ts --activation-blocked ABSOLUTE_WORKLOAD_DIRECTORY evidence/issue122-reader-activation-blocked.json`.

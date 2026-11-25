@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -48,6 +48,34 @@ test("the published stop keeps the prospective Go position, both official failur
       assert.equal(reader.possible_provider_sends, 0);
       assert.equal(reader.status, "NOT_TESTED");
     }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("copied evidence identifies both tables and verifies the supplemental bytes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "issue122-copied-evidence-"));
+  const script = "scripts/export-issue122-coverage.py";
+  const exported = (...args: string[]) => spawnSync("python3", [script, "--evidence", dir, ...args], { encoding: "utf8" });
+  try {
+    for (const name of ["issue122-completion.json", "issue122-coverage-fixtures.json"]) {
+      copyFileSync(join("evidence", name), join(dir, name));
+    }
+    const baseline = exported();
+    assert.equal(baseline.status, 0, baseline.stderr);
+    assert.deepEqual(JSON.parse(baseline.stdout).tables, ["historical"]);
+    const name = "issue122-targeted-supplement.json";
+    copyFileSync(join("evidence", name), join(dir, name));
+    const file = join(dir, "coverage.json");
+    const complete = exported("--output", file);
+    assert.equal(complete.status, 0, complete.stderr);
+    const copied = JSON.parse(readFileSync(file, "utf8"));
+    assert.deepEqual(copied.tables, ["historical", "effective"]);
+    const canonical = spawnSync("python3", [script, "--output", file], { encoding: "utf8" });
+    assert.equal(canonical.status, 0, canonical.stderr);
+    assert.deepEqual(copied, JSON.parse(readFileSync(file, "utf8")));
+    writeFileSync(join(dir, name), "{}");
+    assert.match(exported().stderr, /Evidence digest mismatch/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

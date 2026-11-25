@@ -1,3 +1,4 @@
+import { nativeWriteRecipe, isC12bFixtureResponse } from "./stage-c-fault.ts";
 import { loadCombinedResults } from "./stage-c-combine.ts";
 import {
   prepareCompletionCalibration,
@@ -114,8 +115,16 @@ async function main() {
         "--source",
         "--provenance",
       ]
-        .concat(command === "baseline-stage-c-trial" ? ["--case"] : [])
-        .concat(command === "baseline-stage-c-controls" ? ["--reader","--rubric"] : [])
+        .concat(
+          command === "baseline-stage-c-trial"
+            ? ["--case", "--recipe", "--control"]
+            : [],
+        )
+        .concat(
+          command === "baseline-stage-c-controls"
+            ? ["--reader", "--rubric"]
+            : [],
+        )
         .includes(args[i]) &&
         !!args[i + 1] &&
         !options[args[i]],
@@ -254,14 +263,35 @@ async function main() {
       return;
     }
     if (command === "baseline-stage-c-trial") {
+      const recipe = options["--recipe"];
+      const control = options["--control"];
+      const expectedKeys = [
+        "--case",
+        "--root",
+        ...(recipe ? ["--recipe"] : []),
+        ...(control ? ["--control"] : []),
+      ].sort();
       requireThat(
-        Object.keys(options).sort().join(",") === "--case,--root" &&
+        Object.keys(options).sort().join(",") === expectedKeys.join(",") &&
           options["--case"] &&
           options["--root"] &&
+          (!recipe ||
+            (options["--case"] === "C12b" && recipe === nativeWriteRecipe)) &&
+          (!control ||
+            (recipe === nativeWriteRecipe && isC12bFixtureResponse(control))) &&
           root !== path.join(repository, ".local/benchmark"),
         "STAGE_C_OFFLINE_ONLY",
       );
-      console.log(JSON.stringify(await prepareTrial(root, options["--case"])));
+      console.log(
+        JSON.stringify(
+          await prepareTrial(
+            root,
+            options["--case"],
+            recipe ? nativeWriteRecipe : undefined,
+            isC12bFixtureResponse(control) ? control : undefined,
+          ),
+        ),
+      );
       return;
     }
     if (command === "baseline-stage-c-plan") {

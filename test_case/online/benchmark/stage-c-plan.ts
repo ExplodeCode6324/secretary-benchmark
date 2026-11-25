@@ -7,7 +7,11 @@ import {
 } from "./baseline-timeline.ts";
 import { stageModels as baselineModels } from "./stage-b-policy.ts";
 import { fixturePrefix } from "./stage-c-correction.ts";
-import { delivery } from "./stage-c-fault.ts";
+import {
+  delivery,
+  nativeDelivery,
+  nativeWriteRecipe,
+} from "./stage-c-fault.ts";
 import { sha, requireThat } from "./io.ts";
 export const version = "issue122-stage-c-offline-v2";
 export const primaryModels: readonly (typeof baselineModels)[number][] = [
@@ -50,7 +54,14 @@ export function trialTimeline(
   c: BaselineCase,
   purpose: "OFFLINE_FIXTURE" | "BASELINE",
   recipe?: { count: number; bytes_each: number },
+  taskRecipe?: typeof nativeWriteRecipe,
 ): TimelineStep[] {
+  requireThat(
+    taskRecipe === undefined ||
+      (c.id === "C12b" && taskRecipe === nativeWriteRecipe),
+    "C12B_UNKNOWN_RECIPE",
+  );
+  const task = taskRecipe ? nativeDelivery : delivery;
   if (c.id === "C12b")
     return [
       { action: "ARM_FAULT", scripted: true },
@@ -58,7 +69,7 @@ export function trialTimeline(
         action: "MASTER_TASK",
         route: "task-requests",
         scripted: true,
-        payload: { goal: delivery.goal, acceptance: delivery.acceptance },
+        payload: { goal: task.goal, acceptance: task.acceptance },
       },
       { action: "DIRECT_RESTART" },
       { action: "HOST_RECONCILE", scripted: true },
@@ -147,6 +158,7 @@ export function describeTrial(
   model: (typeof baselineModels)[number],
   purpose: "OFFLINE_FIXTURE" | "BASELINE",
   recipe?: { count: number; bytes_each: number },
+  taskRecipe?: typeof nativeWriteRecipe,
 ) {
   requireThat(
     Number.isSafeInteger(repeat) &&
@@ -156,7 +168,7 @@ export function describeTrial(
     "STAGE_C_TRIAL_ID",
   );
   const c = caseDefinition(id),
-    steps = trialTimeline(c, purpose, recipe);
+    steps = trialTimeline(c, purpose, recipe, taskRecipe);
   const group = c.pair?.id ?? c.id;
   const seed = parseInt(
     sha(JSON.stringify(["issue122-external-input-v2", group, repeat])).slice(
@@ -168,6 +180,7 @@ export function describeTrial(
   return {
     purpose,
     scenario: id,
+    ...(taskRecipe ? { task_recipe: taskRecipe } : {}),
     repeat,
     model,
     architecture: "Secretary",

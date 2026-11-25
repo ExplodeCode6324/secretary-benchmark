@@ -98,9 +98,15 @@ export type Run = {
     checkpointHash: string;
   };
 };
+import {
+  isC12bFixtureResponse,
+  type C12bFixtureResponse,
+} from "./stage-c-fault.ts";
+
 export type Configuration =
   | {
       version: 4;
+      fixture_c12b_response?: C12bFixtureResponse;
       mode: "fixture";
       track: "issue122";
       case_id: string;
@@ -147,8 +153,12 @@ export function validateConfiguration(config: Configuration) {
   if (config.version === 4) {
     const c = caseDefinition(config.case_id);
     requireThat(
-      Object.keys(config).sort().join(",") ===
-        "case_id,mode,profile,seed,track,version" &&
+      (Object.keys(config).sort().join(",") ===
+        "case_id,mode,profile,seed,track,version" ||
+        (Object.keys(config).sort().join(",") ===
+          "case_id,fixture_c12b_response,mode,profile,seed,track,version" &&
+          c.id === "C12b" &&
+          isC12bFixtureResponse(config.fixture_c12b_response))) &&
         config.track === "issue122" &&
         config.mode === "fixture" &&
         Number.isSafeInteger(config.seed) &&

@@ -136,6 +136,20 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
             [{ type: "toolCall", id: randomUUID(), name, arguments: args }],
             m,
           );
+        const control = run.config.fixture_c12b_response;
+        if (task && id === "C12b" && control) {
+          if (control === "shell")
+            return tool("bash", { command: "printf alpha > continuity.txt" });
+          if (control === "wrong-bytes")
+            return tool("write", { path: "continuity.txt", content: "wrong" });
+          return tool("submit_result", {
+            outcome: "FAILED",
+            summary: "No write performed",
+            criteria: [],
+            artifacts: [],
+            limitations: ["No artifact"],
+          });
+        }
         if (task && id !== "C12b") {
           const n = scriptedTaskTurns++;
           if (id === "C13-imported_note" && n === 0)

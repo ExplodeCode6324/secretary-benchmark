@@ -41,14 +41,34 @@ import {
   lines,
 } from "./stage-b-scenarios-evidence.ts";
 import { exerciseCorrection } from "./stage-c-correction.ts";
+import {
+  nativeWriteRecipe,
+  type C12bFixtureResponse,
+} from "./stage-c-fault.ts";
 import { exerciseRecovery } from "./stage-c-recovery.ts";
 import { snapshot } from "./snapshot.ts";
 
-export async function prepareTrial(root: string, id: string) {
+export async function prepareTrial(
+  root: string,
+  id: string,
+  taskRecipe?: typeof nativeWriteRecipe,
+  control?: C12bFixtureResponse,
+) {
   const c = caseDefinition(id),
     model = primaryModels[0];
   requireThat(c.pair?.position !== "B", "STAGE_C_START_WITH_PAIR_A");
-  const descriptor = describeTrial(id, 1, model, "OFFLINE_FIXTURE"),
+  requireThat(
+    !control || (id === "C12b" && taskRecipe === nativeWriteRecipe),
+    "C12B_FIXTURE_CONTROL_BINDING",
+  );
+  const descriptor = describeTrial(
+      id,
+      1,
+      model,
+      "OFFLINE_FIXTURE",
+      undefined,
+      taskRecipe,
+    ),
     source = fingerprint();
   requireThat(
     source.sut.commit === sutCommit &&
@@ -64,6 +84,7 @@ export async function prepareTrial(root: string, id: string) {
       mode: "fixture",
       track: "issue122",
       case_id: id,
+      ...(control ? { fixture_c12b_response: control } : {}),
       profile: descriptor.profile,
       seed: descriptor.seed,
     });
@@ -261,6 +282,7 @@ export async function executeTrial(
               entry?.recovery_windows,
               c.probe,
               (future) => host.guard(future),
+              descriptor.task_recipe,
             )
           : await exerciseCorrection(
               active,

@@ -18,8 +18,24 @@ export const delivery = {
   bytes: "alpha",
   goal: 'Write exactly the five UTF-8 bytes "alpha" to continuity.txt once. Do not send it.',
 };
-export const deliveryRequest = (run: string) =>
-  stableID("issue122:C12b:" + run);
+export const nativeWriteRecipe = "native-write-v1" as const;
+export type C12bFixtureResponse = "shell" | "wrong-bytes" | "no-write";
+export function isC12bFixtureResponse(
+  value: unknown,
+): value is C12bFixtureResponse {
+  return value === "shell" || value === "wrong-bytes" || value === "no-write";
+}
+export const nativeDelivery = {
+  ...delivery,
+  goal: 'Use the executor write tool to write exactly the five UTF-8 bytes "alpha" to continuity.txt once. Use the local workspace. Do not use shell commands or send the file.',
+};
+export const deliveryRequest = (
+  run: string,
+  recipe?: typeof nativeWriteRecipe,
+) =>
+  stableID(
+    (recipe ? "issue122:C12b:native-write-v1:" : "issue122:C12b:") + run,
+  );
 
 function parkWorker(): never {
   const latch = new Int32Array(new SharedArrayBuffer(4));
@@ -41,7 +57,10 @@ export function installStageCFault(
     run: run.id,
     lineage: run.lineage,
     domain: coreIdentity(app.store).owner_id,
-    request: deliveryRequest(run.id),
+    request: app.store.get<TaskPlan>(
+      "TaskPlan",
+      app.store.get<Execution>("Execution", op.scope.execution_id!).task_id,
+    ).proposal_request_id,
     execution: op.scope.execution_id,
     operation: op.id,
     resource: op.action.resource,
@@ -59,10 +78,20 @@ export function installStageCFault(
     const task = app.store.get<TaskPlan>("TaskPlan", exec.task_id);
     const proposal = app.store.read<any>(task.proposal_ref);
     const params = app.store.read<any>(op.action.parameters_ref);
+    const native =
+      task.proposal_request_id === deliveryRequest(run.id, nativeWriteRecipe);
+    if (native && params.content !== delivery.bytes) {
+      writeJSON(evidence("stage-c-target-failure.json"), {
+        operation: op.id,
+        request: task.proposal_request_id,
+        reason: "C12B_WRONG_BYTES",
+      });
+      throw Error("C12B_WRONG_BYTES");
+    }
     requireThat(
-      task.proposal_request_id === deliveryRequest(run.id) &&
+      (native || task.proposal_request_id === deliveryRequest(run.id)) &&
         proposal.request_id === task.proposal_request_id &&
-        proposal.goal === delivery.goal &&
+        proposal.goal === (native ? nativeDelivery.goal : delivery.goal) &&
         exec.proposal_ref?.sha256 === task.proposal_ref.sha256 &&
         exec.workspace_binding &&
         typeof params.content === "string" &&

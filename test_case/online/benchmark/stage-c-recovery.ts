@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import type {
+  TaskPlan,
+  Execution,
+  Operation,
+} from "../../../sut/secretary/src/pi_secretary/src/contracts.ts";
 import { CoreClient } from "../../../sut/secretary/src/pi_secretary/src/core-client.ts";
 import { type Domains, type Run } from "./domain.ts";
 import { identityHash } from "./process-witness.ts";
@@ -16,7 +21,12 @@ import {
 } from "./io.ts";
 import { snapshot } from "./snapshot.ts";
 import { lines } from "./stage-b-scenarios-evidence.ts";
-import { delivery, deliveryRequest } from "./stage-c-fault.ts";
+import {
+  delivery,
+  deliveryRequest,
+  nativeDelivery,
+  nativeWriteRecipe,
+} from "./stage-c-fault.ts";
 import { type RestartEvidence, verifyRestart } from "./baseline-evidence.ts";
 
 const fixtureWindows = {
@@ -150,11 +160,13 @@ export async function exerciseRecovery(
   windows = fixtureWindows,
   probe?: string,
   guard?: (future: string[]) => void,
+  taskRecipe?: typeof nativeWriteRecipe,
 ) {
   const file = (name: string) => path.join(old.evidence, name);
   const core = path.join(old.active, "core");
   const client = new CoreClient(old.endpoint!);
-  const request = deliveryRequest(old.id);
+  const request = deliveryRequest(old.id, taskRecipe);
+  const task = taskRecipe ? nativeDelivery : delivery;
   const supervise = <T>(
     run: Run,
     action: () => Promise<T>,
@@ -179,8 +191,8 @@ export async function exerciseRecovery(
   const accepted = await supervise(old, async () => {
     const receipt = await client.command("task-requests", {
       request_id: request,
-      goal: delivery.goal,
-      acceptance: delivery.acceptance,
+      goal: task.goal,
+      acceptance: task.acceptance,
     });
     requireThat(
       receipt.acceptance === "ACCEPTED" && receipt.request_id === request,
@@ -189,7 +201,51 @@ export async function exerciseRecovery(
     return receipt;
   });
   await waitForFault(
-    () => fs.existsSync(file("stage-c-barrier.json")),
+    () => {
+      if (fs.existsSync(file("stage-c-barrier.json"))) return true;
+      const failurePath = file("stage-c-target-failure.json");
+      if (taskRecipe && fs.existsSync(failurePath)) {
+        const failure = readJSON(failurePath);
+        requireThat(
+          failure.request === request && failure.reason === "C12B_WRONG_BYTES",
+          "C12B_FAILURE_BINDING",
+        );
+        throw Error("C12B_WRONG_BYTES");
+      }
+      const observedPath = file("observed.json");
+      if (taskRecipe && fs.existsSync(observedPath)) {
+        const observed = readJSON(observedPath);
+        const taskIDs = new Set(
+          observed.tasks
+            .filter((t: TaskPlan) => t.proposal_request_id === request)
+            .map((t: TaskPlan) => t.id),
+        );
+        const targetExecutions = (observed.executions as Execution[]).filter(
+          (e) => taskIDs.has(e.task_id),
+        );
+        const executions = new Set(targetExecutions.map((e) => e.id));
+        requireThat(
+          !targetExecutions.some((e) =>
+            ["SUCCEEDED", "FAILED", "CANCELLED", "EXPIRED"].includes(e.state),
+          ),
+          "C12B_FINISHED_WITHOUT_WRITE",
+        );
+        for (const op of observed.operations as Operation[]) {
+          if (
+            op.state === "WAIT_AUTH" &&
+            op.scope.execution_id &&
+            executions.has(op.scope.execution_id)
+          ) {
+            throw Error(
+              op.action.action === "shell.run"
+                ? "C12B_SHELL_REQUESTED"
+                : "C12B_UNEXPECTED_AUTHORIZATION",
+            );
+          }
+        }
+      }
+      return false;
+    },
     windows.target_ms,
     "C12B_FAULT_PREREQUISITE_NOT_REACHED",
   );

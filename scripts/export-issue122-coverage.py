@@ -8,6 +8,7 @@ from pathlib import Path
 BASE_SHA = "2c900be744be13ae1646242b9243c6f908e82a63204d2ec9b30bacb0062017a3"
 EVIDENCE = Path(__file__).resolve().parents[1] / "evidence"
 FIXTURE_SHA = "c33c2f477b79ad09c5cf991ac808680a6b5f8a67c0343597a27f44328659078e"
+PUBLISHED_SUPPLEMENT_SHA = "a7221a847695481be39124554618254e8ce4cb91b74bdf5a472551157ef35b91"
 LINEAGE_CASES = {"C08-inference", "C09-finished", "C16-combined"}
 
 
@@ -144,6 +145,9 @@ def main():
         raise ValueError("Historical matrix changed")
     if bool(args.supplement) != bool(args.supplement_sha256):
         parser.error("--supplement and --supplement-sha256 must be supplied together")
+    if args.supplement is None and args.evidence.resolve() == EVIDENCE.resolve():
+        args.supplement = EVIDENCE / "issue122-targeted-supplement.json"
+        args.supplement_sha256 = PUBLISHED_SUPPLEMENT_SHA
     if args.supplement:
         result["supplement_sha256"] = args.supplement_sha256
         result["effective_assertion_coverage"] = effective_supplement(result, checked_bytes(args.supplement, args.supplement_sha256))

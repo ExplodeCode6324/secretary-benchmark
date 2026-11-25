@@ -137,7 +137,6 @@ export async function admitGoSend(
     const current = ledger(root);
     if (targeted) {
       requireThat(frozen && sha(frozen) === freeze, "TARGETED_FREEZE_BINDING");
-      checkTargetedSend(root, freeze);
     }
     const expectedSource = frozen
       ? JSON.parse(frozen.toString()).go_continuation?.residual?.freeze
@@ -172,29 +171,31 @@ export async function admitGoSend(
         "GO_RESIDUAL_SEND_CLAIM",
       );
     }
-    const local = localGoAmounts(
-      root,
-      Date.now(),
-      targeted
-        ? (id, r) => {
-            if (r.freeze === freeze)
-              requireThat(
-                current.entries.has(id) && r.settled,
-                "TARGETED_UNMATCHED_ACCOUNT_RESERVATION",
-              );
-            else
-              requireThat(
-                r.settled || id === "reader-candidate-97",
-                "TARGETED_OTHER_UNSETTLED",
-              );
-          }
-        : undefined,
-    );
+    let local: LocalAmounts;
     const unsettled = [...current.entries.values()]
       .filter((e) => !e.settled && !hasGoReservation(root, e.attempt.id))
       .reduce((n, e) => n + e.attempt.reserved_usd, 0);
     let usage;
     try {
+      if (targeted) checkTargetedSend(root, freeze);
+      local = localGoAmounts(
+        root,
+        Date.now(),
+        targeted
+          ? (id, r) => {
+              if (r.freeze === freeze)
+                requireThat(
+                  current.entries.has(id) && r.settled,
+                  "TARGETED_UNMATCHED_ACCOUNT_RESERVATION",
+                );
+              else
+                requireThat(
+                  r.settled || id === "reader-candidate-97",
+                  "TARGETED_OTHER_UNSETTLED",
+                );
+            }
+          : undefined,
+      );
       if (targeted) checkTargetedSpend(account, freeze, current, worst);
       usage = await checkGoUsage(key, transport);
       checkGoHeadroom(usage, worst, {

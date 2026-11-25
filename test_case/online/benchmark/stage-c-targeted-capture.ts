@@ -271,7 +271,7 @@ export function targetedC16Capture(
     );
   requireThat(ctx.length === 1 && session, "C16_CAPTURE_CONTEXT_BINDING");
   const firstSequence = ctx[0].index + 1;
-  const prefix = frames.slice(0, firstSequence);
+  const prefix = frames.slice(0, firstSequence - 1);
   const samples = proof.maintenance?.samples ?? [];
   requireThat(
     samples.length === 2 &&

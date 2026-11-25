@@ -140,6 +140,8 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         if (task && id === "C12b" && control) {
           if (control === "shell")
             return tool("bash", { command: "printf alpha > continuity.txt" });
+          if (control === "wrong-path")
+            return tool("write", { path: "other.txt", content: "alpha" });
           if (control === "wrong-bytes")
             return tool("write", { path: "continuity.txt", content: "wrong" });
           return tool("submit_result", {

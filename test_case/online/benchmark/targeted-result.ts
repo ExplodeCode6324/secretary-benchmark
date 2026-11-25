@@ -15,6 +15,7 @@ import {
   agreedAssertions,
   targetedWorkloadResult,
 } from "./targeted-workload-result.ts";
+import { targetedAccountedAmount } from "./stage-c-targeted-account.ts";
 import { ledger } from "./campaign.ts";
 
 const baselineSHA =
@@ -221,8 +222,7 @@ export function targetedResult(
     reader_account_snapshot_sha256: final.account_snapshot_sha256,
     workload_attempts: transactions.length,
     workload_accounted_usd_upper_or_measured: transactions.reduce(
-      (n, e) =>
-        n + Math.max(e.charged_usd, (e.usage as any)?.go_meter?.list_cost ?? 0),
+      (n, e) => n + targetedAccountedAmount(e),
       0,
     ),
     workload_returned_models: [

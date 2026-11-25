@@ -124,6 +124,45 @@ export function closeTargetedAccount(
   );
   writeJSON(path.join(account, claimName), { ...claim, closed: true });
 }
+type WorkloadEntry =
+  ReturnType<typeof ledger>["entries"] extends Map<string, infer E> ? E : never;
+
+// Reconstruct the shared reservation book from a terminal campaign ledger when
+// exporting from an archive. Ambiguous settlement retains its admission bound.
+export function targetedAccountedAmount(
+  e: WorkloadEntry,
+  reservation?: number,
+) {
+  const usage = e.usage as {
+    response_complete?: boolean;
+    go_meter?: {
+      list_cost?: number | null;
+      cash_debit_usd?: number | null;
+      billing_source?: string | null;
+    };
+  } | null;
+  const meter = usage?.go_meter;
+  const list = meter?.list_cost;
+  requireThat(
+    list == null || (Number.isFinite(list) && list >= 0),
+    "TARGETED_WORKLOAD_METER",
+  );
+  const confirmed =
+    e.settled &&
+    e.outcome === "RESPONSE_COMPLETE" &&
+    e.actual_usd != null &&
+    usage?.response_complete === true &&
+    list != null &&
+    meter?.cash_debit_usd === 0 &&
+    ["go", "go-plus", "go-teams", "free"].includes(meter.billing_source ?? "");
+  return Math.max(
+    reservation ?? 0,
+    confirmed ? 0 : e.attempt.reserved_usd,
+    e.charged_usd,
+    list ?? 0,
+  );
+}
+
 export function checkTargetedSpend(
   account: string,
   freeze: string,
@@ -142,18 +181,7 @@ export function checkTargetedSpend(
         r.freeze === freeze && Number.isFinite(r.amount) && r.amount >= 0,
         "TARGETED_WORKLOAD_RESERVATION",
       );
-    const list = (e.usage as { go_meter?: { list_cost?: number } } | null)
-      ?.go_meter?.list_cost;
-    const observed = list === undefined ? 0 : list;
-    requireThat(
-      Number.isFinite(observed) && observed >= 0,
-      "TARGETED_WORKLOAD_METER",
-    );
-    spent += Math.max(
-      r?.amount ?? e.attempt.reserved_usd,
-      e.charged_usd,
-      observed,
-    );
+    spent += targetedAccountedAmount(e, r?.amount ?? e.attempt.reserved_usd);
   }
   requireThat(
     Number.isFinite(worst) &&

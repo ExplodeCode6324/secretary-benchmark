@@ -9,6 +9,7 @@ import {
   closeTargetedAccount,
   holdTargetedAccount,
   targetedClaim,
+  targetedAccountedAmount,
 } from "../../online/benchmark/stage-c-targeted-account.ts";
 import { targetedWorkload } from "../../online/benchmark/stage-c-targeted-policy.ts";
 import { writeJSON, readJSON } from "../../online/benchmark/io.ts";
@@ -27,9 +28,23 @@ test("supplement charges the greater of local, campaign and Go list amounts, nev
     attempt,
     charged_usd: 0.1,
     settled: true,
-    usage: { go_meter: { list_cost: 0.6 } },
+    actual_usd: 0.1,
+    outcome: "RESPONSE_COMPLETE",
+    usage: {
+      response_complete: true,
+      go_meter: { list_cost: 0.6, cash_debit_usd: 0, billing_source: "go" },
+    },
   };
   const ledger = { entries: new Map([["one", row]]) } as any;
+  assert.equal(targetedAccountedAmount(row as any), 0.6);
+  for (const changes of [
+    { outcome: "STREAM_UNCERTAIN" },
+    { actual_usd: null },
+    { usage: {} },
+    { settled: false },
+  ]) {
+    assert.equal(targetedAccountedAmount({ ...row, ...changes } as any), 0.7);
+  }
   const r = path.join(account, "usage-reservations/one.json");
   assert.equal(checkTargetedSpend(account, freeze, ledger, 4.3), 0.7);
   assert.throws(

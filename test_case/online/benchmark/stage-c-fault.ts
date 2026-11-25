@@ -19,11 +19,17 @@ export const delivery = {
   goal: 'Write exactly the five UTF-8 bytes "alpha" to continuity.txt once. Do not send it.',
 };
 export const nativeWriteRecipe = "native-write-v1" as const;
-export type C12bFixtureResponse = "shell" | "wrong-bytes" | "no-write";
+export type C12bFixtureResponse =
+  "shell" | "wrong-bytes" | "wrong-path" | "no-write";
 export function isC12bFixtureResponse(
   value: unknown,
 ): value is C12bFixtureResponse {
-  return value === "shell" || value === "wrong-bytes" || value === "no-write";
+  return (
+    value === "shell" ||
+    value === "wrong-bytes" ||
+    value === "wrong-path" ||
+    value === "no-write"
+  );
 }
 export const nativeDelivery = {
   ...delivery,
@@ -68,38 +74,47 @@ export function installStageCFault(
     expected_hash: sha(delivery.bytes),
     pid: process.pid,
   });
+  const failureFile = evidence("stage-c-target-failure.json");
+  const recordFailure = (operation: string, reason: string) => {
+    if (!fs.existsSync(failureFile))
+      writeJSON(failureFile, {
+        run: run.id,
+        request: deliveryRequest(run.id, nativeWriteRecipe),
+        operation,
+        reason,
+      });
+  };
+  const refuse = (operation: string, reason: string): never => {
+    recordFailure(operation, reason);
+    throw Error(reason);
+  };
   auth.dispatch = (id, extra) => {
     const op = app.store.get<Operation>("Operation", id);
-    requireThat(
-      op.action.action === "file.write" && op.scope.execution_id,
-      "C12B_CAPABILITY_EXCLUDED",
-    );
+    if (fs.existsSync(failureFile)) throw Error("C12B_TARGET_ALREADY_REFUSED");
+    if (op.action.action !== "file.write" || !op.scope.execution_id)
+      return refuse(op.id, "C12B_CAPABILITY_EXCLUDED");
     const exec = app.store.get<Execution>("Execution", op.scope.execution_id);
     const task = app.store.get<TaskPlan>("TaskPlan", exec.task_id);
     const proposal = app.store.read<any>(task.proposal_ref);
     const params = app.store.read<any>(op.action.parameters_ref);
     const native =
       task.proposal_request_id === deliveryRequest(run.id, nativeWriteRecipe);
-    if (native && params.content !== delivery.bytes) {
-      writeJSON(evidence("stage-c-target-failure.json"), {
-        operation: op.id,
-        request: task.proposal_request_id,
-        reason: "C12B_WRONG_BYTES",
-      });
-      throw Error("C12B_WRONG_BYTES");
-    }
-    requireThat(
+    if (native && params.content !== delivery.bytes)
+      return refuse(op.id, "C12B_WRONG_BYTES");
+    if (native && params.path !== delivery.name)
+      return refuse(op.id, "C12B_WRONG_PATH");
+    if (!(
       (native || task.proposal_request_id === deliveryRequest(run.id)) &&
-        proposal.request_id === task.proposal_request_id &&
-        proposal.goal === (native ? nativeDelivery.goal : delivery.goal) &&
-        exec.proposal_ref?.sha256 === task.proposal_ref.sha256 &&
-        exec.workspace_binding &&
-        typeof params.content === "string" &&
-        params.path === delivery.name &&
-        op.action.resource ===
-          path.join(exec.workspace_binding.root_path, delivery.name),
-      "C12B_TARGET_UNBOUND",
-    );
+      proposal.request_id === task.proposal_request_id &&
+      proposal.goal === (native ? nativeDelivery.goal : delivery.goal) &&
+      exec.proposal_ref?.sha256 === task.proposal_ref.sha256 &&
+      exec.workspace_binding &&
+      typeof params.content === "string" &&
+      params.path === delivery.name &&
+      op.action.resource ===
+        path.join(exec.workspace_binding.root_path, delivery.name)
+    ))
+      return refuse(op.id, "C12B_TARGET_UNBOUND");
     appendJSON(attempts, fields(op));
     return dispatch(id, extra);
   };
@@ -133,6 +148,7 @@ export function installStageCFault(
         }
       }
     } catch {
+      recordFailure(id, "C12B_WRITE_PROOF");
       return park();
     }
     return finish(id, receipt, outcome);

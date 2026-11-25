@@ -202,16 +202,25 @@ export async function exerciseRecovery(
   });
   await waitForFault(
     () => {
-      if (fs.existsSync(file("stage-c-barrier.json"))) return true;
       const failurePath = file("stage-c-target-failure.json");
       if (taskRecipe && fs.existsSync(failurePath)) {
         const failure = readJSON(failurePath);
         requireThat(
-          failure.request === request && failure.reason === "C12B_WRONG_BYTES",
+          failure.run === old.id &&
+            failure.request === request &&
+            typeof failure.operation === "string" &&
+            [
+              "C12B_WRONG_BYTES",
+              "C12B_WRONG_PATH",
+              "C12B_TARGET_UNBOUND",
+              "C12B_CAPABILITY_EXCLUDED",
+              "C12B_WRITE_PROOF",
+            ].includes(failure.reason),
           "C12B_FAILURE_BINDING",
         );
-        throw Error("C12B_WRONG_BYTES");
+        throw Error(failure.reason);
       }
+      if (fs.existsSync(file("stage-c-barrier.json"))) return true;
       const observedPath = file("observed.json");
       if (taskRecipe && fs.existsSync(observedPath)) {
         const observed = readJSON(observedPath);

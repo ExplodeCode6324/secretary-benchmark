@@ -211,3 +211,15 @@ test("a missing or reordered commit cannot supply a snapshot", () => {
   f.proof.maintenance.samples[0].items_sha256 = "invalid";
   assert.throws(f.capture, /C16_CAPTURE_COMMIT_BINDING/);
 });
+
+test("a change in the request transaction preserves the earlier pending proposal", () => {
+  const f = fixture();
+  f.frames.pop();
+  f.frames[3].records.push(...f.effect.records);
+  f.frames[3].events.push(...f.effect.events);
+  const result = f.capture();
+  assert.equal(result.proposal_capture, "complete");
+  assert.equal(result.proposals.length, 1);
+  assert.equal(result.proposals[0].state, "WAIT_AUTH");
+  assert.equal(result.proposals[0].committed, false);
+});

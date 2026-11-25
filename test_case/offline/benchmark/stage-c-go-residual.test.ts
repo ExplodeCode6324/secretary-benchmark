@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   goResidualSource,
+  goResidualSource7,
+  residualHistory,
   residualParent,
 } from "../../online/benchmark/stage-c-go-residual.ts";
 import {
@@ -69,6 +71,86 @@ test("a residual freeze carries only its two unspent parent lanes and requires t
   );
   assert.throws(
     () => selectGoBatch([[], [], [], [], batch.slice(0, -1)], series, g, 5),
+    /RESIDUAL_INVENTORY/,
+  );
+});
+
+test("partition seven recovers exactly its eleven unsent slots against the partition five calibration", () => {
+  const matrix = sha("matrix seven"),
+    decision = sha("decision seven");
+  const series = {
+    partition: 7,
+    matrix_sha256: matrix,
+    decision_sha256: decision,
+  } as RemainingSeries;
+  const pending = {
+    freeze_sha256: goResidualSource.freeze,
+    packet_sha256: sha("packet"),
+    rubric_sha256: sha("rubric"),
+    key_sha256: sha("key"),
+  };
+  const group: GoContinuation = {
+    scope: 84,
+    matrix_sha256: matrix,
+    prior_decision_sha256: decision,
+    decision_sha256: sha(JSON.stringify(goDecision(84, series))),
+    partition: 7,
+    source_partition: 5,
+    prior_freezes: { 5: beforeGo[5].freeze, 6: beforeGo[6].freeze },
+    prior_archives: { 5: beforeGo[5].archive, 6: beforeGo[6].archive },
+    residual: goResidualSource7,
+    pending_calibration: pending,
+  };
+  const caps = residualHistory(goResidualSource7).caps;
+  const batch = goResidualSource7.lanes.map((lane, i) => ({
+    lane: { lane, cap: caps[i], seed: 1000 + i },
+  })) as FrozenBatch;
+  const sources = [
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [{ lane: { lane: "spent", cap: 25 } }, ...batch] as FrozenBatch,
+  ];
+  assert.deepEqual(selectGoBatch(sources, series, group, 7), batch);
+  assert.equal(batch.length, 11);
+  assert.equal(
+    caps.reduce((a, b) => a + b, 0),
+    485,
+  );
+  assert.throws(
+    () =>
+      selectGoBatch(
+        sources,
+        series,
+        {
+          ...group,
+          pending_calibration: {
+            ...pending,
+            freeze_sha256: goResidualSource7.freeze,
+          },
+        },
+        7,
+      ),
+    /RESIDUAL_PARTITION/,
+  );
+  assert.throws(
+    () =>
+      selectGoBatch(
+        sources,
+        series,
+        { ...group, residual: goResidualSource },
+        7,
+      ),
+    /RESIDUAL_PARTITION/,
+  );
+  assert.throws(() => goGradeGate(group, true), /SHARED_CALIBRATION/);
+  const changed = structuredClone(sources);
+  changed[6][1].lane.cap++;
+  assert.throws(
+    () => selectGoBatch(changed, series, group, 7),
     /RESIDUAL_INVENTORY/,
   );
 });

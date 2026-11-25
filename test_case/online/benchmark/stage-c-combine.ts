@@ -1,4 +1,4 @@
-import { goResidualSource, residualParent } from "./stage-c-go-residual.ts";
+import { residualHistory, residualDefinition } from "./stage-c-go-residual.ts";
 import {
   archivedC04,
   c04Freeze,
@@ -180,7 +180,7 @@ export function combineResults(snapshots: Snapshot[]) {
     s.freeze.go_continuation
       ? 10 +
         s.freeze.batch_index +
-        (residualParent(s.freeze.go_continuation) ? 0.5 : 0)
+        (residualDefinition(s.freeze.go_continuation) ? 0.5 : 0)
       : Number(Boolean(s.freeze.remaining_series));
   const ordered = [...snapshots].sort((a, b) => order(a) - order(b));
   for (const s of ordered) {
@@ -196,20 +196,20 @@ export function combineResults(snapshots: Snapshot[]) {
       );
     }
     const go = s.freeze.go_continuation;
-    const residual = residualParent(go);
+    const residual = residualDefinition(go);
     if (go) {
       requireThat(
         s.freeze.remaining_series &&
           !priorGo.some(
             (v) =>
               v.freeze.batch_index === s.freeze.batch_index &&
-              residualParent(v.freeze.go_continuation) === residual,
+              residualDefinition(v.freeze.go_continuation) === residual,
           ) &&
           (!residual ||
             priorGo.some(
               (v) =>
-                v.hash === goResidualSource.freeze &&
-                v.result.physical_sends === 413,
+                v.hash === residual.freeze &&
+                v.result.physical_sends === residualHistory(residual).attempts,
             )) &&
           priorGo.every(
             (v) =>
@@ -341,20 +341,20 @@ export function combineResults(snapshots: Snapshot[]) {
       const zeroSend =
         previous?.row.status === "UNRUN" &&
         previous.row.reason ===
-          (residual ? "GO_ACCOUNT_ON_HOLD" : "HOLD_EXHAUSTED_QUOTA") &&
+          (residual
+            ? residualHistory(residual).reason
+            : "HOLD_EXHAUSTED_QUOTA") &&
         previous.row.identities.length === 0;
       const goRepeat =
         go &&
-        [5, 6].includes(go.partition) &&
+        (residual || [5, 6].includes(go.partition)) &&
         previous?.freeze_sha256 ===
-          (residual
-            ? goResidualSource.freeze
-            : go.prior_freezes[go.partition]) &&
+          (residual ? residual.freeze : go.prior_freezes[go.partition]) &&
         !quotaRecoveries.has(id) &&
         previous.row.assessment_attempts === 0 &&
         (zeroSend || (!residual && go.scope === 84 && quotaOnly));
       requireThat(
-        !go || (go.partition === 7 ? !previous : goRepeat),
+        !go || (go.partition === 7 && !residual ? !previous : goRepeat),
         "STAGE_C_GO_NO_REPLACEMENT",
       );
       const authorizedRepeat =

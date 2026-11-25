@@ -15,15 +15,61 @@ export const goResidualSource = {
     "r3-C07-cancelled--deepseek-flash",
   ],
 };
-export function residualParent(g: { residual?: unknown } | undefined) {
-  if (!g || !Object.hasOwn(g, "residual")) return false;
+export const goResidualSource7 = {
+  freeze: "97bcbda3897e51b4fa06c86b398650f9ff5437ce07ce046fcf51c97e96e8d583",
+  dispatch: "81733bb2049c6ef549a2d16dba2a33d51eaff8ef5a6e8c65f3ef929676311871",
+  manifest: "f9b3a5ef5d3bb64762df7872449c48863f795326f6718106065a6fa5bd1651e5",
+  ledger: "2908b403a71975c71bf534457a32d1f153e65f15f909144f4ac07341b16149e7",
+  replay: "30216e18e1cfd38f1d00d51def3478ae13d9e27bb1ccd9ef928b99a97b88c644",
+  partition: 7,
+  lanes: [
+    "r2-C13-task--deepseek-flash",
+    "r3-C13-task--deepseek-flash",
+    "r1-C13-inference--deepseek-flash",
+    "r2-C13-inference--deepseek-flash",
+    "r3-C13-inference--deepseek-flash",
+    "r1-C14-retraction--deepseek-flash",
+    "r2-C14-retraction--deepseek-flash",
+    "r3-C14-retraction--deepseek-flash",
+    "r1-C06-resident-B--deepseek-flash",
+    "r2-C06-resident-B--deepseek-flash",
+    "r3-C06-resident-B--deepseek-flash",
+  ],
+};
+export function residualForFreeze(freeze: unknown) {
+  const parent = [goResidualSource, goResidualSource7].find(
+    (s) => s.freeze === freeze,
+  );
+  requireThat(parent, "GO_RESIDUAL_PARENT_CHANGED");
+  return parent;
+}
+export function residualDefinition(g: { residual?: unknown } | undefined) {
+  if (!g || !Object.hasOwn(g, "residual")) return undefined;
+  const parent = residualForFreeze(
+    (g.residual as { freeze?: unknown } | null)?.freeze,
+  );
   requireThat(
-    isDeepStrictEqual(g.residual, goResidualSource),
+    isDeepStrictEqual(g.residual, parent),
     "GO_RESIDUAL_PARENT_CHANGED",
   );
-  return true;
+  return parent;
 }
-export function checkGoResidualFiles(root: string) {
+export function residualParent(g: { residual?: unknown } | undefined) {
+  return Boolean(residualDefinition(g));
+}
+export function residualHistory(parent: typeof goResidualSource) {
+  return parent.partition === 5
+    ? { attempts: 413, reason: "GO_ACCOUNT_ON_HOLD", caps: [87, 87] }
+    : {
+        attempts: 180,
+        reason: "fetch failed",
+        caps: [25, 25, 27, 27, 27, 91, 91, 91, 27, 27, 27],
+      };
+}
+export function checkGoResidualFiles(
+  root: string,
+  parent: typeof goResidualSource,
+) {
   const dir = path.join(root, "inputs/go-residual-parent");
   const files = {
     freeze: "stage-c-freeze.json",
@@ -34,7 +80,7 @@ export function checkGoResidualFiles(root: string) {
   } as const;
   for (const key of Object.keys(files) as (keyof typeof files)[]) {
     requireThat(
-      sha(read(path.join(dir, files[key]))) === goResidualSource[key],
+      sha(read(path.join(dir, files[key]))) === parent[key],
       "GO_RESIDUAL_PARENT_EVIDENCE",
     );
   }
@@ -48,14 +94,14 @@ export function checkGoResidualFiles(root: string) {
   requireThat(
     state.ended &&
       !state.current &&
-      state.freeze_sha256 === goResidualSource.freeze &&
+      state.freeze_sha256 === parent.freeze &&
       manifest.state === "CLOSED" &&
-      manifest.final_ledger.attempts === 413 &&
+      manifest.final_ledger.attempts === residualHistory(parent).attempts &&
       manifest.final_ledger.unsettled === 0 &&
-      goResidualSource.lanes.every(
+      parent.lanes.every(
         (lane) =>
           state.terminals[lane]?.status === "UNRUN" &&
-          state.terminals[lane]?.reason === "GO_ACCOUNT_ON_HOLD" &&
+          state.terminals[lane]?.reason === residualHistory(parent).reason &&
           !state.terminals[lane].run &&
           !events.some((e) => e.attempt?.lane === lane),
       ),

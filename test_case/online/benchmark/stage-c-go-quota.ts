@@ -1,4 +1,4 @@
-import { goResidualSource } from "./stage-c-go-residual.ts";
+import { residualForFreeze } from "./stage-c-go-residual.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { lease, read, readJSON, requireThat, sha, writeJSON } from "./io.ts";
@@ -57,11 +57,8 @@ export async function claimGoFacility(
       "GO_OTHER_FACILITY_ACTIVE",
     );
     if (residualSource) {
-      requireThat(
-        residualSource === goResidualSource.freeze,
-        "GO_RESIDUAL_PARENT_CHANGED",
-      );
-      for (const lane of goResidualSource.lanes) {
+      const parent = residualForFreeze(residualSource);
+      for (const lane of parent.lanes) {
         const claim = path.join(
           account,
           "residual-claims",
@@ -123,27 +120,27 @@ export async function admitGoSend(
       "GO_RESIDUAL_ACCOUNT_BINDING",
     );
     if (expectedSource) {
+      const parent = residualForFreeze(expectedSource);
       requireThat(frozen && sha(frozen) === freeze, "GO_RESIDUAL_SEND_BINDING");
       const lane = readJSON(path.join(root, "campaign/active-stage-c.json"));
       requireThat(
-        expectedSource === goResidualSource.freeze &&
-          lane.state === "OPEN" &&
+        lane.state === "OPEN" &&
           lane.freeze_sha256 === freeze &&
-          goResidualSource.lanes.includes(lane.lane),
+          parent.lanes.includes(lane.lane),
         "GO_RESIDUAL_SEND_BINDING",
       );
       const claim = readJSON(
         path.join(
           account,
           "residual-claims",
-          goResidualSource.freeze,
+          parent.freeze,
           lane.lane + ".json",
         ),
       );
       requireThat(
         claim.root === root &&
           claim.freeze === freeze &&
-          claim.parent === goResidualSource.freeze &&
+          claim.parent === parent.freeze &&
           claim.lane === lane.lane,
         "GO_RESIDUAL_SEND_CLAIM",
       );

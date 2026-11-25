@@ -1,4 +1,4 @@
-import { goResidualSource, residualParent } from "./stage-c-go-residual.ts";
+import { residualDefinition } from "./stage-c-go-residual.ts";
 import { archivedGoAssessment } from "./stage-c-go-grading.ts";
 import { goVisibilityVersion } from "./stage-c-visibility-rubric.ts";
 import {
@@ -66,13 +66,14 @@ export function archivedBatch(
     entries.get("configs/stage-c-freeze.json")?.sha256 === b.freeze_sha256,
     "STAGE_C_AGGREGATE_DIGEST",
   );
-  if (residualParent(freeze.go_continuation)) {
+  const residual = residualDefinition(freeze.go_continuation);
+  if (residual) {
     for (const [name, expected] of [
-      ["stage-c-freeze.json", goResidualSource.freeze],
-      ["stage-c-dispatch.json", goResidualSource.dispatch],
-      ["manifest.json", goResidualSource.manifest],
-      ["attempts.jsonl", goResidualSource.ledger],
-      ["go-first-contact-replay.json", goResidualSource.replay],
+      ["stage-c-freeze.json", residual.freeze],
+      ["stage-c-dispatch.json", residual.dispatch],
+      ["manifest.json", residual.manifest],
+      ["attempts.jsonl", residual.ledger],
+      ["go-first-contact-replay.json", residual.replay],
     ])
       requireThat(
         entries.get("inputs/go-residual-parent/" + name)?.sha256 === expected,

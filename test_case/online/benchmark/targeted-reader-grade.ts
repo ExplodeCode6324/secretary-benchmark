@@ -46,6 +46,9 @@ export interface TargetedReaderFreeze {
   series: typeof targetedSeries;
   rubric_sha256: string;
   key_sha256: string;
+  workload_freeze_sha256: string;
+  workload_dispatch_sha256: string;
+  unavailable?: Partial<Record<"c16-repeat1" | "c12b", string>>;
   routes: Record<TargetedRoute, RouteFreeze>;
   archived: Record<
     "c06-98" | "c06-99",
@@ -68,12 +71,23 @@ export function validateTargetedFreeze(f: TargetedReaderFreeze) {
         sha(gradeJSONBytes(scoringRubric(goReader, goVisibilityVersion))),
     "TARGETED_POLICY",
   );
-  same(
-    Object.keys(f.routes).sort(),
-    [...targetedRoutes].sort(),
-    "TARGETED_ROUTES",
+  requireThat(
+    hex(f.workload_freeze_sha256) && hex(f.workload_dispatch_sha256),
+    "TARGETED_WORKLOAD_DIGEST",
   );
-  for (const route of targetedRoutes) {
+  const unavailable = Object.keys(f.unavailable ?? {});
+  requireThat(
+    unavailable.every(
+      (r) =>
+        (r === "c16-repeat1" || r === "c12b") &&
+        typeof f.unavailable![r] === "string" &&
+        f.unavailable![r]!.trim().length > 0,
+    ),
+    "TARGETED_UNAVAILABLE",
+  );
+  const active = targetedRoutes.filter((r) => !unavailable.includes(r));
+  same(Object.keys(f.routes).sort(), [...active].sort(), "TARGETED_ROUTES");
+  for (const route of active) {
     const row = f.routes[route];
     requireThat(
       [
@@ -87,7 +101,7 @@ export function validateTargetedFreeze(f: TargetedReaderFreeze) {
   }
   for (const k of ["packet_sha256", "query_sha256"] as const)
     requireThat(
-      new Set(targetedRoutes.map((r) => f.routes[r][k])).size === 5,
+      new Set(active.map((r) => f.routes[r][k])).size === active.length,
       "TARGETED_DUPLICATE_INPUT",
     );
   same(
@@ -141,6 +155,7 @@ export function validateTargetedInput(
 ) {
   validateTargetedFreeze(f);
   requireThat(Object.hasOwn(supplementSlots, route), "TARGETED_ROUTE");
+  requireThat(Object.hasOwn(f.routes, route), "TARGETED_UNAVAILABLE");
   const pin = f.routes[route],
     query = admittedReaderQuery(packet);
   requireThat(
@@ -296,12 +311,25 @@ export function verifyTargetedReceipt(
       "TARGETED_SHARED_CALIBRATION",
     );
   }
+  const runtime =
+    "731e2f79d05eb74344c6ccd217c0b2835ccd876e17f9a4b2d6e1aafdc03f0d2e";
+  requireThat(
+    t.runtime_reference_sha256 === runtime &&
+      d.runtime_reference_sha256 === runtime,
+    "TARGETED_NATIVE_RUNTIME",
+  );
   const native = { raw: files.raw, transport: t, dispatch: d };
   const mark = goReaderResponse(native, packet, pin.decision_sha256, {
     series: targetedSeries,
     series_sha256: seriesDigest,
     route,
   });
+  const envelopeDigest = sha(gradeJSONBytes(native));
+  if (mark?.mechanical || mark?.rejected)
+    requireThat(
+      mark.evidence_sha256 === envelopeDigest,
+      "TARGETED_FAILURE_EVIDENCE",
+    );
   const official = verdict(
     mark,
     packet,
@@ -374,11 +402,16 @@ export function verifyTargetedReceipt(
     packet_sha256: pin.packet_sha256,
     query_sha256: pin.query_sha256,
     binding_sha256: pin.binding_sha256,
+    response_sha256: sha(gradeJSONBytes(mark)),
+    evidence_sha256: envelopeDigest,
+    runtime_reference_sha256: runtime,
     raw_sha256: rawHash,
     receipt_sha256: t.receipt_sha256,
     official,
     supplemental,
     accepted,
+    mechanical_effects:
+      route === "c12b" ? binding.workload?.mechanical_effects : null,
     maintenance_evidence_inconclusive: !!blockedMaintenance,
     returned_model: t.returned_model,
     calibration_origin: origin,

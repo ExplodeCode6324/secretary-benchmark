@@ -90,6 +90,13 @@ export function projectTargetedC16(
     if (!aliases.has(key)) aliases.set(key, randomUUID());
     return aliases.get(key)!;
   }
+  const publicIds = new Set(packet.evidence.map((row) => row.id));
+  function blindIdentities(text: string) {
+    return text.replace(
+      /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\b[0-9a-f]{64}\b/gi,
+      (id) => (publicIds.has(id) ? id : alias("embedded", id)),
+    );
+  }
   function contents(text: string | null) {
     requireThat(
       text === null || typeof text === "string",
@@ -100,10 +107,7 @@ export function projectTargetedC16(
       return null;
     }
     const filtered = safeExcerpt(text);
-    const blind = filtered.replace(
-      /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\b[0-9a-f]{64}\b/gi,
-      (id) => alias("embedded", id),
-    );
+    const blind = blindIdentities(filtered);
     if (filtered !== text || /\[(?:redacted|truncated|omitted)\]/i.test(blind))
       gaps.add("REDACTED_OR_TRUNCATED");
     return blind;
@@ -252,7 +256,16 @@ export function projectTargetedC16(
     proposals,
   });
   add("Source observations", [...catalog.values()]);
-  const projected = { ...packet, evidence: [...packet.evidence, ...rows] };
+  const projected = {
+    ...packet,
+    evidence: [
+      ...packet.evidence.map((row) => ({
+        ...row,
+        text: blindIdentities(row.text),
+      })),
+      ...rows,
+    ],
+  };
   admittedReaderQuery(projected);
   return {
     packet: projected,

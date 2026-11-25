@@ -86,6 +86,38 @@ for (const mode of ["ORIGINAL_OFFSET", "OTHER_EVENT"] as const) {
     );
     const run = readJSON(path.join(root, "runs", terminal.run! + ".json")),
       journal = snapshot(path.join(run.active, "core"));
+    const captureFile = path.join(
+      root,
+      "evidence",
+      terminal.run!,
+      "stage-c-targeted-capture.json",
+    );
+    assert.equal(observed.targeted_capture.status, "CAPTURED");
+    assert.equal(
+      sha(fs.readFileSync(captureFile)),
+      observed.targeted_capture.sha256,
+    );
+    const capture = readJSON(captureFile);
+    assert.deepEqual(
+      capture.snapshots.map((v: any) => v.phase),
+      ["commit-1", "commit-2", "first-request"],
+    );
+    assert(
+      capture.snapshots[0].sequence < capture.snapshots[1].sequence &&
+        capture.snapshots[1].sequence < capture.first_request_sequence,
+    );
+    assert(
+      capture.proposals.some(
+        (p: any) =>
+          p.state === "WAIT_AUTH" && p.effect === "NOT_STARTED" && !p.committed,
+      ),
+    );
+    assert(
+      capture.proposals.every(
+        (p: any) =>
+          p.sequence <= capture.first_request_sequence && !p.committed,
+      ),
+    );
     const auths = journal.records.filter(
       (r) =>
         r.record_type === "AuthorizationRequest" &&

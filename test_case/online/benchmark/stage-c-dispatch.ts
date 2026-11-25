@@ -65,12 +65,9 @@ export async function completionCommand(
                 )
             : fetch,
         );
-  // A supplemental freeze may be projected before its account carry-forward has been installed.
-  requireThat(
-    !inputs.targeted_supplement,
-    "TARGETED_ACCOUNT_ADMISSION_PENDING",
-  );
   const go = inputs.go_continuation;
+  const targeted = Boolean(inputs.targeted_supplement);
+  const usesGo = Boolean(go || targeted);
   const contact = "r1-C04-nonexistent--deepseek-flash";
   if (mode === "first-contact")
     requireThat(
@@ -93,7 +90,13 @@ export async function completionCommand(
           "preflight",
           Date.now(),
         );
-      if (go) await claimGoFacility(root, hash, residualDefinition(go)?.freeze);
+      if (usesGo)
+        await claimGoFacility(
+          root,
+          hash,
+          residualDefinition(go)?.freeze,
+          targeted,
+        );
       await publication();
       await createCampaign(root, approval, undefined, undefined, policy);
       const state: State = {
@@ -209,8 +212,8 @@ export async function completionCommand(
           hold = "BATCH_OR_SOURCE_WINDOW";
         else
           try {
-            if (go) {
-              assertGoAvailable();
+            if (usesGo) {
+              assertGoAvailable(targeted ? { root, freeze: hash } : undefined);
               const usage = await publication();
               checkGoHeadroom(usage, 0.7718592, localGoAmounts(root));
             } else await publication();
@@ -221,7 +224,7 @@ export async function completionCommand(
                 : "PUBLICATION_UNAVAILABLE";
           }
         if (hold) {
-          if (go) holdGo(hash, hold);
+          if (usesGo) holdGo(hash, hold);
           for (const remaining of batch)
             state.terminals[remaining.lane.lane] ??= {
               status: "UNRUN",
@@ -303,7 +306,7 @@ export async function completionCommand(
         reason: "BATCH_STOPPED",
       };
     await d.closeStoppedCampaign();
-    if (go) await closeGoFacility(root, hash);
+    if (usesGo) await closeGoFacility(root, hash);
     state.ended = true;
     writeJSON(stateFile, state);
     return state;

@@ -196,9 +196,7 @@ export async function executeTrial(
       let targetedCapture;
       if (
         scenario === "C16-combined" &&
-        entry &&
-        "targeted_supplement" in entry &&
-        entry.targeted_supplement === true
+        (entry?.targeted_supplement === true || rehearsal)
       ) {
         const file = path.join(r.evidence, "stage-c-targeted-capture.json");
         try {

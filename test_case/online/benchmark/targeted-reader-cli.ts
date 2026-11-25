@@ -1,4 +1,11 @@
 import fs from "node:fs";
+import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import {
+  checkWorkloadClosure,
+  targetWorkloadSource,
+  workloadLanes,
+} from "./targeted-reader-workload.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { noLinks, requireThat, sha } from "./io.ts";
@@ -62,7 +69,7 @@ function install(dest: string, entries: Record<string, Buffer>) {
   return hashes;
 }
 export function prepareTargetedPacket(args: string[]) {
-  const [route, dir, facility, lane, captureFile] = args;
+  const [route, dir, facility, workloadFreeze, captureFile] = args;
   requireThat(
     route === "calibration"
       ? args.length === 2
@@ -76,6 +83,14 @@ export function prepareTargetedPacket(args: string[]) {
     ({ packet, key } = targetedControls());
     binding = { assertion_controls: 22, visibility_controls: 6 };
   } else {
+    const kind = route as keyof typeof workloadLanes,
+      lane = workloadLanes[kind];
+    const source = targetWorkloadSource(
+      facility,
+      checkWorkloadClosure(facility, workloadFreeze),
+      kind,
+      captureFile,
+    );
     const result = trialPacket(
       facility,
       lane,
@@ -84,12 +99,25 @@ export function prepareTargetedPacket(args: string[]) {
       goVisibilityVersion,
     );
     ({ packet, private: binding } = result);
+    binding = { ...binding, workload: source.proof };
     if (route === "c16-repeat1")
       ({ packet, binding } = projectTargetedC16(
         packet,
         binding,
-        object(captureFile),
+        source.capture,
       ));
+    else
+      packet = {
+        ...packet,
+        evidence: [
+          ...packet.evidence,
+          {
+            id: randomUUID(),
+            text:
+              "Recovery observations\n" + JSON.stringify(source.observation),
+          },
+        ],
+      };
   }
   const query = admittedReaderQuery(packet);
   return install(dir, {
@@ -104,6 +132,7 @@ export function readerAction(
   folder: string,
   digest: string,
   route: TargetedRoute,
+  facility: string,
 ) {
   requireThat(
     targetedRoutes.includes(route) && /^[0-9a-f]{64}$/.test(digest),
@@ -112,6 +141,12 @@ export function readerAction(
   const f: TargetedReaderFreeze = canonical(path.join(folder, "series.json"));
   requireThat(sha(gradeJSONBytes(f)) === digest, "TARGETED_SERIES_DIGEST");
   validateTargetedFreeze(f);
+  requireThat(Object.hasOwn(f.routes, route), "TARGETED_UNAVAILABLE");
+  const closed = checkWorkloadClosure(
+    facility,
+    f.workload_freeze_sha256,
+    f.workload_dispatch_sha256,
+  );
   const input = (r: TargetedRoute, n: string) =>
     path.join(folder, "inputs", r, n);
   function originals(r: TargetedRoute, origin: CalibrationIdentity | null) {
@@ -150,6 +185,21 @@ export function readerAction(
   const packet = canonical(input(route, "packet.json")),
     binding = canonical(input(route, "binding.json"));
   const query = validateTargetedInput(f, route, packet, binding);
+  if (route === "c16-repeat1" || route === "c12b") {
+    const actual = targetWorkloadSource(facility, closed, route);
+    requireThat(
+      isDeepStrictEqual(binding.workload, actual.proof) &&
+        binding.run === actual.proof.run &&
+        binding.lane === actual.proof.lane &&
+        binding.report_sha256 === actual.proof.trial_sha256,
+      "TARGETED_CURRENT_WORKLOAD_SOURCE",
+    );
+    if (route === "c16-repeat1")
+      requireThat(
+        binding.capture_sha256 === sha(gradeJSONBytes(actual.capture)),
+        "TARGETED_CURRENT_CAPTURE_BYTES",
+      );
+  }
   requireThat(
     text(path.join(folder, "exchange", route, "a-query.txt")) === query,
     "TARGETED_NATIVE_INPUT",
@@ -204,7 +254,7 @@ if (
     const [action, ...args] = process.argv.slice(2);
     requireThat(
       action === "prepare" ||
-        (["admit", "verify"].includes(action) && args.length === 3),
+        (["admit", "verify"].includes(action) && args.length === 4),
       "TARGETED_ARGUMENTS",
     );
     process.stdout.write(
@@ -216,6 +266,7 @@ if (
               args[0],
               args[1],
               args[2] as TargetedRoute,
+              args[3],
             ),
       ) + "\n",
     );

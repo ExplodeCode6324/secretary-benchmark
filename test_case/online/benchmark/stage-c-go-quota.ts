@@ -1,3 +1,12 @@
+import {
+  claimTargetedAccount,
+  assertTargetedAccount,
+  closeTargetedAccount,
+  holdTargetedAccount,
+  targetedClaim,
+  checkTargetedSend,
+  checkTargetedSpend,
+} from "./stage-c-targeted-account.ts";
 import { residualForFreeze } from "./stage-c-go-residual.ts";
 import fs from "node:fs";
 import path from "node:path";
@@ -38,18 +47,22 @@ export function checkGoHeadroom(
   );
 }
 export function holdGo(freeze: string, reason: string) {
+  if (holdTargetedAccount(account, freeze, reason)) return;
   if (!fs.existsSync(holdFile))
     writeJSON(holdFile, { freeze, reason, at: new Date().toISOString() });
 }
-export function assertGoAvailable() {
+export function assertGoAvailable(target?: { root: string; freeze: string }) {
+  if (target) return assertTargetedAccount(account, target.root, target.freeze);
   requireThat(!fs.existsSync(holdFile), "GO_ACCOUNT_ON_HOLD");
 }
 export async function claimGoFacility(
   root: string,
   freeze: string,
   residualSource?: string,
+  targeted = false,
 ) {
   await lease(account, async () => {
+    if (targeted) return claimTargetedAccount(account, root, freeze);
     assertGoAvailable();
     const prev = fs.existsSync(activeFile) ? readJSON(activeFile) : null;
     requireThat(
@@ -87,6 +100,8 @@ export async function claimGoFacility(
 }
 export async function closeGoFacility(root: string, freeze: string) {
   await lease(account, async () => {
+    if (targetedClaim(account)?.freeze === freeze)
+      return closeTargetedAccount(account, root, freeze);
     const current = readJSON(activeFile);
     requireThat(
       current.freeze === freeze && current.root === root,
@@ -104,14 +119,26 @@ export async function admitGoSend(
   admit: () => Promise<string>,
 ) {
   return lease(account, async () => {
-    assertGoAvailable();
-    const active = readJSON(activeFile);
+    const claim = targetedClaim(account);
+    const targeted = claim?.freeze === freeze;
+    assertGoAvailable(targeted ? { root, freeze } : undefined);
+    const active = targeted ? claim : readJSON(activeFile);
     requireThat(
       !active.closed && active.freeze === freeze && active.root === root,
       "GO_FACILITY_BINDING",
     );
     const policyFile = path.join(root, "configs/stage-c-freeze.json");
     const frozen = fs.existsSync(policyFile) ? read(policyFile) : undefined;
+    requireThat(
+      targeted ===
+        Boolean(frozen && JSON.parse(frozen.toString()).targeted_supplement),
+      "TARGETED_FREEZE_BINDING",
+    );
+    const current = ledger(root);
+    if (targeted) {
+      requireThat(frozen && sha(frozen) === freeze, "TARGETED_FREEZE_BINDING");
+      checkTargetedSend(root, freeze);
+    }
     const expectedSource = frozen
       ? JSON.parse(frozen.toString()).go_continuation?.residual?.freeze
       : undefined;
@@ -145,12 +172,30 @@ export async function admitGoSend(
         "GO_RESIDUAL_SEND_CLAIM",
       );
     }
-    const local = localGoAmounts(root);
-    const unsettled = [...ledger(root).entries.values()]
+    const local = localGoAmounts(
+      root,
+      Date.now(),
+      targeted
+        ? (id, r) => {
+            if (r.freeze === freeze)
+              requireThat(
+                current.entries.has(id) && r.settled,
+                "TARGETED_UNMATCHED_ACCOUNT_RESERVATION",
+              );
+            else
+              requireThat(
+                r.settled || id === "reader-candidate-97",
+                "TARGETED_OTHER_UNSETTLED",
+              );
+          }
+        : undefined,
+    );
+    const unsettled = [...current.entries.values()]
       .filter((e) => !e.settled && !hasGoReservation(root, e.attempt.id))
       .reduce((n, e) => n + e.attempt.reserved_usd, 0);
     let usage;
     try {
+      if (targeted) checkTargetedSpend(account, freeze, current, worst);
       usage = await checkGoUsage(key, transport);
       checkGoHeadroom(usage, worst, {
         rolling: local.rolling + unsettled,
@@ -162,7 +207,9 @@ export async function admitGoSend(
         e instanceof Error ? e.message : "GO_REQUEST_ADMISSION_FAILED";
       holdGo(
         freeze,
-        reason.startsWith("GO_") ? reason : "GO_REQUEST_ADMISSION_FAILED",
+        reason.startsWith("GO_") || reason.startsWith("TARGETED_")
+          ? reason
+          : "GO_REQUEST_ADMISSION_FAILED",
       );
       throw e;
     }

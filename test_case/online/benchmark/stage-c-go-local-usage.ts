@@ -37,13 +37,18 @@ export function hasGoReservation(root: string, id: string) {
 }
 // The Go API does not identify the last request included in its percentage.
 // Within each window count local consumption on top of the reported meter.
-export function localGoAmounts(root: string, now = Date.now()) {
+export function localGoAmounts(
+  root: string,
+  now = Date.now(),
+  inspect?: (id: string, reservation: Readonly<Reservation>) => void,
+) {
   const dir = directory(root),
     result = amounts(() => 0);
   if (!fs.existsSync(dir)) return result;
   for (const filename of fs.readdirSync(dir)) {
     if (!filename.endsWith(".json")) continue;
     const r = readJSON<Reservation>(path.join(dir, filename));
+    inspect?.(filename.slice(0, -5), r);
     for (const k of names) {
       requireThat(
         Number.isFinite(r.amount) &&

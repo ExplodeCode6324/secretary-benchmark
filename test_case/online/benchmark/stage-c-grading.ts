@@ -175,7 +175,7 @@ export async function prepareCompletionCalibration(
     return frozen;
   });
 }
-function safeExcerpt(text: string) {
+export function safeExcerpt(text: string) {
   // Scoring packets contain synthetic task material. Never pass filesystem locations, model identities, endpoints or credential-like strings to the reader.
   const redacted = text
     .replace(

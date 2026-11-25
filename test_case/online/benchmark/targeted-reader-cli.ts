@@ -1,0 +1,226 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { noLinks, requireThat, sha } from "./io.ts";
+import { gradeJSONBytes } from "./grading-transaction.ts";
+import { trialPacket } from "./stage-c-grading.ts";
+import {
+  admittedReaderQuery,
+  goReader,
+  goVisibilityVersion,
+} from "./stage-c-visibility-rubric.ts";
+import {
+  projectTargetedC16,
+  targetedControls,
+} from "./targeted-reader-packet.ts";
+import {
+  validateTargetedFreeze,
+  validateTargetedInput,
+  verifyTargetedReceipt,
+  targetedRoutes,
+  type TargetedRoute,
+  type CalibrationIdentity,
+  type TargetedReaderFreeze,
+} from "./targeted-reader-grade.ts";
+function bytes(file: string) {
+  noLinks(file);
+  requireThat(fs.lstatSync(file).isFile(), "TARGETED_REGULAR_FILE");
+  return fs.readFileSync(file);
+}
+const object = (file: string) => JSON.parse(bytes(file).toString("utf8"));
+function canonical(file: string) {
+  const data = bytes(file),
+    v = JSON.parse(data.toString("utf8"));
+  requireThat(data.equals(gradeJSONBytes(v)), "TARGETED_NONCANONICAL_INPUT");
+  return v;
+}
+function text(file: string) {
+  const data = bytes(file),
+    s = data.toString("utf8");
+  requireThat(Buffer.from(s).equals(data), "TARGETED_UTF8");
+  return s;
+}
+function install(dest: string, entries: Record<string, Buffer>) {
+  noLinks(path.dirname(dest));
+  fs.mkdirSync(dest, { mode: 0o700 });
+  const complete = path.join(dest, "prepared.json");
+  for (const [name, data] of Object.entries(entries)) {
+    fs.writeFileSync(path.join(dest, name), data, {
+      flag: "wx",
+      mode: 0o600,
+      flush: true,
+    });
+  }
+  const hashes = Object.fromEntries(
+    Object.entries(entries).map(([k, v]) => [k, sha(v)]),
+  );
+  fs.writeFileSync(complete, gradeJSONBytes(hashes), {
+    flag: "wx",
+    mode: 0o600,
+    flush: true,
+  });
+  return hashes;
+}
+export function prepareTargetedPacket(args: string[]) {
+  const [route, dir, facility, lane, captureFile] = args;
+  requireThat(
+    route === "calibration"
+      ? args.length === 2
+      : route === "c16-repeat1"
+        ? args.length === 5
+        : route === "c12b" && args.length === 4,
+    "TARGETED_PREPARE_ROUTE",
+  );
+  let packet: any, binding: any, key: any;
+  if (route === "calibration") {
+    ({ packet, key } = targetedControls());
+    binding = { assertion_controls: 22, visibility_controls: 6 };
+  } else {
+    const result = trialPacket(
+      facility,
+      lane,
+      route === "c16-repeat1" ? "C16-combined" : "C12b",
+      goReader,
+      goVisibilityVersion,
+    );
+    ({ packet, private: binding } = result);
+    if (route === "c16-repeat1")
+      ({ packet, binding } = projectTargetedC16(
+        packet,
+        binding,
+        object(captureFile),
+      ));
+  }
+  const query = admittedReaderQuery(packet);
+  return install(dir, {
+    "packet.json": gradeJSONBytes(packet),
+    "binding.json": gradeJSONBytes(binding),
+    "a-query.txt": Buffer.from(query),
+    ...(key ? { "key.json": gradeJSONBytes(key) } : {}),
+  });
+}
+export function readerAction(
+  action: "admit" | "verify",
+  folder: string,
+  digest: string,
+  route: TargetedRoute,
+) {
+  requireThat(
+    targetedRoutes.includes(route) && /^[0-9a-f]{64}$/.test(digest),
+    "TARGETED_ROUTE",
+  );
+  const f: TargetedReaderFreeze = canonical(path.join(folder, "series.json"));
+  requireThat(sha(gradeJSONBytes(f)) === digest, "TARGETED_SERIES_DIGEST");
+  validateTargetedFreeze(f);
+  const input = (r: TargetedRoute, n: string) =>
+    path.join(folder, "inputs", r, n);
+  function originals(r: TargetedRoute, origin: CalibrationIdentity | null) {
+    const p = canonical(input(r, "packet.json")),
+      b = canonical(input(r, "binding.json"));
+    const ex = (n: string) => path.join(folder, "exchange", r, n);
+    const rt = bytes(ex("a-transport.json")),
+      dt = bytes(ex("a-dispatch.json")),
+      raw = text(ex("a-raw.txt")),
+      receiptPath = ex("a-receipt.json");
+    const result = verifyTargetedReceipt(
+      f,
+      digest,
+      r,
+      p,
+      b,
+      origin,
+      r === "calibration" ? canonical(input(r, "key.json")) : null,
+      {
+        raw,
+        query: text(ex("a-query.txt")),
+        metadata: text(ex("metadata.json")),
+        dispatch: JSON.parse(dt.toString("utf8")),
+        transport: JSON.parse(rt.toString("utf8")),
+        receipt: fs.existsSync(receiptPath) ? text(receiptPath) : null,
+      },
+    );
+    return {
+      ...result,
+      dispatch_sha256: sha(dt),
+      transport_sha256: sha(rt),
+      official_sha256: sha(gradeJSONBytes(result.official)),
+      supplemental_sha256: sha(gradeJSONBytes(result.supplemental)),
+    };
+  }
+  const packet = canonical(input(route, "packet.json")),
+    binding = canonical(input(route, "binding.json"));
+  const query = validateTargetedInput(f, route, packet, binding);
+  requireThat(
+    text(path.join(folder, "exchange", route, "a-query.txt")) === query,
+    "TARGETED_NATIVE_INPUT",
+  );
+  let origin: CalibrationIdentity | null = null;
+  if (route === "calibration") {
+    const key = canonical(input(route, "key.json"));
+    requireThat(
+      sha(gradeJSONBytes(key)) === f.key_sha256 &&
+        key.length === 28 &&
+        new Set(key.map((k: any) => k.id)).size === 28 &&
+        key.every((k: any) => packet.controls.some((c: any) => c.id === k.id)),
+      "TARGETED_PRIVATE_KEY",
+    );
+  } else {
+    const cal = originals("calibration", null);
+    requireThat(
+      cal.accepted &&
+        cal.official.status === "PASSED" &&
+        cal.official.matched === 28 &&
+        cal.supplemental.matched === 28,
+      "TARGETED_NO_PASSED_CALIBRATION",
+    );
+    origin = {
+      native_at: cal.calibration_native_at,
+      returned_model: cal.returned_model,
+      packet_sha256: cal.packet_sha256,
+      transport_sha256: cal.transport_sha256,
+      official_sha256: cal.official_sha256,
+      supplemental_sha256: cal.supplemental_sha256,
+    };
+    if (action === "admit") {
+      const age = Date.now() - Date.parse(origin.native_at);
+      requireThat(age >= 0 && age <= 86400000, "TARGETED_CALIBRATION_AGE");
+    }
+  }
+  return action === "verify"
+    ? originals(route, origin)
+    : {
+        stage: route === "calibration" ? "calibration" : "candidate",
+        route,
+        series_sha256: digest,
+        ...f.routes[route],
+        origin,
+      };
+}
+if (
+  process.argv[1] &&
+  fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
+) {
+  try {
+    const [action, ...args] = process.argv.slice(2);
+    requireThat(
+      action === "prepare" ||
+        (["admit", "verify"].includes(action) && args.length === 3),
+      "TARGETED_ARGUMENTS",
+    );
+    process.stdout.write(
+      JSON.stringify(
+        action === "prepare"
+          ? prepareTargetedPacket(args)
+          : readerAction(
+              action as "admit" | "verify",
+              args[0],
+              args[1],
+              args[2] as TargetedRoute,
+            ),
+      ) + "\n",
+    );
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : "TARGETED_ERROR");
+    process.exitCode = 1;
+  }
+}

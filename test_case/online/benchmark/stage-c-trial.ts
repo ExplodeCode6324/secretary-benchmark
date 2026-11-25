@@ -36,6 +36,7 @@ import { baselinePair } from "./baseline-pair.ts";
 import { captureBodies } from "./baseline-b0.ts";
 import {
   cas,
+  casBytes,
   inspectStageEvidence,
   auditStageRun,
   lines,
@@ -46,6 +47,7 @@ import {
   type C12bFixtureResponse,
 } from "./stage-c-fault.ts";
 import { exerciseRecovery } from "./stage-c-recovery.ts";
+import { targetedC16Capture } from "./stage-c-targeted-capture.ts";
 import { snapshot } from "./snapshot.ts";
 
 export async function prepareTrial(
@@ -191,7 +193,38 @@ export async function executeTrial(
               true,
             )
           : null;
-      return { run: r.id, lineage: r.lineage, physical: proof, witness, c16 };
+      let targetedCapture;
+      if (
+        scenario === "C16-combined" &&
+        entry &&
+        "targeted_supplement" in entry &&
+        entry.targeted_supplement === true
+      ) {
+        const file = path.join(r.evidence, "stage-c-targeted-capture.json");
+        try {
+          const capture = targetedC16Capture(state, proof, sends, (ref) => {
+            const bytes = casBytes(core, ref);
+            return ref.media_type.includes("json")
+              ? JSON.parse(bytes.toString())
+              : bytes.toString();
+          });
+          writeJSON(file, capture);
+          targetedCapture = { status: "CAPTURED", sha256: sha(read(file)) };
+        } catch (error) {
+          // A partial workload remains observable. An absent temporal boundary cannot qualify a packet.
+          const reason = error instanceof Error ? error.message : "";
+          if (!reason.startsWith("C16_CAPTURE_")) throw error;
+          targetedCapture = { status: "MISSING", reason };
+        }
+      }
+      return {
+        run: r.id,
+        lineage: r.lineage,
+        physical: proof,
+        witness,
+        c16,
+        ...(targetedCapture ? { targeted_capture: targetedCapture } : {}),
+      };
     }
     requireThat(
       !fs.existsSync(path.join(r.evidence, "unexpected-network.jsonl")),

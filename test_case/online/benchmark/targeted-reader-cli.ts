@@ -147,6 +147,16 @@ export function readerAction(
     f.workload_freeze_sha256,
     f.workload_dispatch_sha256,
   );
+  const grade = closed.grade;
+  requireThat(
+    grade?.reader === goReader &&
+      grade.version === goVisibilityVersion &&
+      grade.max_attempts === 1 &&
+      grade.packet_sha256 === f.routes.calibration.packet_sha256 &&
+      grade.key_sha256 === f.key_sha256 &&
+      grade.rubric_sha256 === f.rubric_sha256,
+    "TARGETED_PREWORKLOAD_CALIBRATION",
+  );
   const input = (r: TargetedRoute, n: string) =>
     path.join(folder, "inputs", r, n);
   function originals(r: TargetedRoute, origin: CalibrationIdentity | null) {

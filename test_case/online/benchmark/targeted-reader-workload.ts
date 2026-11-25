@@ -45,7 +45,12 @@ export function checkWorkloadClosure(
       ),
     "TARGETED_WORKLOAD_CLOSURE",
   );
-  return { state, freeze_sha256: freezeSha, dispatch_sha256: sha(stateBytes) };
+  return {
+    state,
+    grade: frozen.grade,
+    freeze_sha256: freezeSha,
+    dispatch_sha256: sha(stateBytes),
+  };
 }
 export function targetWorkloadSource(
   facility: string,

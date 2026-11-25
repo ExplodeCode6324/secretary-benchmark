@@ -19,7 +19,7 @@ export function targetedClaim(account: string): Claim | null {
   return fs.existsSync(file) ? readJSON<Claim>(file) : null;
 }
 
-function verifyCarry(account: string, root: string) {
+export function verifyTargetedCarry(account: string, root: string) {
   checkTargetedInputs(targetedWorkload, root);
   const carry = readJSON(path.join(root, "inputs/targeted-carry.json"));
   for (const [name, expected] of [
@@ -60,7 +60,7 @@ export function claimTargetedAccount(
   root: string,
   freeze: string,
 ) {
-  verifyCarry(account, root);
+  verifyTargetedCarry(account, root);
   requireThat(
     !fs.existsSync(path.join(account, holdName)),
     "TARGETED_ACCOUNT_ON_HOLD",
@@ -91,7 +91,7 @@ export function assertTargetedAccount(
   root: string,
   freeze: string,
 ) {
-  verifyCarry(account, root);
+  verifyTargetedCarry(account, root);
   const claim = targetedClaim(account);
   requireThat(
     claim?.root === root &&

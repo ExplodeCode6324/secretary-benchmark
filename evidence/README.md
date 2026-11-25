@@ -16,3 +16,9 @@ Generate that projection with `python3 scripts/export-historical-evidence.py --r
 - `archive-verification.json`: hashes and readback scope for recovered historical packages, six additional early facilities, and prepublication standalone fixtures. Private locations are omitted. `historical-source-index.json` pins exporter input hashes; `historical-projection-verification.json` records deterministic output and tamper refusal.
 
 - `historical-commit-reachability.json`: all seven historical commits were accessible in the public Secretary repository. This does not establish exact source reconstruction. `tracked_diff_empty` excludes untracked files; the separate source digest includes them. Commit-only reconstruction remains untested.
+
+## Issue 122 targeted evidence
+
+Run `python3 scripts/export-issue122-coverage.py --output coverage.json` to reconstruct 189 assertion-by-repeat cells across 33 historical branches. Each cell keeps its workload route, reader rubric, terminal reason and available archive witnesses. Seven archived offline fixtures cover eight branches. Their report digests appear in a separate field. Nine item-lineage cells reflect the pinned summarizer assigning a fresh ID to each new item.
+
+After both targeted workloads and the independent reader series close, run the operator's offline archive readback. Use its verified final SHA in `node --import tsx test_case/online/benchmark/targeted-result.ts FACILITY SERIES FINAL_SHA` and save the resulting JSON. The exporter checks both receipt views and uses the existing C16 disposition with the observed probe chain. Supply the saved JSON and its SHA to the coverage script with `--supplement` and `--supplement-sha256` to include the four prospectively assigned positions. The historical 99 observations remain available alongside those positions.

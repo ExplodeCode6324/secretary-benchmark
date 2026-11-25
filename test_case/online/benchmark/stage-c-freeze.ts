@@ -3,6 +3,8 @@ import {
   targetedLanes,
   checkTargetedInputs,
 } from "./stage-c-targeted-policy.ts";
+import { verifyTargetedCarry } from "./stage-c-targeted-account.ts";
+import { goAccount } from "./stage-c-go-local-usage.ts";
 import { nativeWriteRecipe } from "./stage-c-fault.ts";
 import {
   checkGoResidualFiles,
@@ -876,8 +878,10 @@ export function freezeBatch(root: string, index: number, checked: string) {
       inputs.models[0] === "deepseek-flash",
     "STAGE_C_CURRENT_FLASH_SOURCE_REQUIRED",
   );
-  if (inputs.targeted_supplement)
+  if (inputs.targeted_supplement) {
     checkTargetedInputs(inputs.targeted_supplement, root);
+    verifyTargetedCarry(goAccount, root);
+  }
   const residual = residualDefinition(inputs.go_continuation);
   if (residual) checkGoResidualFiles(root, residual);
   const providers = {

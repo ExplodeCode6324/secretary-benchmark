@@ -208,7 +208,12 @@ function verdict(
   if (mark?.mechanical)
     return { status: "MECHANICAL", reason: mark.mechanical };
   if (mark?.rejected) return { status: "REJECTED", reason: mark.rejected };
-  if (!matchesReader(mark, digest, goReader))
+  if (
+    !mark ||
+    typeof mark !== "object" ||
+    Array.isArray(mark) ||
+    !matchesReader(mark, digest, goReader)
+  )
     return { status: "REJECTED", reason: "RESPONSE_BINDING" };
   if (route === "calibration") {
     const labels = mark.labels;
@@ -341,7 +346,8 @@ export function verifyTargetedReceipt(
   const rawHash = sha(files.raw);
   requireThat(
     rawHash === t.raw_sha256 &&
-      t.receipt_sha256 === (files.receipt === null ? null : sha(files.receipt)),
+      (t.receipt_sha256 ?? null) ===
+        (files.receipt === null ? null : sha(files.receipt)),
     "TARGETED_NATIVE_RECEIPT_BYTES",
   );
   if (files.receipt !== null) {
@@ -406,7 +412,7 @@ export function verifyTargetedReceipt(
     evidence_sha256: envelopeDigest,
     runtime_reference_sha256: runtime,
     raw_sha256: rawHash,
-    receipt_sha256: t.receipt_sha256,
+    receipt_sha256: t.receipt_sha256 ?? null,
     official,
     supplemental,
     accepted,

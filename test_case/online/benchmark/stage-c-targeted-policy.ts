@@ -9,6 +9,12 @@ export const targetedWorkload = {
     "c64298f1088737700233eca0111db47df254fdadcddfa758008199549702fd61",
   carry_sha256:
     "46c7a33c0f31424a38f1c31ada840ae278aa6ebbbba1a14b9a759e911c10df2d",
+  reader_operator_release_sha256:
+    "65a3843895940153f1f219807018861fa2a68f1a629b9c58a7bfad30452c2bc0",
+  reader_native_sha256:
+    "28162e8380ff3385bdc201e2641d088df94cb73fa9766647b110e60e557fdf57",
+  reader_package_sha256:
+    "94fa256ec9cabb6c476ac191aefd2c1e23600b4431939a2c4052adae23d2dfe1",
   workload_equivalent_cap: 5,
   reader_equivalent_cap: 0.933888,
   calibration_limit: 1,

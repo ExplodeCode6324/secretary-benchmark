@@ -91,10 +91,23 @@ export function projectTargetedC16(
     return aliases.get(key)!;
   }
   const publicIds = new Set(packet.evidence.map((row) => row.id));
+  const identityTypes = new Map<string, string>();
+  for (const window of capture.snapshots)
+    for (const item of window.items) {
+      if (item.id) identityTypes.set(item.id, "item");
+      for (const src of item.sources)
+        if (src.id) identityTypes.set(src.id, "source");
+    }
+  for (const proposal of capture.proposals) {
+    identityTypes.set(proposal.id, "proposal");
+    for (const src of proposal.sources)
+      if (src.id) identityTypes.set(src.id, "source");
+  }
   function blindIdentities(text: string) {
     return text.replace(
       /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\b[0-9a-f]{64}\b/gi,
-      (id) => (publicIds.has(id) ? id : alias("embedded", id)),
+      (id) =>
+        publicIds.has(id) ? id : alias(identityTypes.get(id) ?? "embedded", id),
     );
   }
   function contents(text: string | null) {
@@ -230,6 +243,9 @@ export function projectTargetedC16(
     );
     const applied =
       v.effect === "APPLIED" &&
+      v.state === "SUCCEEDED" &&
+      v.sources.length > 0 &&
+      v.sources.every((src) => src.id && src.text?.trim()) &&
       v.committed &&
       v.operation_matches &&
       v.receipt_matches &&

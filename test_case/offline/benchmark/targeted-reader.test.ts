@@ -102,13 +102,20 @@ test("late or unverified applied effects cannot count as effective maintenance",
   const c = capture(),
     a = c.proposals[0];
   Object.assign(a, {
-    state: "DONE",
+    state: "SUCCEEDED",
     effect: "APPLIED",
     committed: true,
     receipt_matches: true,
     fact_revision_matches: true,
   });
   assert.equal(obs(render(c), 4).proposals[0].committed_effect_verified, true);
+  a.state = "WAIT_AUTH";
+  assert.equal(obs(render(c), 4).proposals[0].committed_effect_verified, false);
+  a.state = "SUCCEEDED";
+  const prior = a.sources;
+  a.sources = [];
+  assert.equal(obs(render(c), 4).proposals[0].committed_effect_verified, false);
+  a.sources = prior;
   a.receipt_matches = false;
   assert.ok(
     render(c).binding.capture_gaps.includes("PROPOSAL_EFFECT_UNVERIFIED"),

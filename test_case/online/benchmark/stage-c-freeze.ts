@@ -91,7 +91,8 @@ export type Preflight = {
     | "CONTINUATION_CONTROLS"
     | "SYSTEM_C16"
     | "IDENTITY_C16"
-    | "TRANSIENT_PG";
+    | "TRANSIENT_PG"
+    | "PREPARATION_PG";
   rehearsal_read?: "ORIGINAL_OFFSET" | "OTHER_EVENT";
   rehearsal_scenario?: "C16-combined" | "C06-stale-cold" | "C12b";
   models: StageModel[];
@@ -220,6 +221,7 @@ export function projectCampaign(
                 "SYSTEM_C16",
                 "IDENTITY_C16",
                 "TRANSIENT_PG",
+                "PREPARATION_PG",
               ]
             : []),
         ].includes(inputs.rehearsal_go)),
@@ -285,6 +287,7 @@ export function projectCampaign(
                 "SYSTEM_C16",
                 "IDENTITY_C16",
                 "TRANSIENT_PG",
+                "PREPARATION_PG",
               ]
             : []),
         ].includes(inputs.rehearsal_go ?? "") && !inputs.rehearsal_scenario

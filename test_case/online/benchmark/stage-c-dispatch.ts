@@ -59,6 +59,7 @@ type State = {
     string,
     { run?: string; reason: string; retry_at: number; checkpoint?: string }
   >;
+  preparationQuarantines?: Record<string, string>;
   quarantined?: Record<string, string>;
   probes: Record<string, never>;
   repairs: Record<string, never>;
@@ -378,18 +379,28 @@ export async function completionCommand(
             r =
               continuing && pending?.run
                 ? d.load(pending.run)
-                : await d.create({
-                    version: 5,
-                    mode: "live",
-                    track: "issue122",
-                    case_id: l.scenario,
-                    seed: l.seed,
-                    model: l.model,
-                    profile: l.profile,
-                    max_sends: l.cap,
-                    lane: l.lane,
-                    freeze_sha256: hash,
-                  });
+                : await d.create(
+                    {
+                      version: 5,
+                      mode: "live",
+                      track: "issue122",
+                      case_id: l.scenario,
+                      seed: l.seed,
+                      model: l.model,
+                      profile: l.profile,
+                      max_sends: l.cap,
+                      lane: l.lane,
+                      freeze_sha256: hash,
+                    },
+                    inputs.rehearsal_go === "PREPARATION_PG" &&
+                      isGoRehearsal(root) &&
+                      l.scenario === "C12b" &&
+                      !pending
+                      ? () => {
+                          throw new Error("PG_TRANSIENT_EAGAIN");
+                        }
+                      : undefined,
+                  );
             if (pending?.checkpoint) {
               requireThat(
                 d.continuationCheckpoint(r.id) === pending.checkpoint,
@@ -401,9 +412,12 @@ export async function completionCommand(
             const reason =
               error instanceof Error ? error.message : "DOMAIN_CREATE_FAILED";
             if (
-              error instanceof DomainPreparationError ||
-              !transientFacilityFailure(reason)
+              error instanceof DomainPreparationError &&
+              transientFacilityFailure(reason)
             ) {
+              (state.preparationQuarantines ??= {})[error.runId] = l.lane;
+            }
+            if (!transientFacilityFailure(reason)) {
               const retained =
                 error instanceof DomainPreparationError
                   ? error.runId
@@ -434,7 +448,10 @@ export async function completionCommand(
             appendJSON(path.join(root, "campaign", "facility-waits.jsonl"), {
               lane: l.lane,
               at: new Date().toISOString(),
-              run: pending?.run,
+              run:
+                error instanceof DomainPreparationError
+                  ? error.runId
+                  : pending?.run,
               reason,
             });
             state.current = null;
@@ -591,7 +608,7 @@ export async function completionCommand(
               } else {
                 if (
                   terminal.status === "INCOMPLETE" &&
-                  (/OWNERSHIP|UNVERIFIED|UNCONFIRMED|REGISTRY_|SHARED_CLUSTER|_MISMATCH|^PROCESS_|^PG_/.test(
+                  (/OWNERSHIP|UNVERIFIED|REGISTRY_|SHARED_CLUSTER|^PROCESS_|^PG_/.test(
                     terminal.reason ?? "",
                   ) ||
                     fs.existsSync(
@@ -631,7 +648,8 @@ export async function completionCommand(
         reason: "BATCH_STOPPED",
       };
     const quarantined = Object.entries(state.quarantined ?? {});
-    if (continuing && quarantined.length) {
+    const preparations = Object.entries(state.preparationQuarantines ?? {});
+    if (continuing && (quarantined.length || preparations.length)) {
       // Close inference admission independently of a physical domain whose ownership cannot be proven.
       // Archiving and cleanup still require every physical lifecycle check.
       const active = fs.existsSync(activeFile) ? readJSON(activeFile) : null;
@@ -639,6 +657,19 @@ export async function completionCommand(
         (!active || active.state === "CLOSED") &&
           !state.current &&
           !Object.keys(state.pending ?? {}).length &&
+          preparations.every(([id, lane]) => {
+            const partial = d.raw(id);
+            return (
+              partial.id === id &&
+              partial.config.version === 5 &&
+              partial.config.freeze_sha256 === hash &&
+              partial.config.lane === lane &&
+              partial.state === "INCOMPLETE" &&
+              !partial.process &&
+              state.terminals[lane] &&
+              state.terminals[lane].run !== id
+            );
+          }) &&
           quarantined.every(
             ([run, lane]) =>
               state.terminals[lane]?.run === run &&
@@ -646,7 +677,9 @@ export async function completionCommand(
           ),
         "CONTINUATION_QUARANTINE_NOT_TERMINAL",
       );
-      await d.closeStoppedCampaign(new Set(quarantined.map(([run]) => run)));
+      await d.closeStoppedCampaign(
+        new Set([...quarantined, ...preparations].map(([run]) => run)),
+      );
     } else await d.closeStoppedCampaign();
     // An owned worker may have exited while its controller survived. A missing
     // settlement in either durable ledger also fences the independent reader.

@@ -404,9 +404,16 @@ export class Domains {
       database: await newDatabase(path.join(this.root, "pg", id, "data")),
     };
     this.save(run);
-    mkdir(run.evidence);
-    mkdir(path.dirname(run.database.directory));
-    writeJSON(path.join(run.evidence, "source.json"), run.frozen);
+    try {
+      mkdir(run.evidence);
+      mkdir(path.dirname(run.database.directory));
+      writeJSON(path.join(run.evidence, "source.json"), run.frozen);
+    } catch (error) {
+      run.state = "INCOMPLETE";
+      run.failure = String(error);
+      this.save(run);
+      throw new DomainPreparationError(run.id, error);
+    }
     return run;
   }
   private mark(run: Run, dir = run.active) {
@@ -427,13 +434,17 @@ export class Domains {
     this.save(run);
     await verifyDatabase(run.database);
   }
-  async create(config: Configuration = configuration) {
+  async create(
+    config: Configuration = configuration,
+    beforePrepare?: () => void,
+  ) {
     const run = await this.allocate(config);
     try {
       requireThat(!fs.existsSync(run.active), "SLOT_EXISTS");
       this.mark(run);
       if (config.mode === "live") initializeGuard(this.root, run.lineage);
       this.save(run);
+      beforePrepare?.();
       await this.preparePG(run);
       run.state = "STOPPED";
       this.save(run);

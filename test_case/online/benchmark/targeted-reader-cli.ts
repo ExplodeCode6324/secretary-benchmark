@@ -240,7 +240,9 @@ export function readerAction(
           m.dispatch_sha256 === sha(bytes(ex("a-dispatch.json"))) &&
           isDeepStrictEqual(Object.keys(m.files).sort(), [
             "a-raw.txt",
-            "a-receipt.json",
+            ...(fs.existsSync(path.join(output, "a-receipt.json"))
+              ? ["a-receipt.json"]
+              : []),
             "a-transport.json",
           ]) &&
           Object.entries(m.files).every(

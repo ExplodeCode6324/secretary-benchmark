@@ -80,12 +80,110 @@ export function blindHistory(route: TargetedRoute, attempts: BlindAttempt[]) {
   }
   return { passed, rejected };
 }
+/** Replay the immutable publication chain and prohibit new attempts after the first publication. */
+export function verifyReaderPublications(seriesDir: string, latest: any) {
+  let row = latest;
+  let cursor = seriesDir;
+  while (true) {
+    const { sequence, predecessor_sha256: predecessor } = row.publication;
+    requireThat(
+      Number.isSafeInteger(sequence) &&
+        sequence >= 1 &&
+        path.basename(path.dirname(cursor)) === "publications" &&
+        fs.realpathSync(cursor) === cursor &&
+        sha(read(path.join(cursor, "series-final.json"))) ===
+          path.basename(cursor),
+      "READER_PUBLICATION_IDENTITY",
+    );
+    if (sequence === 1) {
+      requireThat(predecessor === null, "READER_PUBLICATION_ORIGIN");
+      break;
+    }
+    requireThat(
+      typeof predecessor === "string" && /^[a-f0-9]{64}$/.test(predecessor),
+      "READER_PUBLICATION_PARENT",
+    );
+    const child = cursor;
+    cursor = path.join(path.dirname(cursor), predecessor);
+    const prior = json(path.join(cursor, "series-final.json"), predecessor);
+    requireThat(
+      prior.publication?.sequence === sequence - 1 &&
+        [
+          "series_sha256",
+          "operator_release_sha256",
+          "workload_freeze_sha256",
+          "workload_dispatch_sha256",
+          "confirmed_system_failure_sha256",
+        ].every((k) => row[k] === prior[k]) &&
+        isDeepStrictEqual(
+          Object.keys(row.routes).sort(),
+          Object.keys(prior.routes).sort(),
+        ),
+      "READER_PUBLICATION_BINDING",
+    );
+    for (const [route, previous] of Object.entries<any>(prior.routes)) {
+      const next = row.routes[route];
+      const attempts = previous.attempts ?? [],
+        continued = next.attempts ?? [];
+      requireThat(
+        attempts.length === continued.length &&
+          attempts.every(
+            (a: any, i: number) =>
+              a.attempt === continued[i].attempt &&
+              [
+                "context.json",
+                "outcome.json",
+                "metadata.json",
+                "a-query.txt",
+                "a-dispatch.json",
+                "a-raw.txt",
+                "a-transport.json",
+                "a-receipt.json",
+                "provider-source",
+                "provider-evidence.json",
+                "assessment.json",
+                "restore-selection.json",
+                "reconciliation.json",
+                "metering-evidence.json",
+                "metering-source",
+              ].every((file) => {
+                const dir = path.join("exchange", route, "attempts", a.attempt);
+                const old = path.join(cursor, dir, file);
+                return (
+                  !fs.existsSync(old) ||
+                  read(old).equals(read(path.join(child, dir, file)))
+                );
+              }),
+          ),
+        "READER_PUBLICATION_ATTEMPT_CHANGED",
+      );
+      if (
+        previous.status !== "UNRESOLVED" ||
+        previous.reason !== "PENDING_RECONCILIATION"
+      )
+        requireThat(
+          ["status", "reason", "selected_attempt", "assessment"].every((k) =>
+            isDeepStrictEqual(next[k], previous[k]),
+          ),
+          "READER_PUBLISHED_GRADE_CHANGED",
+        );
+    }
+    row = prior;
+  }
+}
 export function continuationReaderView(
   seriesDir: string,
   facility: string,
   final: any,
   f: TargetedReaderFreeze,
 ) {
+  const publication =
+    f.routes.calibration.decision_sha256 ===
+    continuationWorkload.decision_sha256;
+  if (publication) {
+    requireThat(final.publication, "READER_PUBLICATION_REQUIRED");
+    verifyReaderPublications(seriesDir, final);
+  }
   const grades = new Map<TargetedRoute, ReturnType<typeof readerAction>>();
   const all: any[] = [];
   let failedCalibrationAt: number | undefined;
@@ -190,7 +288,8 @@ export function continuationReaderView(
         let calibrationTime;
         if (
           received &&
-          (fs.existsSync(input("assessment.json")) ||
+          (publication ||
+            fs.existsSync(input("assessment.json")) ||
             attempt.state === "GRADED" ||
             fs.existsSync(
               restore
@@ -310,7 +409,19 @@ export function continuationReaderView(
         grades.set(route, result);
       } else {
         requireThat(
-          row.status === "NOT_TESTED" &&
+          (row.status === "NOT_TESTED" ||
+            (publication &&
+              route !== "calibration" &&
+              row.status === "UNRESOLVED" &&
+              ((row.reason === "FIRST_RECEIPT_REJECTED" &&
+                !!decision.rejected) ||
+                (["PENDING_RECONCILIATION", "RECONCILED_NO_GRADE"].includes(
+                  row.reason,
+                ) &&
+                  attempts.at(-1)?.state === row.reason &&
+                  attempts.at(-1)?.physical_dispatches === 1 &&
+                  (row.reason !== "RECONCILED_NO_GRADE" ||
+                    final.publication.sequence > 1))))) &&
             !row.assessment &&
             !row.selected_attempt &&
             (!fs.existsSync(path.join(ex, "selection.json")) ||
@@ -322,8 +433,10 @@ export function continuationReaderView(
           "CONTINUATION_TERMINAL",
         );
         requireThat(
-          (!Object.hasOwn(f.routes, route) &&
-            row.reason === f.unavailable?.[route as "c12b" | "c16-repeat1"]) ||
+          row.status === "UNRESOLVED" ||
+            (!Object.hasOwn(f.routes, route) &&
+              row.reason ===
+                f.unavailable?.[route as "c12b" | "c16-repeat1"]) ||
             (row.reason === "CALIBRATION_FAILED" &&
               failedCalibrationAt !== undefined) ||
             (row.reason === "FIRST_RECEIPT_REJECTED" && !!decision.rejected) ||
@@ -391,6 +504,9 @@ export function targetedResult(
   seriesDir: string,
   finalSHA: string,
 ) {
+  requireThat(/^[a-f0-9]{64}$/.test(finalSHA), "TARGETED_EXPORT_DIGEST");
+  if (fs.existsSync(path.join(seriesDir, "publications")))
+    seriesDir = path.join(seriesDir, "publications", finalSHA);
   const final = json(path.join(seriesDir, "series-final.json"), finalSHA);
   const f: TargetedReaderFreeze = json(
     path.join(seriesDir, "series.json"),

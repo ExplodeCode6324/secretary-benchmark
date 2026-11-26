@@ -52,19 +52,19 @@ export const continuationWorkload = {
   ...retestWorkload,
   series: "issue122-r77-continuation-v1",
   decision_sha256:
-    "4d91dfed5e67adefab65d28d7697c2e46e2eb02ea17dae20ed7688ecb12f177d",
+    "66c76890ba4901e2ceceff61a897d900f941e5087e8c0059a4bfb0c0629c933c",
   reader_operator_release_sha256:
-    "b070a73e66efb19e357edaae2908661d2b00a855ee4b3991b28e097d5a0a9b24",
+    "328461e161f76233205685a03747e99a760546a53ac9a33efeb08e469766afca",
   reader_native_sha256:
     "acfef87d7d7ef2c2af25a2fbdac9a6bec2cd6e51e1ca21b8e2042850d3f6cd6f",
   reader_package_sha256:
-    "ed20babdd31dbb1bbe55319a4c04fc814b4bda2b0bdfae589c764a3ab36253a3",
+    "eb42b99ee6fc315108d35e29a0befbe086c94b5711f1733a2dda35b8ecbcd766",
   workload_equivalent_cap: null,
   reader_equivalent_cap: null,
   proof_verifier_sha256:
-    "493dbf54ea6e7d6be6615e1b42cce59e5ee7c6fb7c4712e0aad1f528f2a4cea2",
+    "b523ce0766a15e45a45579f3cd156f11009e73547caea61a08dda857840fd312",
   before_observation_sha256:
-    "9d46c46dc8b07f06b425e6a171db96369a75213b6160c992ed7dd8bcfc4ba7c3",
+    "45ce3d2be27a52d25c0caa582bec43a0afba076e21886400a36f79d673c0dcda",
   request_budget: null,
   interruption_policy: "RECONCILE_AND_CONTINUE",
   stop_policy: "CONFIRMED_SECRETARY_SYSTEM_FAILURE_ONLY",

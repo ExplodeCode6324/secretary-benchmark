@@ -374,6 +374,10 @@ export async function executeTrial(
       );
       appendJSON(path.join(run.evidence, "stage-c-extra-restarts.jsonl"), {
         step,
+        old_pid: run.process?.pid,
+        new_pid: active.process?.pid,
+        domain: active.endpoint?.data_domain_id,
+        at: new Date().toISOString(),
         next_action: descriptor.steps[step]?.action ?? null,
         maintenance_commits:
           checkpoint?.trail?.cycles?.map((c: any) => c.job) ?? [],

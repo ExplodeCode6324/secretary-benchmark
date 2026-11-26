@@ -3,6 +3,7 @@ import { checkGoUsage } from "./stage-c-go-provider.ts";
 import { rehearsalFetch, rehearsalKey } from "./stage-c-rehearsal.ts";
 import {
   confirmedSystemFailure,
+  identitySequence,
   boundModelBlock,
   resumableLaneFailure,
   externalInterruption,
@@ -396,6 +397,9 @@ export async function completionCommand(
             lane: l.lane,
             model: l.model,
             freeze_sha256: hash,
+            ...(continuing
+              ? { reviewed_identity_sequence: identitySequence(root, r.id) }
+              : {}),
             deadline: continuing
               ? Date.now() + l.seconds * 1000
               : Math.min(Date.now() + l.seconds * 1000, until),

@@ -82,6 +82,23 @@ export function externalInterruption(root: string, run: Run, since: number) {
   ].sort((a, b) => a.at.localeCompare(b.at));
   return incidents[0];
 }
+export function identityChanges(root: string, run: string) {
+  return [...ledger(root).entries.values()].filter(
+    (e) =>
+      e.attempt.run === run &&
+      /^(VERSION_TRANSITION|IDENTITY_UNKNOWN|IDENTITY_MISMATCH_FIRST_CONTACT)$/.test(
+        (e.usage as { identity_status?: string } | null)?.identity_status ??
+          e.outcome ??
+          "",
+      ),
+  );
+}
+export function identitySequence(root: string, run: string) {
+  return identityChanges(root, run).reduce(
+    (sequence, e) => Math.max(sequence, e.settled_sequence ?? 0),
+    0,
+  );
+}
 export function providerRetryAt(root: string) {
   return Math.max(
     0,

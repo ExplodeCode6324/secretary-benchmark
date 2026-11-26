@@ -1,3 +1,4 @@
+import { identityChanges } from "./stage-c-continuation.ts";
 import { continuationWorkload, isRetest } from "./stage-c-targeted-policy.ts";
 import {
   delivery,
@@ -90,14 +91,16 @@ export function targetedWorkloadResult(
     ...(continuing
       ? {
           selected_attempts: attempts.length,
-          identity_changes: attempts
-            .filter((e) => /IDENTITY|VERSION_TRANSITION/.test(e.outcome ?? ""))
-            .map((e) => ({
-              id: e.attempt.id,
-              at: e.attempt.at,
-              outcome: e.outcome,
-              returned_model: e.returned_model ?? null,
-            })),
+          identity_changes: terminal.run
+            ? identityChanges(facility, terminal.run).map((e) => ({
+                id: e.attempt.id,
+                at: e.attempt.at,
+                outcome: e.outcome,
+                observed_models: (e.usage as any)?.observed_models ?? [],
+                identity_status: (e.usage as any)?.identity_status ?? null,
+                returned_model: e.returned_model ?? null,
+              }))
+            : [],
           previous_trajectories: closure.state.history?.[lane] ?? [],
           interruption: terminal.interruption ?? null,
         }

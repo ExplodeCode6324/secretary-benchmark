@@ -1,6 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import {
   appendRefusal,
+  identitySequence,
   retryTime,
   SenderWindowError,
   providerRetryAt,
@@ -454,6 +455,19 @@ export function meteredFetch(
         policy = campaign.physical_policy;
       const continuing =
         policy && completionPolicy(policy) && policy.continuation;
+      const requirePinnedLane = () => {
+        if (!continuing) return;
+        const active = readJSON(
+          path.join(options.root, "campaign", "active-stage-c.json"),
+        );
+        requireThat(
+          active.run === options.run &&
+            active.reviewed_identity_sequence >=
+              identitySequence(options.root, options.run),
+          "GO_LANE_IDENTITY_PAUSED",
+        );
+      };
+      requirePinnedLane();
       if (!continuing)
         requireThat(++sends <= options.maxSends, "EPISODE_SEND_LIMIT");
       const maxOutput =
@@ -643,7 +657,13 @@ export function meteredFetch(
         if (goAdmission?.finalCheck) {
           try {
             goAdmission.finalCheck();
-          } catch {
+            requirePinnedLane();
+          } catch (error) {
+            const reason =
+              error instanceof Error &&
+              error.message === "GO_LANE_IDENTITY_PAUSED"
+                ? error.message
+                : "GO_REQUEST_WINDOW_EXHAUSTED";
             holdGo(
               options.stageFreeze!,
               "GO_REQUEST_WINDOW_EXHAUSTED",
@@ -666,7 +686,7 @@ export function meteredFetch(
                 model_call: options.callID?.(ctx?.context_sha256),
                 deadline: options.deadline?.(ctx?.context_sha256),
                 started,
-                reason: "GO_REQUEST_WINDOW_EXHAUSTED",
+                reason,
                 phase: "AFTER_RESERVATION_BEFORE_POST",
                 request_sha256: bodyHash,
                 reservation_id: id,
@@ -1063,6 +1083,7 @@ export function meteredFetch(
               "MATCH",
           "GO_RESPONSE_QUARANTINED",
         );
+        requirePinnedLane();
         return new Response(new Blob(chunks), {
           status: response.status,
           headers: response.headers,

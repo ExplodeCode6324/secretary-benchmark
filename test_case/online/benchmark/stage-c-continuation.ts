@@ -1,7 +1,7 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { ledger } from "./campaign.ts";
-import { appendJSON } from "./io.ts";
+import { appendJSON, requireThat } from "./io.ts";
 import fs from "node:fs";
 import { snapshot } from "./snapshot.ts";
 import type { Run } from "./domain.ts";
@@ -133,27 +133,33 @@ export function boundModelBlock(root: string, run: Run) {
       c.state === "FAILED",
   );
   if (!call) return;
+  const matching = [...ledger(root).entries.values()]
+    .filter((entry) => {
+      if (entry.attempt.run !== run.id || !entry.settled) return false;
+      const file = path.join(
+        run.evidence,
+        "send-" + entry.attempt.id + ".json",
+      );
+      if (!fs.existsSync(file)) return false;
+      const send = readJSON(file);
+      return (
+        send.id === entry.attempt.id &&
+        send.model_call === call.id &&
+        send.attribution?.context_sha256 === call.request.sha256
+      );
+    })
+    .sort((a, b) => (b.settled_sequence ?? 0) - (a.settled_sequence ?? 0));
+  const last = matching[0];
   const refused = lines(
     path.join(root, "campaign", "facility-refusals.jsonl"),
   ).some(
     (r) =>
       r.run === run.id &&
       r.model_call === call.id &&
-      r.context_sha256 === call.request.sha256,
+      r.context_sha256 === call.request.sha256 &&
+      (!last || Date.parse(r.at) > Date.parse(last.settled_at!)),
   );
-  const sent = [...ledger(root).entries.values()].some((e) => {
-    if (e.attempt.run !== run.id || !e.settled || !externalOutcome(e.outcome))
-      return false;
-    const file = path.join(run.evidence, "send-" + e.attempt.id + ".json");
-    if (!fs.existsSync(file)) return false;
-    const send = readJSON(file);
-    return (
-      send.id === e.attempt.id &&
-      send.model_call === call.id &&
-      send.attribution?.context_sha256 === call.request.sha256
-    );
-  });
-  if (!refused && !sent) return;
+  if (!refused && !externalOutcome(last?.outcome)) return;
   return { session, call };
 }
 export function resumableLaneFailure(reason: string, bound: boolean) {
@@ -189,6 +195,10 @@ export async function resumeModelBlock(root: string, run: Run) {
     acceptance: receipt.acceptance,
     at: new Date().toISOString(),
   });
+  requireThat(
+    receipt.acceptance === "ACCEPTED",
+    "CONTINUATION_RESUME_REJECTED",
+  );
 }
 function externalOutcome(outcome: string | undefined) {
   return /UNCERTAIN|INTERRUPT|QUOTA|AUTH|GO_|HTTP_|NETWORK|IDENTITY|VERSION_TRANSITION|NO_POST|TIMEOUT/.test(

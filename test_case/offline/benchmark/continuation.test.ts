@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { appendJSON, writeJSON } from "../../online/benchmark/io.ts";
+import { appendJSON, sha, writeJSON } from "../../online/benchmark/io.ts";
 import {
   boundModelBlock,
+  requirePinnedIdentity,
+  externalOutcome,
   resumableLaneFailure,
   retryTime,
   providerRetryAt,
@@ -114,6 +116,89 @@ test("a cancelled native call can resume only within its own controller stop", (
   assert.equal(boundModelBlock(root, run), undefined);
   appendJSON(file, { run: "run", domain: "domain", started: at, ended: at });
   assert.equal(boundModelBlock(root, run)?.call.id, id);
+});
+
+test("an overlapping identity quarantine records a withheld matching response against its own call", (t) => {
+  const root = mkdtempSync(
+    path.join(realpathSync(os.tmpdir()), "delivery-fence-"),
+  );
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const run = { id: "run", evidence: path.join(root, "evidence") } as Run;
+  const campaign = path.join(root, "campaign");
+  const active = path.join(campaign, "active-stage-c.json");
+  writeJSON(active, { run: run.id, reviewed_identity_sequence: 0 });
+  const at = new Date().toISOString();
+  let previous = "0".repeat(64),
+    sequence = 0;
+  function event(value: object) {
+    const hash = sha(JSON.stringify(value) + previous + ++sequence);
+    appendJSON(path.join(campaign, "attempts.jsonl"), {
+      event: value,
+      previous,
+      sequence,
+      hash,
+    });
+    previous = hash;
+  }
+  for (const id of ["matching", "other"])
+    event({
+      type: "RESERVE",
+      attempt: { id, run: run.id, at, reserved_usd: 0 },
+    });
+  const call = {
+    id: "call",
+    state: "FAILED",
+    scope: { session_id: "session" },
+    request: { sha256: "context" },
+  };
+  writeJSON(path.join(run.evidence, "send-matching.json"), {
+    id: "matching",
+    model_call: call.id,
+    attribution: { context_sha256: "context" },
+  });
+  writeJSON(path.join(run.evidence, "observed.json"), {
+    session_id: "session",
+    sessions: [
+      { id: "session", state: "RECOVERY_BLOCKED", model_blocked_call: call.id },
+    ],
+    calls: [call],
+  });
+  event({
+    type: "SETTLE",
+    id: "other",
+    outcome: "VERSION_TRANSITION",
+    actual_usd: null,
+    at,
+  });
+  event({
+    type: "SETTLE",
+    id: "matching",
+    outcome: "RESPONSE_COMPLETE",
+    actual_usd: null,
+    at,
+    usage: { identity_status: "MATCH" },
+  });
+  assert.equal(boundModelBlock(root, run), undefined);
+  assert.throws(
+    () =>
+      requirePinnedIdentity(root, run.id, () => ({
+        model_call: call.id,
+        context_sha256: "context",
+        started: Date.now(),
+        request_sha256: "wire",
+        reservation_id: "matching",
+      })),
+    /GO_LANE_IDENTITY_PAUSED/,
+  );
+  assert.equal(boundModelBlock(root, run)?.call.id, call.id);
+  writeJSON(active, { run: run.id, reviewed_identity_sequence: sequence });
+  requirePinnedIdentity(root, run.id);
+});
+test("invalid requests keep their functional outcome, external HTTP failures may resume", () => {
+  for (const code of [400, 404, 413, 422])
+    assert.equal(externalOutcome("HTTP_" + code), false);
+  for (const code of [401, 402, 403, 408, 429, 500, 503])
+    assert.equal(externalOutcome("HTTP_" + code), true);
 });
 
 import { blindHistory } from "../../online/benchmark/targeted-result.ts";

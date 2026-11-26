@@ -50,7 +50,7 @@ export function appendRefusal(root: string, refusal: Refusal) {
     id: randomUUID(),
     at: new Date(now).toISOString(),
     scope: "CALL",
-    physical_send: false,
+    physical_send: refusal.phase === "AFTER_RESPONSE_BEFORE_DELIVERY",
     remaining_ms:
       refusal.deadline === undefined ? null : refusal.deadline - now,
     wait_ms: now - (refusal.wait_started ?? refusal.started),
@@ -67,10 +67,7 @@ export function externalInterruption(root: string, run: Run, since: number) {
     (e) =>
       e.attempt.run === run.id &&
       Date.parse(e.attempt.at) >= since &&
-      (!e.settled ||
-        /UNCERTAIN|INTERRUPT|QUOTA|AUTH|GO_|HTTP_|NETWORK|IDENTITY|VERSION_TRANSITION|NO_POST|TIMEOUT/.test(
-          e.outcome ?? "",
-        )),
+      (!e.settled || externalOutcome(e.outcome)),
   );
   const incidents = [
     ...refusals.map((r) => ({ at: r.at, reason: r.reason, id: r.id })),
@@ -98,6 +95,26 @@ export function identitySequence(root: string, run: string) {
     (sequence, e) => Math.max(sequence, e.settled_sequence ?? 0),
     0,
   );
+}
+export function requirePinnedIdentity(
+  root: string,
+  run: string,
+  withheld?: () => Omit<Refusal, "reason" | "phase" | "run">,
+) {
+  const active = readJSON(path.join(root, "campaign", "active-stage-c.json"));
+  if (
+    active.run === run &&
+    active.reviewed_identity_sequence >= identitySequence(root, run)
+  )
+    return;
+  if (withheld)
+    appendRefusal(root, {
+      ...withheld(),
+      run,
+      reason: "GO_LANE_IDENTITY_PAUSED",
+      phase: "AFTER_RESPONSE_BEFORE_DELIVERY",
+    });
+  throw Error("GO_LANE_IDENTITY_PAUSED");
 }
 export function providerRetryAt(root: string) {
   return Math.max(
@@ -183,7 +200,10 @@ export function boundModelBlock(root: string, run: Run) {
       r.run === run.id &&
       r.model_call === call.id &&
       r.context_sha256 === call.request.sha256 &&
-      (!last || Date.parse(r.at) > Date.parse(last.settled_at!)),
+      (!last ||
+        Date.parse(r.at) > Date.parse(last.settled_at!) ||
+        (r.phase === "AFTER_RESPONSE_BEFORE_DELIVERY" &&
+          r.reservation_id === last.attempt.id)),
   );
   if (!refused && !externalOutcome(last?.outcome)) return;
   return { session, call };
@@ -226,8 +246,10 @@ export async function resumeModelBlock(root: string, run: Run) {
     "CONTINUATION_RESUME_REJECTED",
   );
 }
-function externalOutcome(outcome: string | undefined) {
-  return /UNCERTAIN|INTERRUPT|QUOTA|AUTH|GO_|HTTP_|NETWORK|IDENTITY|VERSION_TRANSITION|NO_POST|TIMEOUT/.test(
+export function externalOutcome(outcome: string | undefined) {
+  if (outcome?.startsWith("HTTP_"))
+    return /^HTTP_(401|402|403|408|429|5[0-9]{2})$/.test(outcome);
+  return /UNCERTAIN|INTERRUPT|QUOTA|AUTH|GO_|NETWORK|IDENTITY|VERSION_TRANSITION|NO_POST|TIMEOUT/.test(
     outcome ?? "",
   );
 }

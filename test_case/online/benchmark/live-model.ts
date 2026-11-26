@@ -1,7 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import {
   appendRefusal,
-  identitySequence,
+  requirePinnedIdentity,
   retryTime,
   SenderWindowError,
   providerRetryAt,
@@ -457,15 +457,7 @@ export function meteredFetch(
         policy && completionPolicy(policy) && policy.continuation;
       const requirePinnedLane = () => {
         if (!continuing) return;
-        const active = readJSON(
-          path.join(options.root, "campaign", "active-stage-c.json"),
-        );
-        requireThat(
-          active.run === options.run &&
-            active.reviewed_identity_sequence >=
-              identitySequence(options.root, options.run),
-          "GO_LANE_IDENTITY_PAUSED",
-        );
+        requirePinnedIdentity(options.root, options.run);
       };
       requirePinnedLane();
       if (!continuing)
@@ -1083,7 +1075,21 @@ export function meteredFetch(
               "MATCH",
           "GO_RESPONSE_QUARANTINED",
         );
-        requirePinnedLane();
+        requirePinnedIdentity(options.root, options.run, () => {
+          const send = readJSON(
+            path.join(options.evidence, "send-" + id + ".json"),
+          );
+          return {
+            lane: options.lane,
+            role: send.attribution.role,
+            model_call: send.model_call,
+            context_sha256: send.attribution.context_sha256,
+            deadline: options.deadline?.(send.attribution.context_sha256),
+            started,
+            reservation_id: id,
+            request_sha256: bodyHash,
+          };
+        });
         return new Response(new Blob(chunks), {
           status: response.status,
           headers: response.headers,

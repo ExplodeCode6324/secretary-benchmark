@@ -53,7 +53,7 @@ export function continuationUsage(root: string) {
       confirmed_http_responses: httpCount,
       refused_before_post: lines(
         path.join(root, "campaign/facility-refusals.jsonl"),
-      ).length,
+      ).filter((row) => !row.physical_send).length,
       unknown_delivery: sends.filter(
         (e) => !e.settled || /UNCERTAIN|INTERRUPT/.test(e.outcome ?? ""),
       ).length,

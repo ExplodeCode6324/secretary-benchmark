@@ -133,8 +133,19 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
     : stageModels;
   if (current) {
     requireThat(
-      (!policy.continuation || (policy.providers["deepseek-flash"]?.route==="opencode-go" && policy.lanes.length===2 && ["r1-C12b--deepseek-flash","r1-C16-combined--deepseek-flash"].every(id=>policy.lanes.some(l=>l.lane===id && l.repeat===1 && l.model==="deepseek-flash")))) &&
-      count(policy.batch_seconds) &&
+      (!policy.continuation ||
+        (policy.providers["deepseek-flash"]?.route === "opencode-go" &&
+          policy.lanes.length === 2 &&
+          ["r1-C12b--deepseek-flash", "r1-C16-combined--deepseek-flash"].every(
+            (id) =>
+              policy.lanes.some(
+                (l) =>
+                  l.lane === id &&
+                  l.repeat === 1 &&
+                  l.model === "deepseek-flash",
+              ),
+          ))) &&
+        count(policy.batch_seconds) &&
         policy.batch_seconds <= 43200 &&
         Array.isArray(policy.lanes) &&
         policy.lanes.length > 0 &&
@@ -625,7 +636,7 @@ export function checkAdmission(
   );
   const remaining = forLane.length ? 1 : lane.cap;
   requireThat(
-    (current && policy.continuation || forLane.length < lane.cap) &&
+    ((current && policy.continuation) || forLane.length < lane.cap) &&
       (current ||
         (forModel.length + remaining <= 640 &&
           prior.length + remaining <= 1920)),

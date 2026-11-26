@@ -157,7 +157,8 @@ function verifyPricingOriginals(
 function verifyRehearsalAccount(root: string, hash: string) {
   const account = path.join(root, "fixture-account");
   verifyTargetedCarry(account, root);
-  const series = readJSON(path.join(root,"configs/stage-c-freeze.json")).targeted_supplement.series;
+  const series = readJSON(path.join(root, "configs/stage-c-freeze.json"))
+    .targeted_supplement.series;
   const name = series + ".json";
   const claim = readJSON(path.join(account, name));
   requireThat(
@@ -523,202 +524,210 @@ export async function archiveFacility(
   );
   const sourceIdentity = identity(root);
   const rehearsal = isGoRehearsal(root);
-  const archive = () => lease<ArchiveResult>(root, async () => {
-    requireThat(
-      identity(root) === sourceIdentity && read(markerPath).equals(markerBytes),
-      "ARCHIVE_FACILITY_CHANGED",
-    );
-    const d = new Domains(root),
-      runs = ownedStoppedRuns(d),
-      entries = inventory(root);
-    for (const entry of entries) {
-      const name = path.basename(entry.path);
+  const archive = () =>
+    lease<ArchiveResult>(root, async () => {
       requireThat(
-        !(name === "facility.json" && entry.path !== "facility.json") &&
-          (name !== "controller.lock" || entry.path === "controller.lock" || (rehearsal && entry.path === "fixture-account/controller.lock")) &&
-          name !== "postmaster.pid",
-        "ARCHIVE_NESTED_OR_ACTIVE_RESOURCE",
+        identity(root) === sourceIdentity &&
+          read(markerPath).equals(markerBytes),
+        "ARCHIVE_FACILITY_CHANGED",
       );
-    }
-    const summary: ArchiveResult = {
-      status: "DRY_RUN",
-      source: root,
-      destination,
-      files: entries.filter((e) => e.kind === "file").length,
-      bytes: entries.reduce((n, e) => n + e.bytes, 0),
-    };
-    if (!apply) return summary;
-    const id = randomUUID(),
-      created = new Date(),
-      parts = new Intl.DateTimeFormat("en-GB", {
-        timeZone: "Asia/Hong_Kong",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }).formatToParts(created);
-    const day = ["year", "month", "day"]
-      .map((kind) => parts.find((p) => p.type === kind)!.value)
-      .join("");
-    const dateDirectory = path.join(destination, day);
-    const stage = path.join(dateDirectory, ".pending-" + id),
-      published = path.join(dateDirectory, id);
-    const localStage = fs.realpathSync(
-      fs.mkdtempSync(path.join(os.tmpdir(), "secretary-archive-")),
-    );
-    fs.chmodSync(localStage, 0o700);
-    const warnings: string[] = [];
-    try {
-      const manifest: ArchiveManifest = {
-        schema: "secretary-facility-archive-v1",
-        archive_id: id,
-        created_at: created.toISOString(),
-        source: root,
-        source_identity: sourceIdentity,
-        repository,
-        facility_nonce: marker.nonce,
-        root_mode: fs.statSync(root).mode & 0o777,
-        runs: runs.map((r) => ({
-          id: r.id,
-          state: r.state,
-          lineage: r.lineage,
-        })),
-        entries,
-      };
-      writeJSON(path.join(localStage, "manifest.json"), manifest);
-      fs.writeFileSync(
-        path.join(localStage, "RESTORE.md"),
-        `# Retained benchmark facility\n\nArchive: facility.tar.gz. Manifest: manifest.json. Receipt: receipt.json.\n\nThis is a complete private stopped-state backup, including PostgreSQL files, credentials, CAS, workspaces, reports and original failures. Keep access restricted. Verify every tar member against the manifest before extraction. Extract only into a new private staging directory; never overwrite live data. PostgreSQL physical files require a compatible PG18 installation. Existing Core records contain absolute workspace paths: extracting at an arbitrary new pathname does not authorize booting it. Review the original canonical source path, ownership registry, processes and database identity before any explicit recovery. Do not start a retired run or attach this backup to the agile instance.\n\nOriginal source: ${root}\nCreated (UTC): ${created.toISOString()}\n`,
-        { flag: "wx", mode: 0o600 },
-      );
-      // Build the complete package locally. Only four complete files cross to the target.
-      const local = runArchive(
-        "create",
-        path.join(localStage, "manifest.json"),
-        path.join(localStage, "facility.tar.gz"),
-      );
-      const archiveHash: string = local.archive_sha256,
-        manifestHash = sha(read(path.join(localStage, "manifest.json")));
-      const receipt = {
-        schema: "secretary-facility-archive-receipt-v1",
-        archive_id: id,
-        source: root,
-        source_identity: sourceIdentity,
-        archive_sha256: archiveHash,
-        manifest_sha256: manifestHash,
-        verification:
-          process.platform === "darwin"
-            ? "CLIENT_READBACK_AFTER_FSYNC_F_NOCACHE"
-            : "CLIENT_READBACK_AFTER_FSYNC",
-      };
-      writeJSON(path.join(localStage, "receipt.json"), {
-        ...receipt,
-        state: "LOCAL_VERIFIED_SOURCE_RETAINED",
-        verified_at: new Date().toISOString(),
-      });
-      noLinks(dateDirectory);
-      fs.mkdirSync(dateDirectory, { recursive: true, mode: 0o700 });
-      fs.mkdirSync(stage, { mode: 0o700 });
-      for (const filename of [
-        "facility.tar.gz",
-        "manifest.json",
-        "receipt.json",
-        "RESTORE.md",
-      ]) {
-        const output = path.join(stage, filename);
-        noLinks(output);
-        fs.copyFileSync(
-          path.join(localStage, filename),
-          output,
-          fs.constants.COPYFILE_EXCL,
+      const d = new Domains(root),
+        runs = ownedStoppedRuns(d),
+        entries = inventory(root);
+      for (const entry of entries) {
+        const name = path.basename(entry.path);
+        requireThat(
+          !(name === "facility.json" && entry.path !== "facility.json") &&
+            (name !== "controller.lock" ||
+              entry.path === "controller.lock" ||
+              (rehearsal &&
+                entry.path === "fixture-account/controller.lock")) &&
+            name !== "postmaster.pid",
+          "ARCHIVE_NESTED_OR_ACTIVE_RESOURCE",
         );
-        fs.chmodSync(output, 0o600);
-        const fd = fs.openSync(output, "r");
+      }
+      const summary: ArchiveResult = {
+        status: "DRY_RUN",
+        source: root,
+        destination,
+        files: entries.filter((e) => e.kind === "file").length,
+        bytes: entries.reduce((n, e) => n + e.bytes, 0),
+      };
+      if (!apply) return summary;
+      const id = randomUUID(),
+        created = new Date(),
+        parts = new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Asia/Hong_Kong",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).formatToParts(created);
+      const day = ["year", "month", "day"]
+        .map((kind) => parts.find((p) => p.type === kind)!.value)
+        .join("");
+      const dateDirectory = path.join(destination, day);
+      const stage = path.join(dateDirectory, ".pending-" + id),
+        published = path.join(dateDirectory, id);
+      const localStage = fs.realpathSync(
+        fs.mkdtempSync(path.join(os.tmpdir(), "secretary-archive-")),
+      );
+      fs.chmodSync(localStage, 0o700);
+      const warnings: string[] = [];
+      try {
+        const manifest: ArchiveManifest = {
+          schema: "secretary-facility-archive-v1",
+          archive_id: id,
+          created_at: created.toISOString(),
+          source: root,
+          source_identity: sourceIdentity,
+          repository,
+          facility_nonce: marker.nonce,
+          root_mode: fs.statSync(root).mode & 0o777,
+          runs: runs.map((r) => ({
+            id: r.id,
+            state: r.state,
+            lineage: r.lineage,
+          })),
+          entries,
+        };
+        writeJSON(path.join(localStage, "manifest.json"), manifest);
+        fs.writeFileSync(
+          path.join(localStage, "RESTORE.md"),
+          `# Retained benchmark facility\n\nArchive: facility.tar.gz. Manifest: manifest.json. Receipt: receipt.json.\n\nThis is a complete private stopped-state backup, including PostgreSQL files, credentials, CAS, workspaces, reports and original failures. Keep access restricted. Verify every tar member against the manifest before extraction. Extract only into a new private staging directory; never overwrite live data. PostgreSQL physical files require a compatible PG18 installation. Existing Core records contain absolute workspace paths: extracting at an arbitrary new pathname does not authorize booting it. Review the original canonical source path, ownership registry, processes and database identity before any explicit recovery. Do not start a retired run or attach this backup to the agile instance.\n\nOriginal source: ${root}\nCreated (UTC): ${created.toISOString()}\n`,
+          { flag: "wx", mode: 0o600 },
+        );
+        // Build the complete package locally. Only four complete files cross to the target.
+        const local = runArchive(
+          "create",
+          path.join(localStage, "manifest.json"),
+          path.join(localStage, "facility.tar.gz"),
+        );
+        const archiveHash: string = local.archive_sha256,
+          manifestHash = sha(read(path.join(localStage, "manifest.json")));
+        const receipt = {
+          schema: "secretary-facility-archive-receipt-v1",
+          archive_id: id,
+          source: root,
+          source_identity: sourceIdentity,
+          archive_sha256: archiveHash,
+          manifest_sha256: manifestHash,
+          verification:
+            process.platform === "darwin"
+              ? "CLIENT_READBACK_AFTER_FSYNC_F_NOCACHE"
+              : "CLIENT_READBACK_AFTER_FSYNC",
+        };
+        writeJSON(path.join(localStage, "receipt.json"), {
+          ...receipt,
+          state: "LOCAL_VERIFIED_SOURCE_RETAINED",
+          verified_at: new Date().toISOString(),
+        });
+        noLinks(dateDirectory);
+        fs.mkdirSync(dateDirectory, { recursive: true, mode: 0o700 });
+        fs.mkdirSync(stage, { mode: 0o700 });
+        for (const filename of [
+          "facility.tar.gz",
+          "manifest.json",
+          "receipt.json",
+          "RESTORE.md",
+        ]) {
+          const output = path.join(stage, filename);
+          noLinks(output);
+          fs.copyFileSync(
+            path.join(localStage, filename),
+            output,
+            fs.constants.COPYFILE_EXCL,
+          );
+          fs.chmodSync(output, 0o600);
+          const fd = fs.openSync(output, "r");
+          try {
+            fs.fsyncSync(fd);
+          } finally {
+            fs.closeSync(fd);
+          }
+        }
+        // Verify from the destination itself, not just the local staging package.
+        const remote = runArchive(
+          "verify",
+          path.join(stage, "manifest.json"),
+          path.join(stage, "facility.tar.gz"),
+        );
+        requireThat(
+          remote.archive_sha256 === archiveHash &&
+            sha(read(path.join(stage, "manifest.json"))) === manifestHash,
+          "ARCHIVE_TRANSFER_MISMATCH",
+        );
+        requireThat(
+          identity(root) === sourceIdentity &&
+            read(markerPath).equals(markerBytes) &&
+            JSON.stringify(inventory(root)) === JSON.stringify(entries),
+          "ARCHIVE_SOURCE_CHANGED",
+        );
+        ownedStoppedRuns(d);
+        writeJSON(path.join(stage, "receipt.json"), {
+          ...receipt,
+          state: "VERIFIED_SOURCE_RETAINED",
+          verified_at: new Date().toISOString(),
+        });
+        syncDir(stage);
+        requireThat(!fs.existsSync(published), "ARCHIVE_DESTINATION_EXISTS");
+        fs.renameSync(stage, published);
+        syncDir(dateDirectory);
+        requireThat(
+          identity(root) === sourceIdentity &&
+            JSON.stringify(inventory(root)) === JSON.stringify(entries),
+          "ARCHIVE_SOURCE_CHANGED",
+        );
+        // From here a complete, verified, fsynced backup is already published. Cleanup
+        // failures are explicit warnings, never a false claim that the source is gone.
         try {
-          fs.fsyncSync(fd);
-        } finally {
-          fs.closeSync(fd);
+          fs.rmSync(root, { recursive: true });
+          syncDir(path.dirname(root));
+        } catch (error) {
+          warnings.push(
+            "SOURCE_CLEANUP_" +
+              ((error as NodeJS.ErrnoException).code ?? "FAILED"),
+          );
+        }
+        const removed = !fs.existsSync(root);
+        try {
+          writeJSON(path.join(published, "receipt.json"), {
+            ...receipt,
+            state: removed
+              ? "ARCHIVED_SOURCE_REMOVED"
+              : "ARCHIVED_SOURCE_CLEANUP_INCOMPLETE",
+            finished_at: new Date().toISOString(),
+            warnings,
+          });
+        } catch (error) {
+          warnings.push(
+            "RECEIPT_UPDATE_" +
+              ((error as NodeJS.ErrnoException).code ?? "FAILED"),
+          );
+        }
+        return {
+          ...summary,
+          status: "ARCHIVED",
+          archive_directory: published,
+          archive_sha256: archiveHash,
+          source_removed: removed,
+          warnings,
+        };
+      } finally {
+        // This is our exclusive local temporary package. A failure retains the source
+        // and any destination .pending directory; there is no need to keep a third copy.
+        try {
+          fs.rmSync(localStage, { recursive: true, force: true });
+        } catch {
+          warnings.push("LOCAL_TEMP_CLEANUP_FAILED:" + localStage);
         }
       }
-      // Verify from the destination itself, not just the local staging package.
-      const remote = runArchive(
-        "verify",
-        path.join(stage, "manifest.json"),
-        path.join(stage, "facility.tar.gz"),
-      );
-      requireThat(
-        remote.archive_sha256 === archiveHash &&
-          sha(read(path.join(stage, "manifest.json"))) === manifestHash,
-        "ARCHIVE_TRANSFER_MISMATCH",
-      );
-      requireThat(
-        identity(root) === sourceIdentity &&
-          read(markerPath).equals(markerBytes) &&
-          JSON.stringify(inventory(root)) === JSON.stringify(entries),
-        "ARCHIVE_SOURCE_CHANGED",
-      );
-      ownedStoppedRuns(d);
-      writeJSON(path.join(stage, "receipt.json"), {
-        ...receipt,
-        state: "VERIFIED_SOURCE_RETAINED",
-        verified_at: new Date().toISOString(),
-      });
-      syncDir(stage);
-      requireThat(!fs.existsSync(published), "ARCHIVE_DESTINATION_EXISTS");
-      fs.renameSync(stage, published);
-      syncDir(dateDirectory);
-      requireThat(
-        identity(root) === sourceIdentity &&
-          JSON.stringify(inventory(root)) === JSON.stringify(entries),
-        "ARCHIVE_SOURCE_CHANGED",
-      );
-      // From here a complete, verified, fsynced backup is already published. Cleanup
-      // failures are explicit warnings, never a false claim that the source is gone.
-      try {
-        fs.rmSync(root, { recursive: true });
-        syncDir(path.dirname(root));
-      } catch (error) {
-        warnings.push(
-          "SOURCE_CLEANUP_" +
-            ((error as NodeJS.ErrnoException).code ?? "FAILED"),
-        );
-      }
-      const removed = !fs.existsSync(root);
-      try {
-        writeJSON(path.join(published, "receipt.json"), {
-          ...receipt,
-          state: removed
-            ? "ARCHIVED_SOURCE_REMOVED"
-            : "ARCHIVED_SOURCE_CLEANUP_INCOMPLETE",
-          finished_at: new Date().toISOString(),
-          warnings,
-        });
-      } catch (error) {
-        warnings.push(
-          "RECEIPT_UPDATE_" +
-            ((error as NodeJS.ErrnoException).code ?? "FAILED"),
-        );
-      }
-      return {
-        ...summary,
-        status: "ARCHIVED",
-        archive_directory: published,
-        archive_sha256: archiveHash,
-        source_removed: removed,
-        warnings,
-      };
-    } finally {
-      // This is our exclusive local temporary package. A failure retains the source
-      // and any destination .pending directory; there is no need to keep a third copy.
-      try {
-        fs.rmSync(localStage, { recursive: true, force: true });
-      } catch {
-        warnings.push("LOCAL_TEMP_CLEANUP_FAILED:" + localStage);
-      }
-    }
-  });
+    });
   if (!rehearsal) return archive();
   const account = path.join(root, "fixture-account");
   noLinks(account);
-  requireThat(fs.existsSync(path.join(account, "controller.lock")), "ARCHIVE_REHEARSAL_CLAIM");
+  requireThat(
+    fs.existsSync(path.join(account, "controller.lock")),
+    "ARCHIVE_REHEARSAL_CLAIM",
+  );
   return lease(account, archive);
 }

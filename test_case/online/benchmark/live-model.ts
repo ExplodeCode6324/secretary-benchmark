@@ -1,5 +1,10 @@
-import {setTimeout as delay} from "node:timers/promises";
-import { appendRefusal, retryTime, SenderWindowError } from "./stage-c-continuation.ts";
+import { setTimeout as delay } from "node:timers/promises";
+import {
+  appendRefusal,
+  retryTime,
+  SenderWindowError,
+  providerRetryAt,
+} from "./stage-c-continuation.ts";
 import { admitGoSend, holdGo } from "./stage-c-go-quota.ts";
 import {
   goAPI,
@@ -380,7 +385,10 @@ export function meteredFetch(
       admit: () => Promise<T>,
     ) => Promise<T>;
     callID?: (hash: string | undefined) => string | undefined;
-    deadline?: (context: string | undefined) => number | undefined;
+    deadline?: (
+      context: string | undefined,
+      stage?: "quota" | "reservation" | "send",
+    ) => number | undefined;
   },
   transport: typeof fetch = globalThis.fetch,
 ): typeof fetch {
@@ -442,9 +450,12 @@ export function meteredFetch(
           "GO_ROLE_SETTINGS_CHANGED",
         );
       phase = "EPISODE_SEND_LIMIT";
-      const campaign = loadCampaign(options.root), policy = campaign.physical_policy;
-      const continuing = policy && completionPolicy(policy) && policy.continuation;
-      if (!continuing) requireThat(++sends <= options.maxSends, "EPISODE_SEND_LIMIT");
+      const campaign = loadCampaign(options.root),
+        policy = campaign.physical_policy;
+      const continuing =
+        policy && completionPolicy(policy) && policy.continuation;
+      if (!continuing)
+        requireThat(++sends <= options.maxSends, "EPISODE_SEND_LIMIT");
       const maxOutput =
         payload.max_output_tokens ??
         payload.max_completion_tokens ??
@@ -564,8 +575,8 @@ export function meteredFetch(
           commitReservation,
           {
             signal: request.signal,
-            deadline: () =>
-              options.deadline?.(attribution.getStore()?.context_sha256),
+            deadline: (stage) =>
+              options.deadline?.(attribution.getStore()?.context_sha256, stage),
           },
         );
       const goAdmission = options.route
@@ -590,7 +601,13 @@ export function meteredFetch(
               local_unreflected_usd: goAdmission.local,
             }
           : {}),
-        ...(continuing ? { model_call:options.callID?.(attribution.getStore()?.context_sha256) } : {}),
+        ...(continuing
+          ? {
+              model_call: options.callID?.(
+                attribution.getStore()?.context_sha256,
+              ),
+            }
+          : {}),
         attribution: attribution.getStore() ?? { role: "component-or-probe" },
         payload,
         at: new Date().toISOString(),
@@ -613,7 +630,8 @@ export function meteredFetch(
             Date.parse(attempts[0].at) + limits.batch,
             Date.parse(laneStart.at) + limits.lane,
           );
-          const remaining = (continuing ? active.deadline : expires) - Date.now();
+          const remaining =
+            (continuing ? active.deadline : expires) - Date.now();
           requireThat(remaining > 0, "STAGE_B_LANE_TIME");
           signal = AbortSignal.any([signal, AbortSignal.timeout(remaining)]);
         }
@@ -640,7 +658,19 @@ export function meteredFetch(
             );
             if (continuing) {
               const ctx = attribution.getStore();
-              appendRefusal(options.root, {lane:options.lane, run:options.run, role:ctx?.role, context_sha256:ctx?.context_sha256, model_call:options.callID?.(ctx?.context_sha256), deadline:options.deadline?.(ctx?.context_sha256), started, reason:"GO_REQUEST_WINDOW_EXHAUSTED", phase:"AFTER_RESERVATION_BEFORE_POST", request_sha256:bodyHash, reservation_id:id});
+              appendRefusal(options.root, {
+                lane: options.lane,
+                run: options.run,
+                role: ctx?.role,
+                context_sha256: ctx?.context_sha256,
+                model_call: options.callID?.(ctx?.context_sha256),
+                deadline: options.deadline?.(ctx?.context_sha256),
+                started,
+                reason: "GO_REQUEST_WINDOW_EXHAUSTED",
+                phase: "AFTER_RESERVATION_BEFORE_POST",
+                request_sha256: bodyHash,
+                reservation_id: id,
+              });
             }
             throw Error("RETEST_CONFIRMED_NO_POST");
           }
@@ -670,10 +700,26 @@ export function meteredFetch(
         // Never propagate a provider exception that might contain request headers.
         throw safeTransportError(error);
       }
+      const retryAt =
+        continuing && !response.ok
+          ? retryTime(response.headers.get("retry-after"))
+          : null;
+      if (retryAt)
+        appendJSON(
+          path.join(options.root, "campaign", "provider-backoff.jsonl"),
+          {
+            id,
+            at: new Date().toISOString(),
+            status: response.status,
+            retry_at: retryAt,
+          },
+        );
       appendJSON(path.join(options.evidence, "http.jsonl"), {
         id,
         status: response.status,
-        ...(continuing && response.headers.has("retry-after") ? { retry_at: retryTime(response.headers.get("retry-after")) } : {}),
+        ...(continuing && response.headers.has("retry-after")
+          ? { retry_at: retryTime(response.headers.get("retry-after")) }
+          : {}),
         at: new Date().toISOString(),
       });
       if (!response.ok || !response.body) {
@@ -942,7 +988,9 @@ export function meteredFetch(
               ? {
                   route: options.route,
                   billing_basis: "opencode_go_subscription_allowance",
-                  cash_charge_usd: continuing ? goMeter!.receipt.cash_debit_usd : null,
+                  cash_charge_usd: continuing
+                    ? goMeter!.receipt.cash_debit_usd
+                    : null,
                   go_meter: goMeter!.receipt,
                 }
               : {}),
@@ -1023,10 +1071,33 @@ export function meteredFetch(
       );
     } catch (error) {
       if (phase !== "SENT_OR_RESERVED") {
-        const pol = options.stageFreeze && loadCampaign(options.root).physical_policy;
+        const pol =
+          options.stageFreeze && loadCampaign(options.root).physical_policy;
         if (pol && completionPolicy(pol) && pol.continuation) {
-          const ctx = attribution.getStore(), reason = error instanceof Error && /^[A-Z][A-Z0-9_]{1,100}$/.test(error.message) ? error.message : phase;
-          appendRefusal(options.root, {lane:options.lane, run:options.run, role:ctx?.role, context_sha256:ctx?.context_sha256, model_call:options.callID?.(ctx?.context_sha256), deadline:options.deadline?.(ctx?.context_sha256), started, reason, phase, ...(error instanceof SenderWindowError ? {waiting_for:error.waiting_for,wait_started:error.wait_started} : {}), request_sha256:bodyHash});
+          const ctx = attribution.getStore(),
+            reason =
+              error instanceof Error &&
+              /^[A-Z][A-Z0-9_]{1,100}$/.test(error.message)
+                ? error.message
+                : phase;
+          appendRefusal(options.root, {
+            lane: options.lane,
+            run: options.run,
+            role: ctx?.role,
+            context_sha256: ctx?.context_sha256,
+            model_call: options.callID?.(ctx?.context_sha256),
+            deadline: options.deadline?.(ctx?.context_sha256),
+            started,
+            reason,
+            phase,
+            ...(error instanceof SenderWindowError
+              ? {
+                  waiting_for: error.waiting_for,
+                  wait_started: error.wait_started,
+                }
+              : {}),
+            request_sha256: bodyHash,
+          });
         }
         const known = [
           "CAMPAIGN_CLOSED",
@@ -1068,39 +1139,81 @@ export function meteredFetch(
             },
           );
         }
-        if(pol && completionPolicy(pol) && pol.continuation && error instanceof Error && /^[A-Z][A-Z_0-9]+$/.test(error.message)) throw error;
+        if (
+          pol &&
+          completionPolicy(pol) &&
+          pol.continuation &&
+          error instanceof Error &&
+          /^[A-Z][A-Z_0-9]+$/.test(error.message)
+        )
+          throw error;
         throw Error(reason);
       }
       throw error;
     }
   };
-  return async (input,init)=>{
-    if(!options.stageFreeze) return sendOnce(input,init);
-    const policy=loadCampaign(options.root).physical_policy;
-    if(!policy || !completionPolicy(policy) || !policy.continuation) return sendOnce(input,init);
-    const request=new Request(input,init), ctx=attribution.getStore();
-    const deadline=options.deadline?.(ctx?.context_sha256);
-    let ordinal=0;
-    for(;;){
-      let response:Response|undefined, reason:string, until:number|null=null;
+  return async (input, init) => {
+    if (!options.stageFreeze) return sendOnce(input, init);
+    const policy = loadCampaign(options.root).physical_policy;
+    if (!policy || !completionPolicy(policy) || !policy.continuation)
+      return sendOnce(input, init);
+    const request = new Request(input, init),
+      ctx = attribution.getStore();
+    const deadline = options.deadline?.(ctx?.context_sha256);
+    let ordinal = 0;
+    for (;;) {
+      let response: Response | undefined,
+        reason: string,
+        until: number | null = null;
       try {
-        response=await sendOnce(request.clone());
-        if(![402,403,408,429,500,502,503,504].includes(response.status)) return response;
-        reason="HTTP_"+response.status;
-        const after=retryTime(response.headers.get("retry-after"));
-        if(after) until=Date.parse(after);
-      } catch(error){
-        reason=error instanceof Error?error.message:"";
-        if(!["GO_METADATA_UNAVAILABLE","GO_SUBSCRIPTION_UNAVAILABLE","GO_REQUEST_WINDOW_EXHAUSTED","GO_RESERVATION_WINDOW_EXHAUSTED","RETEST_CONFIRMED_NO_POST","C12B_SENDER_WINDOW_EXHAUSTED","network error"].includes(reason) || request.signal.aborted) throw error;
+        const backoff = providerRetryAt(options.root) - Date.now();
+        if (backoff > 0) {
+          if (!deadline || Date.now() + backoff + 65000 > deadline)
+            throw Error("GO_PROVIDER_RETRY_AFTER");
+          await delay(backoff, undefined, { signal: request.signal });
+        }
+        response = await sendOnce(request.clone());
+        if (![402, 403, 408, 429, 500, 502, 503, 504].includes(response.status))
+          return response;
+        reason = "HTTP_" + response.status;
+        const after = retryTime(response.headers.get("retry-after"));
+        if (after) until = Date.parse(after);
+      } catch (error) {
+        reason = error instanceof Error ? error.message : "";
+        if (
+          ![
+            "GO_METADATA_UNAVAILABLE",
+            "GO_SUBSCRIPTION_UNAVAILABLE",
+            "GO_REQUEST_WINDOW_EXHAUSTED",
+            "GO_RESERVATION_WINDOW_EXHAUSTED",
+            "RETEST_CONFIRMED_NO_POST",
+            "C12B_SENDER_WINDOW_EXHAUSTED",
+            "network error",
+          ].includes(reason) ||
+          request.signal.aborted
+        )
+          throw error;
       }
-      const wait=Math.max(250,Math.min(10000,250*2**Math.min(ordinal,6)),(until??0)-Date.now());
-      if(!deadline || deadline-Date.now()-wait<65000){
-        if(response) return response;
+      const wait = Math.max(
+        250,
+        Math.min(10000, 250 * 2 ** Math.min(ordinal, 6)),
+        (until ?? 0) - Date.now(),
+      );
+      if (!deadline || deadline - Date.now() - wait < 65000) {
+        if (response) return response;
         throw Error(reason);
       }
-      if(response) await response.body?.cancel();
-      appendJSON(path.join(options.evidence,"stage-c-model-retries.jsonl"),{at:new Date().toISOString(),ordinal:++ordinal,model_call:options.callID?.(ctx?.context_sha256),context_sha256:ctx?.context_sha256,reason,retry_at:new Date(Date.now()+wait).toISOString(),response_exposed:false});
-      await delay(wait,undefined,{signal:request.signal});
+      if (response) await response.body?.cancel();
+      appendJSON(path.join(options.evidence, "stage-c-model-retries.jsonl"), {
+        at: new Date().toISOString(),
+        ordinal: ++ordinal,
+        model_call: options.callID?.(ctx?.context_sha256),
+        context_sha256: ctx?.context_sha256,
+        reason,
+        retry_at: new Date(Date.now() + wait).toISOString(),
+        response_exposed: false,
+      });
+      await delay(wait, undefined, { signal: request.signal });
     }
   };
 }

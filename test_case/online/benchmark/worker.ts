@@ -7,6 +7,7 @@ import {
   recoveryTaskHasPriority,
 } from "./stage-c-fault.ts";
 import { retestWorkload } from "./stage-c-targeted-policy.ts";
+import { SenderWindowError } from "./stage-c-continuation.ts";
 import { recoverySender } from "./stage-c-recovery-sender.ts";
 import { allGoReservationsSettled } from "./stage-c-go-local-usage.ts";
 import { ledger, loadCampaign } from "./campaign.ts";
@@ -71,6 +72,8 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
       "AMBIENT_CONFIGURATION",
     );
     if (run.config.version === 4) configureProfile(run.config.profile);
+    let offlineSystemFailure = false;
+    let savedWriteControl: (() => void) | undefined;
     let faultGate: ReturnType<typeof recoverySender> | undefined;
     if (run.config.mode === "live") {
       requireThat(run.live?.key && run.live.facility, "LIVE_PERMIT_REQUIRED");
@@ -87,15 +90,26 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         run.config.version === 5 &&
         run.config.case_id === "C16-combined" &&
         rehearsalInputs?.rehearsal_go;
-      const continuationFixture=rehearsalInputs?.targeted_supplement?.series===continuationWorkload.series;
-      const incarnation=path.join(run.evidence,"offline-incarnation.json");
-      if(continuationFixture && !fs.existsSync(incarnation)) writeJSON(incarnation,{pid:process.pid});
-      const firstIncarnation=continuationFixture && readJSON(incarnation).pid===process.pid;
+      offlineSystemFailure =
+        rehearsalInputs?.rehearsal_go === "SYSTEM_C16" &&
+        run.config.version === 5 &&
+        run.config.case_id === "C16-combined";
+      const continuationFixture =
+        rehearsalInputs?.targeted_supplement?.series ===
+        continuationWorkload.series;
+      const incarnation = path.join(run.evidence, "offline-incarnation.json");
+      if (continuationFixture && !fs.existsSync(incarnation))
+        writeJSON(incarnation, { pid: process.pid });
+      const firstIncarnation =
+        continuationFixture && readJSON(incarnation).pid === process.pid;
       if (
         run.config.version === 5 &&
         run.config.case_id === "C12b" &&
         run.live.route &&
-        isRetest(readJSON(path.join(run.live.facility, "configs/stage-c-freeze.json")).targeted_supplement?.series)
+        isRetest(
+          readJSON(path.join(run.live.facility, "configs/stage-c-freeze.json"))
+            .targeted_supplement?.series,
+        )
       ) {
         const root = run.live.facility,
           freeze = run.config.freeze_sha256;
@@ -103,6 +117,57 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
           () => allGoReservationsSettled(root, freeze, ledger(root)),
           () => !!app && recoveryTaskHasPriority(app, run),
         );
+      }
+      // This peer exercises the same sender gate inside the isolated worker. It never issues a product input or network request.
+      let streamControl: (() => Promise<void>) | undefined;
+      if (
+        faultGate &&
+        rehearsalInputs?.rehearsal_go === "CONTINUATION_CONTROLS"
+      ) {
+        const gate = faultGate;
+        const controlProof = (
+          error: unknown,
+          waiting: string,
+          started: number,
+        ) => {
+          requireThat(
+            error instanceof SenderWindowError && error.waiting_for === waiting,
+            "OFFLINE_SENDER_CONTROL",
+          );
+          appendJSON(path.join(run.evidence, "offline-sender-controls.jsonl"), {
+            waiting_for: waiting,
+            reason: error.message,
+            wait_ms: Date.now() - started,
+            scope: "OFFLINE_CONTROL_PEER",
+            pid: process.pid,
+            at: new Date().toISOString(),
+          });
+        };
+        const proof = path.join(run.evidence, "offline-sender-controls.jsonl");
+        streamControl = async () => {
+          if (fs.existsSync(proof)) return;
+          const started = Date.now();
+          try {
+            await gate.admit(
+              AbortSignal.timeout(5000),
+              "main",
+              started + 65100,
+              async () => {
+                throw Error("OFFLINE_COMPETING_SEND");
+              },
+            );
+          } catch (error) {
+            controlProof(error, "IN_FLIGHT_RESERVATION", started);
+          }
+        };
+        savedWriteControl = () => {
+          const started = Date.now();
+          try {
+            gate.checkWindow("main", started + 60000, started);
+          } catch (error) {
+            controlProof(error, "SAVED_WRITE_EXECUTOR", started);
+          }
+        };
       }
       globalThis.fetch = meteredFetch(
         {
@@ -118,8 +183,32 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
           route: run.live.route,
           maxSends: run.config.max_sends,
           guardAdmission: faultGate?.admit,
-          callID: (hash) => app?.store.all<ModelCall>("ModelCall").find(c => c.state === "IN_FLIGHT" && c.request.sha256 === hash)?.id,
-          deadline: (hash) => {
+          callID: (hash) =>
+            app?.store
+              .all<ModelCall>("ModelCall")
+              .find((c) => c.state === "IN_FLIGHT" && c.request.sha256 === hash)
+              ?.id,
+          deadline: (hash, stage) => {
+            if (
+              rehearsalInputs?.rehearsal_go === "CONTINUATION_CONTROLS" &&
+              run.config.version === 5 &&
+              run.config.case_id === "C12b" &&
+              stage &&
+              ["reservation", "send"].includes(stage)
+            ) {
+              const marker = path.join(
+                run.evidence,
+                "offline-deadline-" + stage + ".json",
+              );
+              if (!fs.existsSync(marker)) {
+                writeJSON(marker, {
+                  stage,
+                  hash,
+                  at: new Date().toISOString(),
+                });
+                return Date.now() + 100;
+              }
+            }
             const active = app?.store
               .all<ModelCall>("ModelCall")
               .filter(
@@ -140,7 +229,11 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
                   })),
                 },
               );
-            if (goMode === "EXHAUST_C16" && (!continuationFixture || firstIncarnation) && active?.length)
+            if (
+              goMode === "EXHAUST_C16" &&
+              (!continuationFixture || firstIncarnation) &&
+              active?.length
+            )
               return Date.now() + 30000;
             return active?.length
               ? Math.min(
@@ -163,13 +256,17 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
               run.live.route
                 ? {
                     evidence: run.evidence,
+                    streamControl,
                     mode:
-                      rehearsalInputs.rehearsal_go==="CONTINUATION_CONTROLS" ? "CONTROLS" : goMode === "INTERRUPT_C16" && (!continuationFixture || firstIncarnation)
-                        ? "INTERRUPT"
-                        : run.config.version === 5 &&
-                            run.config.case_id === "C12b"
-                          ? "TRANSIENT"
-                          : "NORMAL",
+                      rehearsalInputs.rehearsal_go === "CONTINUATION_CONTROLS"
+                        ? "CONTROLS"
+                        : goMode === "INTERRUPT_C16" &&
+                            (!continuationFixture || firstIncarnation)
+                          ? "INTERRUPT"
+                          : run.config.version === 5 &&
+                              run.config.case_id === "C12b"
+                            ? "TRANSIENT"
+                            : "NORMAL",
                   }
                 : undefined,
             )
@@ -553,7 +650,32 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         run.config.version === 5) &&
       run.config.case_id === "C12b"
     )
-      installStageCFault(app, run, undefined, faultGate);
+      installStageCFault(app, run, undefined, faultGate, savedWriteControl);
+    if (offlineSystemFailure) {
+      // A deliberately inconsistent summary plan exercises the pinned Secretary validator. No provider response supplies the error.
+      const { runSummary, SUMMARY_POLICY } =
+        await import("../../../sut/secretary/src/pi_secretary/src/summary.ts");
+      let nativeError: Error | undefined;
+      try {
+        await runSummary({
+          plan: {
+            version: SUMMARY_POLICY,
+            system: "offline-control",
+            system_hash: "0".repeat(64),
+          },
+        } as Parameters<typeof runSummary>[0]);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === "SUMMARY_SYSTEM_HASH_MISMATCH"
+        )
+          nativeError = error;
+      }
+      requireThat(nativeError, "OFFLINE_NATIVE_VALIDATOR");
+      (app.host as unknown as { finish: () => void }).finish = () => {
+        throw nativeError;
+      };
+    }
     requireThat(app.world?.ready && app.world.configured, "WORLD_NOT_READY");
     const role = (
       await app.world.pool.query(

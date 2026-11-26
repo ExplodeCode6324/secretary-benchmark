@@ -22,7 +22,8 @@ function facilityPolicy(root: string): TargetedPolicy {
 function claimSeries(account: string, freeze?: string) {
   for (const series of [continuationWorkload.series, retestWorkload.series]) {
     const file = path.join(account, series + ".json");
-    if (freeze && fs.existsSync(file) && readJSON(file).freeze === freeze) return series;
+    if (freeze && fs.existsSync(file) && readJSON(file).freeze === freeze)
+      return series;
   }
   return targetedWorkload.series;
 }

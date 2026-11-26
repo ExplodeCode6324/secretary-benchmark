@@ -65,7 +65,9 @@ export function targetedWorkloadResult(
     (e) => e.attempt.lane === lane,
   );
   const continuing = closure.series === continuationWorkload.series;
-  const attempts = continuing ? laneAttempts.filter(e => e.attempt.run === terminal.run) : laneAttempts;
+  const attempts = continuing
+    ? laneAttempts.filter((e) => e.attempt.run === terminal.run)
+    : laneAttempts;
   let gate = "OPEN",
     verdict = "UNRESOLVED",
     gaps: string[] = [],
@@ -85,7 +87,13 @@ export function targetedWorkloadResult(
     dispatch_sha256: closure.dispatch_sha256,
     trial_sha256: terminal.report_sha256 ?? null,
     workload_attempts: laneAttempts.length,
-    ...(continuing ? {selected_attempts: attempts.length, previous_trajectories: closure.state.history?.[lane] ?? [], interruption: terminal.interruption ?? null} : {}),
+    ...(continuing
+      ? {
+          selected_attempts: attempts.length,
+          previous_trajectories: closure.state.history?.[lane] ?? [],
+          interruption: terminal.interruption ?? null,
+        }
+      : {}),
     ...(isRetest(closure.series)
       ? {
           workload_confirmed_unsent_reservations: attempts.filter(

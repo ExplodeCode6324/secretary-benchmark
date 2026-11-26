@@ -488,9 +488,14 @@ export async function createCampaign(
   if (baselineLimits) validateBaselineLimits(baselineLimits, ceiling ?? null);
   if (physicalPolicy) {
     validatePhysical(physicalPolicy);
-    if(completionPolicy(physicalPolicy) && physicalPolicy.continuation){
-      const bytes=read(path.join(root,"configs/stage-c-freeze.json"));
-      requireThat(sha(bytes)===physicalPolicy.freeze_sha256 && JSON.parse(bytes.toString()).targeted_supplement?.series==="issue122-r77-continuation-v1","TARGETED_FREEZE_BINDING");
+    if (completionPolicy(physicalPolicy) && physicalPolicy.continuation) {
+      const bytes = read(path.join(root, "configs/stage-c-freeze.json"));
+      requireThat(
+        sha(bytes) === physicalPolicy.freeze_sha256 &&
+          JSON.parse(bytes.toString()).targeted_supplement?.series ===
+            "issue122-r77-continuation-v1",
+        "TARGETED_FREEZE_BINDING",
+      );
     }
     requireThat(
       ceiling === undefined && baselineLimits === undefined,
@@ -629,31 +634,34 @@ export async function reserve(
         "STAGE_B_BOUND_VIOLATION",
       );
       requireThat(
-        continuing || !entries.some(
-          (entry) =>
-            entry.outcome === "PROVENANCE_CHANGE" ||
-            (entry.legacy_echo &&
-              !entry.settled &&
-              entry.attempt.lane !== details.lane),
-        ),
+        continuing ||
+          !entries.some(
+            (entry) =>
+              entry.outcome === "PROVENANCE_CHANGE" ||
+              (entry.legacy_echo &&
+                !entry.settled &&
+                entry.attempt.lane !== details.lane),
+          ),
         "STAGE_B_PROVENANCE_CHANGE",
       );
       requireThat(
-        continuing || !entries.some(
-          (entry) =>
-            entry.attempt.model === model &&
-            entry.outcome === "VERSION_TRANSITION",
-        ),
+        continuing ||
+          !entries.some(
+            (entry) =>
+              entry.attempt.model === model &&
+              entry.outcome === "VERSION_TRANSITION",
+          ),
         "STAGE_B_VERSION_HOLD",
       );
       requireThat(
-        continuing || !entries.some(
-          (entry) =>
-            entry.attempt.model === model &&
-            ["IDENTITY_MISMATCH_FIRST_CONTACT", "IDENTITY_UNKNOWN"].includes(
-              entry.outcome ?? "",
-            ),
-        ),
+        continuing ||
+          !entries.some(
+            (entry) =>
+              entry.attempt.model === model &&
+              ["IDENTITY_MISMATCH_FIRST_CONTACT", "IDENTITY_UNKNOWN"].includes(
+                entry.outcome ?? "",
+              ),
+          ),
         "STAGE_B_IDENTITY_HOLD",
       );
       const dispatch = readJSON(
@@ -668,39 +676,42 @@ export async function reserve(
         "STAGE_B_LANE_NOT_ACTIVE",
       );
       requireThat(
-        continuing || !entries.some(
-          (entry) =>
-            model !== "deepseek-flash" &&
-            entry.attempt.model === model &&
-            entry.outcome === "EXHAUSTED_QUOTA",
-        ),
+        continuing ||
+          !entries.some(
+            (entry) =>
+              model !== "deepseek-flash" &&
+              entry.attempt.model === model &&
+              entry.outcome === "EXHAUSTED_QUOTA",
+          ),
         "STAGE_B_ACCOUNT_BLOCKED",
       );
       requireThat(
-        continuing || !entries.some(
-          (entry) =>
-            entry.attempt.model === "deepseek-flash" &&
-            [
-              "EXHAUSTED_QUOTA",
-              "AUTH",
-              "GO_SUBSCRIPTION_UNAVAILABLE",
-              "GO_RATE_LIMIT",
-            ].includes(entry.outcome ?? "") &&
-            !dispatch.repairs[entry.attempt.id],
-        ),
+        continuing ||
+          !entries.some(
+            (entry) =>
+              entry.attempt.model === "deepseek-flash" &&
+              [
+                "EXHAUSTED_QUOTA",
+                "AUTH",
+                "GO_SUBSCRIPTION_UNAVAILABLE",
+                "GO_RATE_LIMIT",
+              ].includes(entry.outcome ?? "") &&
+              !dispatch.repairs[entry.attempt.id],
+          ),
         "STAGE_B_PRIMARY_BLOCKED",
       );
       requireThat(
-        continuing || !entries.some(
-          (entry) =>
-            entry.attempt.lane === details.lane &&
-            [
-              "EXHAUSTED_QUOTA",
-              "AUTH",
-              "GO_SUBSCRIPTION_UNAVAILABLE",
-              "GO_RATE_LIMIT",
-            ].includes(entry.outcome ?? ""),
-        ),
+        continuing ||
+          !entries.some(
+            (entry) =>
+              entry.attempt.lane === details.lane &&
+              [
+                "EXHAUSTED_QUOTA",
+                "AUTH",
+                "GO_SUBSCRIPTION_UNAVAILABLE",
+                "GO_RATE_LIMIT",
+              ].includes(entry.outcome ?? ""),
+          ),
         "STAGE_B_LANE_FAILED",
       );
       checkAdmission(
@@ -725,7 +736,14 @@ export async function reserve(
       );
     }
     requireThat(campaign.state === "OPEN", "CAMPAIGN_CLOSED");
-    if (maxSends !== undefined && !(campaign.physical_policy && completionPolicy(campaign.physical_policy) && campaign.physical_policy.continuation))
+    if (
+      maxSends !== undefined &&
+      !(
+        campaign.physical_policy &&
+        completionPolicy(campaign.physical_policy) &&
+        campaign.physical_policy.continuation
+      )
+    )
       requireThat(
         [...current.entries.values()].filter(
           (v) =>

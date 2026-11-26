@@ -11,6 +11,29 @@ export function recoverySender(
   const gate = {
     writing: false,
     check: () => !admitting && settled(),
+    checkWindow(
+      role: string,
+      deadline: number | undefined,
+      waitStarted: number,
+    ) {
+      if (
+        deadline !== undefined &&
+        deadline - Date.now() >=
+          retestWorkload.response_headroom_ms +
+            retestWorkload.quota_read_timeout_ms
+      )
+        return;
+      const waiting = gate.writing
+        ? "WRITE_BARRIER"
+        : admitting
+          ? "ADMISSION_IN_PROGRESS"
+          : !settled()
+            ? "IN_FLIGHT_RESERVATION"
+            : role !== "task" && taskActive()
+              ? "SAVED_WRITE_EXECUTOR"
+              : "INSUFFICIENT_DEADLINE";
+      throw new SenderWindowError(waiting, waitStarted);
+    },
     async admit<T>(
       signal: AbortSignal,
       role: string,
@@ -20,8 +43,7 @@ export function recoverySender(
       const waitStarted = Date.now();
       for (;;) {
         signal.throwIfAborted();
-        if (deadline === undefined || deadline - Date.now() < retestWorkload.response_headroom_ms + retestWorkload.quota_read_timeout_ms)
-          throw new SenderWindowError(gate.writing ? "WRITE_BARRIER" : admitting ? "ADMISSION_IN_PROGRESS" : !settled() ? "IN_FLIGHT_RESERVATION" : role !== "task" && taskActive() ? "SAVED_WRITE_EXECUTOR" : "INSUFFICIENT_DEADLINE", waitStarted);
+        gate.checkWindow(role, deadline, waitStarted);
         if (!gate.writing && gate.check() && (role === "task" || !taskActive()))
           break;
         await delay(25, undefined, { signal });

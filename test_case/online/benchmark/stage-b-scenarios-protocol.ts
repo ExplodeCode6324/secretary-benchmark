@@ -49,8 +49,8 @@ export type ScenarioObservation = {
 export type ScenarioHost = {
   continuation?: {
     run: string;
-    load(): { step:number; boundary:number; trail:ScenarioTrail } | null;
-    save(step:number,boundary:number,trail:ScenarioTrail): void;
+    load(): { step: number; boundary: number; trail: ScenarioTrail } | null;
+    save(step: number, boundary: number, trail: ScenarioTrail): void;
   };
   now(): number;
   sleep(ms: number, signal?: AbortSignal): Promise<void>;
@@ -361,12 +361,14 @@ async function play(
     boundary = 0;
   let task: TaskPlan | undefined, execution: Execution | undefined;
   let elmTarget: ElmTarget | undefined;
-  let waitLimit = 0, step = 0, ordinal = 0;
+  let waitLimit = 0,
+    step = 0,
+    ordinal = 0;
   const checkpoint = h.continuation?.load();
   if (checkpoint) {
     Object.assign(t, checkpoint.trail);
-    lastInput=t.inputs.at(-1);
-    boundary=checkpoint.boundary;
+    lastInput = t.inputs.at(-1);
+    boundary = checkpoint.boundary;
   }
   const wait = async <T>(
     code: string,
@@ -389,7 +391,17 @@ async function play(
   };
   const command = async (route: string, body: Record<string, unknown>) => {
     checkAbort(signal);
-    const request_id = h.continuation ? stableID([h.continuation.run, step, ordinal++, route, sha(JSON.stringify(body))].join(":")) : randomUUID();
+    const request_id = h.continuation
+      ? stableID(
+          [
+            h.continuation.run,
+            step,
+            ordinal++,
+            route,
+            sha(JSON.stringify(body)),
+          ].join(":"),
+        )
+      : randomUUID();
     const r = await h.command(route, { ...body, request_id });
     requireThat(
       r.request_id === request_id &&
@@ -521,7 +533,8 @@ async function play(
   const future = steps.map((s) => visibleInputs([s]));
   for (let ix = 0; ix < steps.length; ix++) {
     if (checkpoint && ix < checkpoint.step) continue;
-    step=ix; ordinal=0;
+    step = ix;
+    ordinal = 0;
     checkAbort(signal);
     const s = steps[ix],
       next = steps[ix + 1];
@@ -770,6 +783,6 @@ async function play(
       t.restart = await h.restart(signal);
     } else throw Error("SCENARIO_ACTION_UNSUPPORTED");
     h.record(t);
-    h.continuation?.save(ix+1,boundary,t);
+    h.continuation?.save(ix + 1, boundary, t);
   }
 }

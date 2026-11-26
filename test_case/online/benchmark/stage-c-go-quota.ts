@@ -24,10 +24,14 @@ import {
   recordGoReservation,
   type LocalAmounts,
 } from "./stage-c-go-local-usage.ts";
-import { continuationWorkload, retestWorkload, isRetest } from "./stage-c-targeted-policy.ts";
+import {
+  continuationWorkload,
+  retestWorkload,
+  isRetest,
+} from "./stage-c-targeted-policy.ts";
 type RequestWindow = {
   signal: AbortSignal;
-  deadline: () => number | undefined;
+  deadline: (stage?: "quota" | "reservation" | "send") => number | undefined;
 };
 export async function retestQuota(
   key: string,
@@ -35,7 +39,7 @@ export async function retestQuota(
   window: RequestWindow,
   continuing = false,
 ) {
-  const deadline = window.deadline();
+  const deadline = window.deadline("quota");
   const check = (allowance: number) => {
     window.signal.throwIfAborted();
     requireThat(
@@ -97,9 +101,14 @@ export function checkGoHeadroom(
 export function holdGo(freeze: string, reason: string, root?: string) {
   const account = root ? accountFor(root) : goAccount,
     holdFile = path.join(account, "hold.json");
-  if (root && targetedClaim(account, freeze)?.freeze === freeze &&
-      fs.existsSync(path.join(account, continuationWorkload.series + ".json")) &&
-      readJSON(path.join(account, continuationWorkload.series + ".json")).freeze === freeze) return;
+  if (
+    root &&
+    targetedClaim(account, freeze)?.freeze === freeze &&
+    fs.existsSync(path.join(account, continuationWorkload.series + ".json")) &&
+    readJSON(path.join(account, continuationWorkload.series + ".json"))
+      .freeze === freeze
+  )
+    return;
   if (holdTargetedAccount(account, freeze, reason)) return;
   if (!fs.existsSync(holdFile))
     writeJSON(holdFile, { freeze, reason, at: new Date().toISOString() });
@@ -244,10 +253,11 @@ export async function admitGoSend(
       .filter((e) => !e.settled && !hasGoReservation(root, e.attempt.id))
       .reduce((n, e) => n + e.attempt.reserved_usd, 0);
     let usage;
-    let finalCheck: (() => void) | undefined;
+    let finalCheck: ((stage?: "reservation" | "send") => void) | undefined;
     try {
       if (targeted) checkTargetedSend(root, freeze);
-      const series = frozen && JSON.parse(frozen.toString()).targeted_supplement?.series;
+      const series =
+        frozen && JSON.parse(frozen.toString()).targeted_supplement?.series;
       const continuing = series === continuationWorkload.series;
       local = localGoAmounts(
         root,
@@ -267,12 +277,13 @@ export async function admitGoSend(
             }
           : undefined,
       );
-      if (targeted && !continuing) checkTargetedSpend(account, freeze, current, worst);
+      if (targeted && !continuing)
+        checkTargetedSpend(account, freeze, current, worst);
       const retest = isRetest(series);
       if (retest) {
         requireThat(window, "GO_REQUEST_WINDOW_MISSING");
-        const deadline = window.deadline();
-        finalCheck = () => {
+        finalCheck = (stage = "send") => {
+          const deadline = window.deadline(stage);
           window.signal.throwIfAborted();
           requireThat(
             deadline !== undefined &&
@@ -284,11 +295,12 @@ export async function admitGoSend(
       usage = retest
         ? await retestQuota(key, transport, window!, continuing)
         : await checkGoUsage(key, transport);
-      if (!continuing) checkGoHeadroom(usage, worst, {
-        rolling: local.rolling + unsettled,
-        weekly: local.weekly + unsettled,
-        monthly: local.monthly + unsettled,
-      });
+      if (!continuing)
+        checkGoHeadroom(usage, worst, {
+          rolling: local.rolling + unsettled,
+          weekly: local.weekly + unsettled,
+          monthly: local.monthly + unsettled,
+        });
     } catch (e) {
       const reason =
         e instanceof Error ? e.message : "GO_REQUEST_ADMISSION_FAILED";
@@ -305,10 +317,15 @@ export async function admitGoSend(
       finalCheck &&
         (() => {
           try {
-            finalCheck();
+            finalCheck("reservation");
           } catch (error) {
             holdGo(freeze, "GO_REQUEST_WINDOW_EXHAUSTED", root);
-            if (frozen && JSON.parse(frozen.toString()).targeted_supplement?.series===continuationWorkload.series) throw Error("GO_RESERVATION_WINDOW_EXHAUSTED");
+            if (
+              frozen &&
+              JSON.parse(frozen.toString()).targeted_supplement?.series ===
+                continuationWorkload.series
+            )
+              throw Error("GO_RESERVATION_WINDOW_EXHAUSTED");
             throw error;
           }
         }),

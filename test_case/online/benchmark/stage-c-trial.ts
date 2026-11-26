@@ -1,4 +1,4 @@
-import {resumeModelBlock} from "./stage-c-continuation.ts";
+import { resumeModelBlock } from "./stage-c-continuation.ts";
 import { continuationWorkload, isRetest } from "./stage-c-targeted-policy.ts";
 import { trialWitness, c16Disposition } from "./stage-c-observations.ts";
 import type { FrozenBatch } from "./stage-c-freeze.ts";
@@ -173,7 +173,10 @@ export async function executeTrial(
       !live ||
       !entry?.targeted_supplement ||
       id !== "C12b" ||
-      !isRetest(readJSON(path.join(root, "configs/stage-c-freeze.json")).targeted_supplement?.series)
+      !isRetest(
+        readJSON(path.join(root, "configs/stage-c-freeze.json"))
+          .targeted_supplement?.series,
+      )
     )
       return {};
     const members: Record<string, string> = {};
@@ -189,10 +192,17 @@ export async function executeTrial(
     }
     return { recovery_lineage: run.lineage, recovery_members: members };
   };
-  const continuing = live && entry?.targeted_supplement && readJSON(path.join(root,"configs/stage-c-freeze.json")).targeted_supplement?.series === "issue122-r77-continuation-v1";
+  const continuing =
+    live &&
+    entry?.targeted_supplement &&
+    readJSON(path.join(root, "configs/stage-c-freeze.json")).targeted_supplement
+      ?.series === "issue122-r77-continuation-v1";
   if (continuing && fs.existsSync(reportFile)) {
-    const previous=read(reportFile);
-    writeJSON(path.join(run.evidence,"stage-c-prior-"+sha(previous)+".json"),JSON.parse(previous.toString()));
+    const previous = read(reportFile);
+    writeJSON(
+      path.join(run.evidence, "stage-c-prior-" + sha(previous) + ".json"),
+      JSON.parse(previous.toString()),
+    );
   }
   writeJSON(reportFile, report);
   const capture = async (r: Run, scenario = id, progress = trail) => {
@@ -332,13 +342,34 @@ export async function executeTrial(
     if (!live) initializeGuard(root, run.lineage);
     activate(run);
     setFutureInputs(root, run.lineage, visibleInputs(descriptor.steps));
-    const priorFault = continuing && id==="C12b" && fs.existsSync(path.join(run.evidence,"stage-c-barrier.json")) && !fs.existsSync(path.join(run.evidence,"stage-c-restart-checkpoint.json"));
-    const active = priorFault ? run : await d.start(run.id, continuing && id==="C16-combined" ? run.endpoint?.data_domain_id : undefined);
-    if(continuing && !priorFault) await resumeModelBlock(root,active);
+    const priorFault =
+      continuing &&
+      id === "C12b" &&
+      fs.existsSync(path.join(run.evidence, "stage-c-barrier.json")) &&
+      !fs.existsSync(
+        path.join(run.evidence, "stage-c-restart-checkpoint.json"),
+      );
+    const active = priorFault
+      ? run
+      : await d.start(
+          run.id,
+          continuing && id === "C16-combined"
+            ? run.endpoint?.data_domain_id
+            : undefined,
+        );
+    if (continuing && !priorFault) await resumeModelBlock(root, active);
     const host = secretaryHost(d, active, "stage-c-trail.json");
     if (id === "C16-combined" && continuing) {
-      const checkpoint=path.join(run.evidence,"stage-c-timeline-checkpoint.json");
-      host.continuation={run:run.id,load:()=>fs.existsSync(checkpoint)?readJSON(checkpoint):null,save:(step,boundary,trail)=>writeJSON(checkpoint,{step,boundary,trail})};
+      const checkpoint = path.join(
+        run.evidence,
+        "stage-c-timeline-checkpoint.json",
+      );
+      host.continuation = {
+        run: run.id,
+        load: () => (fs.existsSync(checkpoint) ? readJSON(checkpoint) : null),
+        save: (step, boundary, trail) =>
+          writeJSON(checkpoint, { step, boundary, trail }),
+      };
     }
     if (id === "C12b" || id === "C06-stale-cold") {
       const special =
@@ -457,8 +488,11 @@ export async function executeTrial(
       );
       report.observations.push({ pair });
     } else {
-      const originalPath=path.join(run.evidence,"stage-c-original.json");
-      let bound: ReturnType<typeof bindOriginal> | undefined=continuing && fs.existsSync(originalPath)?readJSON(originalPath):undefined;
+      const originalPath = path.join(run.evidence, "stage-c-original.json");
+      let bound: ReturnType<typeof bindOriginal> | undefined =
+        continuing && fs.existsSync(originalPath)
+          ? readJSON(originalPath)
+          : undefined;
       if (id === "C16-combined") {
         const restart = host.restart;
         host.restart = async (signal) => {

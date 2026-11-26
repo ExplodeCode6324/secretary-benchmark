@@ -32,9 +32,11 @@ export function checkWorkloadClosure(
   requireThat(
     sha(frozenBytes) === freezeSha &&
       (!dispatchSha || sha(stateBytes) === dispatchSha) &&
-      [targetedWorkload.series, retestWorkload.series, continuationWorkload.series].includes(
-        frozen.targeted_supplement?.series,
-      ) &&
+      [
+        targetedWorkload.series,
+        retestWorkload.series,
+        continuationWorkload.series,
+      ].includes(frozen.targeted_supplement?.series) &&
       Array.isArray(frozen.batch) &&
       frozen.batch.every((r: any) => r.targeted_supplement === true) &&
       isDeepStrictEqual(

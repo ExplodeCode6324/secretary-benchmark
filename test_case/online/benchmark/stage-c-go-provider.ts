@@ -31,25 +31,31 @@ const multiplier = [
   },
 ];
 
-export function goModelRule(model: any, checked: string, continuing=false): ProviderRule {
+export function goModelRule(
+  model: any,
+  checked: string,
+  continuing = false,
+): ProviderRule {
   requireThat(
     model?.id === goModel &&
       model.canonical_id === goCanonicalModel &&
       model.name === goVersion &&
       model.api?.["chat-completions"]?.base_url === goAPI &&
-      (continuing || (model.go?.monthly_usage?.go === 100 &&
-      model.go?.monthly_usage?.["go-plus"] === 200 &&
-      model.go?.monthly_usage?.["go-teams"] === 105)) &&
+      (continuing ||
+        (model.go?.monthly_usage?.go === 100 &&
+          model.go?.monthly_usage?.["go-plus"] === 200 &&
+          model.go?.monthly_usage?.["go-teams"] === 105)) &&
       model.go.training === false &&
       model.go.zdr === true &&
       model.capabilities?.tools?.supported === true &&
       model.capabilities?.reasoning?.effort?.includes("max") &&
       model.limit?.context === 1_000_000 &&
       model.limit?.output === 384_000 &&
-      (continuing || (model.cost?.text?.input?.price === 0.15 &&
-      model.cost.text.input.cache?.read === 0.003 &&
-      model.cost.text.output?.price === 0.6 &&
-      isDeepStrictEqual(model.cost.multipliers, multiplier))),
+      (continuing ||
+        (model.cost?.text?.input?.price === 0.15 &&
+          model.cost.text.input.cache?.read === 0.003 &&
+          model.cost.text.output?.price === 0.6 &&
+          isDeepStrictEqual(model.cost.multipliers, multiplier))),
     "STAGE_C_GO_MODEL_OR_PRICE_CHANGED",
   );
   const source = {
@@ -114,7 +120,9 @@ export async function checkGoProvider(
   const models = catalogue.data?.filter((m: any) => m.id === goModel);
   requireThat(
     models?.length === 1 &&
-      (goModelRule(models[0], rule.checked_at,continuing).provenance_sha256 === rule.provenance_sha256 || continuing),
+      (goModelRule(models[0], rule.checked_at, continuing).provenance_sha256 ===
+        rule.provenance_sha256 ||
+        continuing),
     "GO_PUBLICATION_CHANGED",
   );
   return checkGoUsage(goCredential(), transport, undefined, continuing);
@@ -142,7 +150,9 @@ export async function checkGoUsage(
   requireThat(
     ["rolling", "weekly", "monthly"].every(
       (k) =>
-        (continuing ? typeof usage.usage?.[k]?.status==="string" : usage.usage?.[k]?.status === "ok") &&
+        (continuing
+          ? typeof usage.usage?.[k]?.status === "string"
+          : usage.usage?.[k]?.status === "ok") &&
         Number.isFinite(usage.usage[k].percent) &&
         usage.usage[k].percent >= 0 &&
         (continuing || usage.usage[k].percent <= 100) &&

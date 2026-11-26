@@ -1,4 +1,4 @@
-import {continuationUsage} from "./stage-c-continuation-usage.ts";
+import { continuationUsage } from "./stage-c-continuation-usage.ts";
 import { continuationWorkload, isRetest } from "./stage-c-targeted-policy.ts";
 import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
 import { isDeepStrictEqual } from "node:util";
@@ -507,7 +507,9 @@ function workloadSummary(
     "TARGETED_EXPORT_FOREIGN_ATTEMPT",
   );
   return {
-    ...(closure.series===continuationWorkload.series ? {workload_usage:continuationUsage(facility)} : {}),
+    ...(closure.series === continuationWorkload.series
+      ? { workload_usage: continuationUsage(facility) }
+      : {}),
     historical_baseline_sha256: baselineSHA,
     original_observations: old.comparison_rows_effective.length,
     workload_attempts: transactions.length,

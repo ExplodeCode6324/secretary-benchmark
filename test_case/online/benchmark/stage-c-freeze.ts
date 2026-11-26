@@ -84,7 +84,12 @@ export type Preflight = {
     rc_mean_bytes: number;
     rc_peak_bytes: number;
   };
-  rehearsal_go?: "NORMAL" | "INTERRUPT_C16" | "EXHAUST_C16" | "CONTINUATION_CONTROLS";
+  rehearsal_go?:
+    | "NORMAL"
+    | "INTERRUPT_C16"
+    | "EXHAUST_C16"
+    | "CONTINUATION_CONTROLS"
+    | "SYSTEM_C16";
   rehearsal_read?: "ORIGINAL_OFFSET" | "OTHER_EVENT";
   rehearsal_scenario?: "C16-combined" | "C06-stale-cold" | "C12b";
   models: StageModel[];
@@ -203,15 +208,19 @@ export function projectCampaign(
     !inputs.rehearsal_go ||
       (inputs.evidence_class === "OFFLINE_SSE" &&
         isRetest(inputs.targeted_supplement?.series) &&
-        ["NORMAL", "INTERRUPT_C16", "EXHAUST_C16", ...(inputs.targeted_supplement?.series===continuationWorkload.series?["CONTINUATION_CONTROLS"]:[])].includes(
-          inputs.rehearsal_go,
-        )),
+        [
+          "NORMAL",
+          "INTERRUPT_C16",
+          "EXHAUST_C16",
+          ...(inputs.targeted_supplement?.series === continuationWorkload.series
+            ? ["CONTINUATION_CONTROLS", "SYSTEM_C16"]
+            : []),
+        ].includes(inputs.rehearsal_go)),
     "RETEST_REHEARSAL_MODE",
   );
   const models = inputs.models;
   const rehearsal = inputs.evidence_class === "OFFLINE_SSE";
-  const goRehearsal =
-    rehearsal && isRetest(inputs.targeted_supplement?.series);
+  const goRehearsal = rehearsal && isRetest(inputs.targeted_supplement?.series);
   requireThat(
     (inputs.evidence_class === undefined || rehearsal) &&
       (!inputs.rehearsal_scenario ||
@@ -259,9 +268,14 @@ export function projectCampaign(
   const supplement = inputs.targeted_supplement;
   requireThat(
     goRehearsal
-      ? ["NORMAL", "INTERRUPT_C16", "EXHAUST_C16", ...(inputs.targeted_supplement?.series===continuationWorkload.series?["CONTINUATION_CONTROLS"]:[])].includes(
-          inputs.rehearsal_go ?? "",
-        ) && !inputs.rehearsal_scenario
+      ? [
+          "NORMAL",
+          "INTERRUPT_C16",
+          "EXHAUST_C16",
+          ...(inputs.targeted_supplement?.series === continuationWorkload.series
+            ? ["CONTINUATION_CONTROLS", "SYSTEM_C16"]
+            : []),
+        ].includes(inputs.rehearsal_go ?? "") && !inputs.rehearsal_scenario
       : inputs.rehearsal_go === undefined,
     "GO_REHEARSAL_MODE",
   );
@@ -678,7 +692,10 @@ export function projectCampaign(
         }
       : {}),
     scheduled_seconds: lanes.reduce((s, l) => s + l.lane.seconds, 0),
-    maximum_physical_requests: supplement?.series === continuationWorkload.series ? null : lanes.reduce((s, l) => s + l.lane.cap, 0),
+    maximum_physical_requests:
+      supplement?.series === continuationWorkload.series
+        ? null
+        : lanes.reduce((s, l) => s + l.lane.cap, 0),
     expected_usd_at_peak_rates: lanes.reduce(
       (s, l) => s + l.forecast.expected_usd,
       0,
@@ -824,7 +841,9 @@ export function loadCompletion(root: string, hash: string, approval: string) {
     validateC16Limits(frozen.batch_index, frozen.batch, projection);
   const policy: PhysicalPolicy = {
     schema: "issue122-completion-physical-v1",
-    ...(inputs.targeted_supplement?.series === continuationWorkload.series ? { continuation: true as const } : {}),
+    ...(inputs.targeted_supplement?.series === continuationWorkload.series
+      ? { continuation: true as const }
+      : {}),
     ...(rehearsal ? { rehearsal: true as const } : {}),
     freeze_sha256: hash,
     providers: frozen.providers,
@@ -887,7 +906,11 @@ function selected(batches: FrozenBatch[], inputs: Preflight, index: number) {
 function frozenProvider(root: string, inputs: Preflight, checked: string) {
   const dir = path.join(root, "inputs/official");
   return inputs.go_continuation || inputs.targeted_supplement
-    ? goModelRule(readJSON(path.join(dir, "go-model.json")), checked, inputs.targeted_supplement?.series===continuationWorkload.series)
+    ? goModelRule(
+        readJSON(path.join(dir, "go-model.json")),
+        checked,
+        inputs.targeted_supplement?.series === continuationWorkload.series,
+      )
     : flashRule(read(path.join(dir, "flash-pricing.md")), checked);
 }
 export function freezeBatch(root: string, index: number, checked: string) {

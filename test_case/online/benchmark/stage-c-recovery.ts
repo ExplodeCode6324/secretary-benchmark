@@ -190,20 +190,23 @@ export async function exerciseRecovery(
       }
     });
   guard?.(probe ? [probe] : []);
-  const saved=(name:string)=>continuing && fs.existsSync(file(name)) ? readJSON(file(name)):null;
-  const accepted = saved("stage-c-task-accepted.json") ?? await supervise(old, async () => {
-    const receipt = await client.command("task-requests", {
-      request_id: request,
-      goal: task.goal,
-      acceptance: task.acceptance,
-    });
-    requireThat(
-      receipt.acceptance === "ACCEPTED" && receipt.request_id === request,
-      "C12B_REQUEST",
-    );
-    if(continuing) writeJSON(file("stage-c-task-accepted.json"),receipt);
-    return receipt;
-  });
+  const saved = (name: string) =>
+    continuing && fs.existsSync(file(name)) ? readJSON(file(name)) : null;
+  const accepted =
+    saved("stage-c-task-accepted.json") ??
+    (await supervise(old, async () => {
+      const receipt = await client.command("task-requests", {
+        request_id: request,
+        goal: task.goal,
+        acceptance: task.acceptance,
+      });
+      requireThat(
+        receipt.acceptance === "ACCEPTED" && receipt.request_id === request,
+        "C12B_REQUEST",
+      );
+      if (continuing) writeJSON(file("stage-c-task-accepted.json"), receipt);
+      return receipt;
+    }));
   await waitForFault(
     () => {
       const failurePath = file("stage-c-target-failure.json");
@@ -265,55 +268,62 @@ export async function exerciseRecovery(
     "C12B_FAULT_PREREQUISITE_NOT_REACHED",
   );
   const bound: Occurrence = readJSON(file("stage-c-barrier.json"));
-  const savedRestart=saved("stage-c-restart-checkpoint.json");
-  const {fresh,restart,pre_restart_journal} = savedRestart
-    ? {fresh:old,restart:verifyRestart(savedRestart.restart,read),pre_restart_journal:savedRestart.pre_restart_journal}
-    : await (async()=> {
-  const faultProcess=old.process!;
-  requireThat(
-    bound.run === old.id &&
-      bound.lineage === old.lineage &&
-      bound.domain === old.endpoint!.data_domain_id &&
-      bound.request === request &&
-      bound.pid === faultProcess.pid &&
-      bound.expected_hash === sha(delivery.bytes),
-    "C12B_BINDING",
-  );
-  await waitForFault(
-    () => processStatus(old.process) === "STOPPED",
-    windows.exit_ms,
-    "C12B_SELF_EXIT_UNCONFIRMED",
-  );
-  await d.stop(old.id);
-  const before = snapshot(core);
-  requireLostAck(before.operationHistory.get(bound.operation) ?? []);
-  const fresh = await d.start(old.id);
-  const oldHash = identityHash(old.process),
-    newHash = identityHash(fresh.process);
-  const witness = (hash: string, state: string) => {
-    const p = file("host-process-" + hash + "-" + state + ".json");
-    return { path: p, sha256: sha(read(p)) };
-  };
-  const restart = verifyDirectRecovery(
-    old,
-    fresh,
-    bound.domain,
-    {
-      kind: "DIRECT_SAME_DOMAIN",
-      restart_observed: true,
-      old_identity: oldHash,
-      new_identity: newHash,
-      old_exit: witness(oldHash, "STOPPED"),
-      new_start: witness(newHash, "RUNNING"),
-    },
-    read,
-  );
-  const checkpoint={restart, pre_restart_journal:before.digest};
-  if(continuing) writeJSON(file("stage-c-restart-checkpoint.json"),checkpoint);
-  return {fresh,...checkpoint};
-  })();
+  const savedRestart = saved("stage-c-restart-checkpoint.json");
+  const { fresh, restart, pre_restart_journal } = savedRestart
+    ? {
+        fresh: old,
+        restart: verifyRestart(savedRestart.restart, read),
+        pre_restart_journal: savedRestart.pre_restart_journal,
+      }
+    : await (async () => {
+        const faultProcess = old.process!;
+        requireThat(
+          bound.run === old.id &&
+            bound.lineage === old.lineage &&
+            bound.domain === old.endpoint!.data_domain_id &&
+            bound.request === request &&
+            bound.pid === faultProcess.pid &&
+            bound.expected_hash === sha(delivery.bytes),
+          "C12B_BINDING",
+        );
+        await waitForFault(
+          () => processStatus(old.process) === "STOPPED",
+          windows.exit_ms,
+          "C12B_SELF_EXIT_UNCONFIRMED",
+        );
+        await d.stop(old.id);
+        const before = snapshot(core);
+        requireLostAck(before.operationHistory.get(bound.operation) ?? []);
+        const fresh = await d.start(old.id);
+        const oldHash = identityHash(old.process),
+          newHash = identityHash(fresh.process);
+        const witness = (hash: string, state: string) => {
+          const p = file("host-process-" + hash + "-" + state + ".json");
+          return { path: p, sha256: sha(read(p)) };
+        };
+        const restart = verifyDirectRecovery(
+          old,
+          fresh,
+          bound.domain,
+          {
+            kind: "DIRECT_SAME_DOMAIN",
+            restart_observed: true,
+            old_identity: oldHash,
+            new_identity: newHash,
+            old_exit: witness(oldHash, "STOPPED"),
+            new_start: witness(newHash, "RUNNING"),
+          },
+          read,
+        );
+        const checkpoint = { restart, pre_restart_journal: before.digest };
+        if (continuing)
+          writeJSON(file("stage-c-restart-checkpoint.json"), checkpoint);
+        return { fresh, ...checkpoint };
+      })();
   const observed = () => readJSON(file("observed.json"));
-  const verifyID = continuing ? stableID(request+":verify-write") : randomUUID();
+  const verifyID = continuing
+    ? stableID(request + ":verify-write")
+    : randomUUID();
   let verify: Awaited<ReturnType<CoreClient["command"]>> | undefined;
   let unknownDigest: string | null = null;
   let reconciled = false;
@@ -323,27 +333,31 @@ export async function exerciseRecovery(
     await supervise(
       fresh,
       async () => {
-        const savedUnknown=saved("stage-c-unknown-checkpoint.json");
-        if (savedUnknown) unknownDigest=savedUnknown.digest;
+        const savedUnknown = saved("stage-c-unknown-checkpoint.json");
+        if (savedUnknown) unknownDigest = savedUnknown.digest;
         else {
-        await until(
-          () =>
-            observed().operations.some(
-              (op: any) =>
-                op.id === bound.operation &&
-                op.state === "RESULT_UNKNOWN" &&
-                op.effect === "UNKNOWN",
-            ),
-          windows.recovery_ms,
-        );
-        const unknown = snapshot(core);
-        requireThat(
-          unknown.operationHistory.get(bound.operation)?.at(-1)?.state ===
-            "RESULT_UNKNOWN",
-          "C12B_UNKNOWN_HISTORY",
-        );
-        unknownDigest = unknown.digest;
-        if(continuing) writeJSON(file("stage-c-unknown-checkpoint.json"),{digest:unknownDigest,operation:bound.operation});
+          await until(
+            () =>
+              observed().operations.some(
+                (op: any) =>
+                  op.id === bound.operation &&
+                  op.state === "RESULT_UNKNOWN" &&
+                  op.effect === "UNKNOWN",
+              ),
+            windows.recovery_ms,
+          );
+          const unknown = snapshot(core);
+          requireThat(
+            unknown.operationHistory.get(bound.operation)?.at(-1)?.state ===
+              "RESULT_UNKNOWN",
+            "C12B_UNKNOWN_HISTORY",
+          );
+          unknownDigest = unknown.digest;
+          if (continuing)
+            writeJSON(file("stage-c-unknown-checkpoint.json"), {
+              digest: unknownDigest,
+              operation: bound.operation,
+            });
         }
         verify = await supervise(
           fresh,
@@ -370,7 +384,9 @@ export async function exerciseRecovery(
         );
         if (probe) {
           guard?.([]);
-          const request_id = continuing ? stableID(request+":probe") : randomUUID();
+          const request_id = continuing
+            ? stableID(request + ":probe")
+            : randomUUID();
           const r = await supervise(
             fresh,
             () =>

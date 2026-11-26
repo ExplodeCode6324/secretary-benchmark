@@ -90,6 +90,7 @@ export function installStageCFault(
   run: WorkerPermit,
   park = parkWorker,
   gate?: { writing: boolean; check: () => boolean },
+  savedWriteControl?: () => void,
 ) {
   const auth = app.authorization;
   const dispatch = auth.dispatch.bind(auth);
@@ -167,6 +168,7 @@ export function installStageCFault(
     ))
       return refuse(op.id, "C12B_TARGET_UNBOUND");
     if (gate && !fs.existsSync(barrier)) {
+      savedWriteControl?.();
       gate.writing = true;
       if (!gate.check()) return refuse(id, "C12B_SENDER_NOT_QUIESCENT");
     }

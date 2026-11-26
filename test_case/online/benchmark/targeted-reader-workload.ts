@@ -1,3 +1,4 @@
+import { retestWorkload, targetedWorkload } from "./stage-c-targeted-policy.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -19,6 +20,7 @@ export function checkWorkloadClosure(
   facility: string,
   freezeSha: string,
   dispatchSha?: string,
+  terminalRoute?: WorkloadRoute,
 ) {
   noLinks(facility);
   const frozenBytes = exact(path.join(facility, "configs/stage-c-freeze.json")),
@@ -29,7 +31,9 @@ export function checkWorkloadClosure(
   requireThat(
     sha(frozenBytes) === freezeSha &&
       (!dispatchSha || sha(stateBytes) === dispatchSha) &&
-      frozen.targeted_supplement?.series === "issue122-r67-evidence-v1" &&
+      [targetedWorkload.series, retestWorkload.series].includes(
+        frozen.targeted_supplement?.series,
+      ) &&
       Array.isArray(frozen.batch) &&
       frozen.batch.every((r: any) => r.targeted_supplement === true) &&
       isDeepStrictEqual(
@@ -37,9 +41,16 @@ export function checkWorkloadClosure(
         lanes,
       ) &&
       state.freeze_sha256 === freezeSha &&
-      state.ended === true &&
-      state.current === null &&
-      isDeepStrictEqual(Object.keys(state.terminals).sort(), lanes) &&
+      (terminalRoute
+        ? frozen.targeted_supplement.series === retestWorkload.series &&
+          Object.hasOwn(state.terminals, workloadLanes[terminalRoute]) &&
+          state.current !== workloadLanes[terminalRoute] &&
+          Object.keys(state.terminals).every((l) =>
+            lanes.includes(l as (typeof lanes)[number]),
+          )
+        : state.ended === true &&
+          state.current === null &&
+          isDeepStrictEqual(Object.keys(state.terminals).sort(), lanes)) &&
       Object.values(state.terminals).every((v: any) =>
         ["COMPLETED", "INCOMPLETE", "UNRUN"].includes(v?.status),
       ),
@@ -47,6 +58,7 @@ export function checkWorkloadClosure(
   );
   return {
     state,
+    series: frozen.targeted_supplement.series,
     grade: frozen.grade,
     freeze_sha256: freezeSha,
     dispatch_sha256: sha(stateBytes),

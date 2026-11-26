@@ -117,22 +117,38 @@ export function calibrationAgeOK(source: string, at: string) {
   return age >= 0 && age <= 86400000;
 }
 export const supplementSlots = {
-  calibration: 1, "c16-repeat1": 1, c12b: 2, "c06-98": 3, "c06-99": 4,
+  calibration: 1,
+  "c16-repeat1": 1,
+  c12b: 2,
+  "c06-98": 3,
+  "c06-99": 4,
 } as const;
 export type SupplementNativeBinding = {
-  series: "issue122-r67-evidence-v1"; series_sha256: string;
+  series: "issue122-r67-evidence-v1" | "issue122-r75-retest-v1";
+  series_sha256: string;
   route: keyof typeof supplementSlots;
 };
-export function goReaderResponse(envelope: any, packet: any, freeze: string, supplement?: SupplementNativeBinding) {
+export function goReaderResponse(
+  envelope: any,
+  packet: any,
+  freeze: string,
+  supplement?: SupplementNativeBinding,
+) {
   const { raw, dispatch: d, transport: t } = envelope ?? {};
   const query = admittedReaderQuery(packet),
     input = sha(query),
     packetSha = sha(gradeJSONBytes(packet));
   const calibrated = Array.isArray(packet.controls);
-  if (supplement) requireThat(
-    supplement.series === "issue122-r67-evidence-v1" && hex(supplement.series_sha256) &&
-    Object.hasOwn(supplementSlots,supplement.route) && (supplement.route==="calibration")===calibrated,
-    "STAGE_C_TARGETED_ROUTE");
+  if (supplement)
+    requireThat(
+      (supplement.series === "issue122-r67-evidence-v1" ||
+        (supplement.series === "issue122-r75-retest-v1" &&
+          ["calibration", "c16-repeat1", "c12b"].includes(supplement.route))) &&
+        hex(supplement.series_sha256) &&
+        Object.hasOwn(supplementSlots, supplement.route) &&
+        (supplement.route === "calibration") === calibrated,
+      "STAGE_C_TARGETED_ROUTE",
+    );
   const wire =
     Buffer.byteLength(JSON.stringify(query)) + policy.wire_envelope_bytes;
   const serialized = JSON.stringify({
@@ -207,7 +223,11 @@ export function goReaderResponse(envelope: any, packet: any, freeze: string, sup
       t.batch <= 6 &&
       d.batch === t.batch &&
       Number.isInteger(t.slot) &&
-      (supplement ? t.batch === 1 && t.slot === supplementSlots[supplement.route] : calibrated ? t.slot === 6 : t.slot >= 8 && t.slot <= 99) &&
+      (supplement
+        ? t.batch === 1 && t.slot === supplementSlots[supplement.route]
+        : calibrated
+          ? t.slot === 6
+          : t.slot >= 8 && t.slot <= 99) &&
       d.slot === t.slot &&
       t.raw_sha256 === sha(raw) &&
       t.charged_usd === null &&

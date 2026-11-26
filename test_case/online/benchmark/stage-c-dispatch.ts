@@ -1,3 +1,4 @@
+import { retestWorkload } from "./stage-c-targeted-policy.ts";
 import { residualDefinition } from "./stage-c-go-residual.ts";
 import { localGoAmounts } from "./stage-c-go-local-usage.ts";
 import fs from "node:fs";
@@ -138,8 +139,11 @@ export async function completionCommand(
           await d.seal(r.id);
       }
       for (const [id, entry] of ledger(root).entries) {
-        if (entry.attempt.lane === state.current && !entry.settled)
+        if (entry.attempt.lane === state.current && !entry.settled) {
+          if (inputs.targeted_supplement?.series === retestWorkload.series)
+            holdGo(hash, "GO_TARGETED_TRANSPORT_UNCERTAIN");
           await settle(root, id, "INTERRUPTED_IN_FLIGHT", null, null);
+        }
       }
       state.terminals[state.current] = {
         status: "INCOMPLETE",
@@ -251,6 +255,16 @@ export async function completionCommand(
         );
         state.current = l.lane;
         writeJSON(stateFile, state);
+        if (inputs.targeted_supplement?.series === retestWorkload.series) {
+          const claim = path.join(
+            root,
+            "campaign",
+            "retest-claims",
+            l.lane + ".json",
+          );
+          requireThat(!fs.existsSync(claim), "RETEST_LANE_ALREADY_CLAIMED");
+          writeJSON(claim, { freeze: hash, lane: l.lane, seed: l.seed });
+        }
         const r = await d.create({
           version: 5,
           mode: "live",
@@ -279,11 +293,26 @@ export async function completionCommand(
             [...ledger(root).entries.values()],
             l.lane,
           );
+          let reason = failure?.reason;
+          if (inputs.targeted_supplement?.series === retestWorkload.series) {
+            const report = readJSON(
+              path.join(r.evidence, "stage-c-trial.json"),
+            );
+            const failed = report.observations.find(
+              (o: any) => o.host_assisted && o.first_recovery_failure,
+            );
+            if (failed) reason ??= "RETEST_RECOVERY_INTERRUPTED";
+            try {
+              assertGoAvailable({ root, freeze: hash });
+            } catch {
+              reason ??= "RETEST_ACCOUNT_HELD";
+            }
+          }
           state.terminals[l.lane] = {
             run: r.id,
             report_sha256: result.report_sha256,
-            status: failure ? "INCOMPLETE" : "COMPLETED",
-            ...(failure ? { reason: failure.reason } : {}),
+            status: reason ? "INCOMPLETE" : "COMPLETED",
+            ...(reason ? { reason } : {}),
           };
         } catch (e) {
           const file = path.join(r.evidence, "stage-c-trial.json");

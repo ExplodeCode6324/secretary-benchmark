@@ -6,11 +6,15 @@ import { gradeJSONBytes } from "./grading-transaction.ts";
 import { readerAction } from "./targeted-reader-cli.ts";
 import {
   validateTargetedFreeze,
+  retestSeries,
   targetedRoutes,
   type TargetedReaderFreeze,
   type TargetedRoute,
 } from "./targeted-reader-grade.ts";
-import { checkWorkloadClosure } from "./targeted-reader-workload.ts";
+import {
+  checkWorkloadClosure,
+  workloadLanes,
+} from "./targeted-reader-workload.ts";
 import {
   agreedAssertions,
   targetedWorkloadResult,
@@ -42,18 +46,22 @@ export function targetedResult(
   finalSHA: string,
 ) {
   const final = json(path.join(seriesDir, "series-final.json"), finalSHA);
-  requireThat(
-    final.schema === "issue122-r67-reader-final-v1" &&
-      final.all_terminal === true &&
-      isDeepStrictEqual(
-        Object.keys(final.routes).sort(),
-        [...targetedRoutes].sort(),
-      ),
-    "TARGETED_INCOMPLETE_FINAL",
-  );
   const f: TargetedReaderFreeze = json(
     path.join(seriesDir, "series.json"),
     final.series_sha256,
+  );
+  const retest = f.series === retestSeries;
+  const routes = retest
+    ? targetedRoutes.filter((r) => !r.startsWith("c06-"))
+    : targetedRoutes;
+  requireThat(
+    final.schema ===
+      (retest
+        ? "issue122-r75-reader-final-v1"
+        : "issue122-r67-reader-final-v1") &&
+      final.all_terminal === true &&
+      isDeepStrictEqual(Object.keys(final.routes).sort(), [...routes].sort()),
+    "TARGETED_INCOMPLETE_FINAL",
   );
   validateTargetedFreeze(f);
   requireThat(
@@ -66,6 +74,7 @@ export function targetedResult(
     f.workload_freeze_sha256,
     f.workload_dispatch_sha256,
   );
+  requireThat(closure.series === f.series, "TARGETED_SERIES_BINDING");
   const frozen = json(
     path.join(facility, "configs/stage-c-freeze.json"),
     f.workload_freeze_sha256,
@@ -75,7 +84,7 @@ export function targetedResult(
       frozen.targeted_supplement.reader_operator_release_sha256,
     "TARGETED_OPERATOR_RELEASE",
   );
-  const readers = targetedRoutes.map((route) => {
+  const readers = routes.map((route) => {
     const row = final.routes[route];
     let assessment;
     if (row.dual_sha256) {
@@ -149,7 +158,15 @@ export function targetedResult(
       route === "calibration" ? (assessment?.official.matched ?? null) : null,
   }));
   return {
-    schema: "issue122-supplement-result-v1",
+    schema: retest
+      ? "issue122-retest-result-v1"
+      : "issue122-supplement-result-v1",
+    ...(retest
+      ? {
+          parent_supplement_sha256:
+            "fa9333ee77eeb904b6ef778b774cd74ccd6dbebabc2cdf71ffa9bd029088798c",
+        }
+      : {}),
     historical_baseline_sha256: summary.historical_baseline_sha256,
     original_observations: summary.original_observations,
     series_sha256: final.series_sha256,
@@ -213,35 +230,38 @@ function workloadSummary(
       verdict: r.c16.verdict,
     })),
   ];
-  const archived = (["c06-98", "c06-99"] as const).map((route, i) => {
-    const original = old.comparison_rows_effective.find(
-      (r: any) => r.case === "C06-resident-B" && r.repeat === i + 2,
-    );
-    const archive = old.archives.find(
-      (a: any) => a.freeze_sha256 === original?.freeze_sha256,
-    );
-    requireThat(
-      original &&
-        original.effective_assessment !== "ACCEPTED" &&
-        archive &&
-        (!sources ||
-          original.freeze_sha256 === sources[route].source_freeze_sha256),
-      "TARGETED_SOURCE_C06",
-    );
-    return {
-      case: "C06-resident-B",
-      repeat: i + 2,
-      reader_accepted: !!gradeFor(route)?.accepted,
-      route,
-      source_archive_sha256:
-        sources?.[route].source_archive_sha256 ?? archive.archive_sha256,
-      source_freeze_sha256: original.freeze_sha256,
-      workload_route: original.workload_route,
-      assertions: agreedAssertions(gradeFor(route)) ?? {
-        natural_access: "NOT_TESTED",
-      },
-    };
-  });
+  const archived =
+    closure.series === retestSeries
+      ? []
+      : (["c06-98", "c06-99"] as const).map((route, i) => {
+          const original = old.comparison_rows_effective.find(
+            (r: any) => r.case === "C06-resident-B" && r.repeat === i + 2,
+          );
+          const archive = old.archives.find(
+            (a: any) => a.freeze_sha256 === original?.freeze_sha256,
+          );
+          requireThat(
+            original &&
+              original.effective_assessment !== "ACCEPTED" &&
+              archive &&
+              (!sources ||
+                original.freeze_sha256 === sources[route].source_freeze_sha256),
+            "TARGETED_SOURCE_C06",
+          );
+          return {
+            case: "C06-resident-B",
+            repeat: i + 2,
+            reader_accepted: !!gradeFor(route)?.accepted,
+            route,
+            source_archive_sha256:
+              sources?.[route].source_archive_sha256 ?? archive.archive_sha256,
+            source_freeze_sha256: original.freeze_sha256,
+            workload_route: original.workload_route,
+            assertions: agreedAssertions(gradeFor(route)) ?? {
+              natural_access: "NOT_TESTED",
+            },
+          };
+        });
   const transactions = [...ledger(facility).entries.values()];
   requireThat(
     transactions.every((e) => workloads.some((w) => w.lane === e.attempt.lane)),
@@ -271,7 +291,9 @@ function workloadSummary(
       adjudicable: effective.filter((r) => r.gate === "CLOSED").length,
     },
     c12b_complete_live_witness:
-      workloads[1].gate === "CLOSED" && workloads[1].verdict === "PASS",
+      workloads[1].gate === "CLOSED" &&
+      (workloads[1].verdict === "PASS" ||
+        (closure.series === retestSeries && workloads[1].verdict === "FAIL")),
   };
 }
 /** Reconstruct the published pre-activation stop. Only the independently
@@ -342,7 +364,8 @@ export function blockedTargetedResult(facility: string, receiptPath: string) {
     last === entries.at(-1) &&
       last.attempt.lane === summary.workloads[0].lane &&
       session?.state === "RECOVERY_BLOCKED" &&
-      last.settled_at && session.updated_at > last.settled_at,
+      last.settled_at &&
+      session.updated_at > last.settled_at,
     "TARGETED_PREACTIVATION_SESSION",
   );
   const interruption = {
@@ -381,7 +404,10 @@ export function blockedTargetedResult(facility: string, receiptPath: string) {
   return {
     schema: "issue122-supplement-result-v1",
     ...summary,
-    workloads: [{ ...summary.workloads[0], interruption }, summary.workloads[1]],
+    workloads: [
+      { ...summary.workloads[0], interruption },
+      summary.workloads[1],
+    ],
     workload_freeze_sha256: closure.freeze_sha256,
     dispatch_sha256: closure.dispatch_sha256,
     workload_attempts_sha256: attemptsSHA,
@@ -415,7 +441,20 @@ if (
   process.argv[1] &&
   fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
 ) {
-  const [facility, series, digest] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  if (args[0] === "--sealed-lane") {
+    const [, root, freeze, route] = args;
+    requireThat(
+      args.length === 4 && (route === "c12b" || route === "c16-repeat1"),
+      "RETEST_LANE_ARGUMENTS",
+    );
+    const closure = checkWorkloadClosure(root, freeze, undefined, route);
+    const report = targetedWorkloadResult(root, closure, route);
+    requireThat(report.lane === workloadLanes[route], "RETEST_LANE_ARGUMENTS");
+    process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+    process.exit(0);
+  }
+  const [facility, series, digest] = args;
   requireThat(process.argv.length === 5, "TARGETED_RESULT_ARGUMENTS");
   process.stdout.write(
     JSON.stringify(

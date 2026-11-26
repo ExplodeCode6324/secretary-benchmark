@@ -5,22 +5,39 @@ import {
   checkTargetedInputs,
   targetedWorkload,
   targetedLanes,
+  retestWorkload,
+  type TargetedPolicy,
 } from "./stage-c-targeted-policy.ts";
 import type { ledger } from "./campaign.ts";
 
-const claimName = targetedWorkload.series + ".json";
-const holdName = targetedWorkload.series + "-hold.json";
+function facilityPolicy(root: string): TargetedPolicy {
+  const scope = readJSON(
+    path.join(root, "configs/stage-c-freeze.json"),
+  ).targeted_supplement;
+  checkTargetedInputs(scope, root);
+  return scope;
+}
+function claimSeries(account: string, freeze?: string) {
+  const file = path.join(account, retestWorkload.series + ".json");
+  if (freeze && fs.existsSync(file) && readJSON(file).freeze === freeze)
+    return retestWorkload.series;
+  return targetedWorkload.series;
+}
 type Claim = { root: string; freeze: string; closed: boolean };
 const reservationDir = (account: string) =>
   path.join(account, "usage-reservations");
 
-export function targetedClaim(account: string): Claim | null {
-  const file = path.join(account, claimName);
+export function targetedClaim(account: string, freeze?: string): Claim | null {
+  const file = path.join(account, claimSeries(account, freeze) + ".json");
   return fs.existsSync(file) ? readJSON<Claim>(file) : null;
 }
 
-export function verifyTargetedCarry(account: string, root: string) {
-  checkTargetedInputs(targetedWorkload, root);
+export function verifyTargetedCarry(
+  account: string,
+  root: string,
+  scope: TargetedPolicy = facilityPolicy(root),
+) {
+  checkTargetedInputs(scope, root);
   const carry = readJSON(path.join(root, "inputs/targeted-carry.json"));
   for (const [name, expected] of [
     ["active.json", carry.account_active_sha256],
@@ -34,6 +51,12 @@ export function verifyTargetedCarry(account: string, root: string) {
       sha(read(path.join(account, name))) === expected,
       "TARGETED_ACCOUNT_CARRY_CHANGED",
     );
+  if (scope.series === retestWorkload.series)
+    for (const [name, digest] of Object.entries(carry.parent_records))
+      requireThat(
+        sha(read(path.join(account, name))) === digest,
+        "RETEST_PARENT_CARRY_CHANGED",
+      );
   const active = readJSON(path.join(account, "active.json")),
     held = readJSON(path.join(account, "hold.json"));
   const old = readJSON(
@@ -60,13 +83,14 @@ export function claimTargetedAccount(
   root: string,
   freeze: string,
 ) {
-  verifyTargetedCarry(account, root);
+  const scope = facilityPolicy(root);
+  verifyTargetedCarry(account, root, scope);
   requireThat(
-    !fs.existsSync(path.join(account, holdName)),
+    !fs.existsSync(path.join(account, scope.series + "-hold.json")),
     "TARGETED_ACCOUNT_ON_HOLD",
   );
-  const file = path.join(account, claimName),
-    prior = targetedClaim(account);
+  const file = path.join(account, scope.series + ".json"),
+    prior: Claim | null = fs.existsSync(file) ? readJSON(file) : null;
   if (prior)
     requireThat(
       prior.root === root && prior.freeze === freeze && !prior.closed,
@@ -91,13 +115,14 @@ export function assertTargetedAccount(
   root: string,
   freeze: string,
 ) {
-  verifyTargetedCarry(account, root);
-  const claim = targetedClaim(account);
+  const scope = facilityPolicy(root);
+  verifyTargetedCarry(account, root, scope);
+  const claim = targetedClaim(account, freeze);
   requireThat(
     claim?.root === root &&
       claim.freeze === freeze &&
       !claim.closed &&
-      !fs.existsSync(path.join(account, holdName)),
+      !fs.existsSync(path.join(account, scope.series + "-hold.json")),
     "TARGETED_ACCOUNT_NOT_AVAILABLE",
   );
 }
@@ -106,8 +131,8 @@ export function holdTargetedAccount(
   freeze: string,
   reason: string,
 ) {
-  const file = path.join(account, holdName);
-  if (targetedClaim(account)?.freeze !== freeze) return false;
+  const file = path.join(account, claimSeries(account, freeze) + "-hold.json");
+  if (targetedClaim(account, freeze)?.freeze !== freeze) return false;
   if (!fs.existsSync(file))
     writeJSON(file, { freeze, reason, at: new Date().toISOString() });
   return true;
@@ -117,12 +142,15 @@ export function closeTargetedAccount(
   root: string,
   freeze: string,
 ) {
-  const claim = targetedClaim(account);
+  const claim = targetedClaim(account, freeze);
   requireThat(
     claim?.root === root && claim.freeze === freeze,
     "TARGETED_ACCOUNT_BINDING",
   );
-  writeJSON(path.join(account, claimName), { ...claim, closed: true });
+  writeJSON(path.join(account, claimSeries(account, freeze) + ".json"), {
+    ...claim,
+    closed: true,
+  });
 }
 type WorkloadEntry =
   ReturnType<typeof ledger>["entries"] extends Map<string, infer E> ? E : never;

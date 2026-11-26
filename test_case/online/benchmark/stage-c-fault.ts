@@ -5,6 +5,7 @@ import type {
   Execution,
   Operation,
   TaskPlan,
+  ModelCall,
 } from "../../../sut/secretary/src/pi_secretary/src/contracts.ts";
 import { coreIdentity } from "../../../sut/secretary/src/pi_secretary/src/core-identity.ts";
 import { stableID } from "../../../sut/secretary/src/pi_secretary/src/execution-utils.ts";
@@ -51,6 +52,7 @@ export function installStageCFault(
   app: App,
   run: WorkerPermit,
   park = parkWorker,
+  gate?: { writing: boolean; check: () => boolean },
 ) {
   const auth = app.authorization;
   const dispatch = auth.dispatch.bind(auth);
@@ -73,6 +75,19 @@ export function installStageCFault(
     parameter_hash: op.action.parameters_hash,
     expected_hash: sha(delivery.bytes),
     pid: process.pid,
+    ...(gate
+      ? {
+          task_contexts: app.store
+            .all<ModelCall>("ModelCall")
+            .filter(
+              (c) =>
+                c.scope.execution_id === op.scope.execution_id &&
+                c.response &&
+                c.state === "RESPONSE_SAVED",
+            )
+            .map((c) => c.request.sha256),
+        }
+      : {}),
   });
   const failureFile = evidence("stage-c-target-failure.json");
   const recordFailure = (operation: string, reason: string) => {
@@ -115,6 +130,10 @@ export function installStageCFault(
         path.join(exec.workspace_binding.root_path, delivery.name)
     ))
       return refuse(op.id, "C12B_TARGET_UNBOUND");
+    if (gate && !fs.existsSync(barrier)) {
+      gate.writing = true;
+      if (!gate.check()) return refuse(id, "C12B_SENDER_NOT_QUIESCENT");
+    }
     appendJSON(attempts, fields(op));
     return dispatch(id, extra);
   };
@@ -142,6 +161,10 @@ export function installStageCFault(
         const record = { ...fields(op), observed_hash: proof.evidence.sha256 };
         appendJSON(writes, record);
         if (!fs.existsSync(barrier)) {
+          if (gate && (!gate.writing || !gate.check())) {
+            recordFailure(id, "C12B_SENDER_NOT_QUIESCENT");
+            return park();
+          }
           writeJSON(barrier, record);
           process.kill(process.pid, "SIGKILL");
           return park();

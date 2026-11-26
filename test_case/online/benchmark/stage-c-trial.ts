@@ -164,6 +164,27 @@ export async function executeTrial(
     trail,
     observations: [] as unknown[],
   };
+  const writeEvidence = () => {
+    if (
+      !live ||
+      !entry?.targeted_supplement ||
+      id !== "C12b" ||
+      readJSON(path.join(root, "configs/stage-c-freeze.json"))
+        .targeted_supplement.series !== "issue122-r75-retest-v1"
+    )
+      return {};
+    const members: Record<string, string> = {};
+    for (const name of [
+      "stage-c-barrier.json",
+      "stage-c-physical-writes.jsonl",
+      "stage-c-write-attempts.jsonl",
+      "stage-c-recovery-receipt.json",
+    ]) {
+      const file = path.join(run.evidence, name);
+      if (fs.existsSync(file)) members[name] = sha(read(file));
+    }
+    return { recovery_members: members };
+  };
   writeJSON(reportFile, report);
   const capture = async (r: Run, scenario = id, progress = trail) => {
     if (live) {
@@ -449,7 +470,7 @@ export async function executeTrial(
       report.observations.push(await capture(run));
     }
     report.physical_provider_sends = rehearsal ? 0 : sends();
-    writeJSON(reportFile, report);
+    writeJSON(reportFile, { ...report, ...writeEvidence() });
     return {
       run: run.id,
       scenario: id,
@@ -460,6 +481,7 @@ export async function executeTrial(
     first = e;
     writeJSON(reportFile, {
       ...report,
+      ...writeEvidence(),
       physical_provider_sends: rehearsal ? 0 : sends(),
       first_failure: String(e),
     });

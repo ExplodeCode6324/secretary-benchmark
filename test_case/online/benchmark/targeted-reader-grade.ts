@@ -11,6 +11,7 @@ import {
 } from "./stage-c-visibility-rubric.ts";
 
 export const targetedSeries = "issue122-r67-evidence-v1";
+export const retestSeries = "issue122-r75-retest-v1";
 export type TargetedRoute = keyof typeof supplementSlots;
 export const targetedRoutes = Object.keys(supplementSlots) as TargetedRoute[];
 const hex = (v: unknown) => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
@@ -43,7 +44,7 @@ export type RouteFreeze = {
   binding_sha256: string;
 };
 export interface TargetedReaderFreeze {
-  series: typeof targetedSeries;
+  series: typeof targetedSeries | typeof retestSeries;
   rubric_sha256: string;
   key_sha256: string;
   workload_freeze_sha256: string;
@@ -65,7 +66,7 @@ export interface TargetedReaderFreeze {
 }
 export function validateTargetedFreeze(f: TargetedReaderFreeze) {
   requireThat(
-    f.series === targetedSeries &&
+    (f.series === targetedSeries || f.series === retestSeries) &&
       hex(f.key_sha256) &&
       f.rubric_sha256 ===
         sha(gradeJSONBytes(scoringRubric(goReader, goVisibilityVersion))),
@@ -85,7 +86,11 @@ export function validateTargetedFreeze(f: TargetedReaderFreeze) {
     ),
     "TARGETED_UNAVAILABLE",
   );
-  const active = targetedRoutes.filter((r) => !unavailable.includes(r));
+  const eligible =
+    f.series === retestSeries
+      ? targetedRoutes.filter((r) => !r.startsWith("c06-"))
+      : targetedRoutes;
+  const active = eligible.filter((r) => !unavailable.includes(r));
   same(Object.keys(f.routes).sort(), [...active].sort(), "TARGETED_ROUTES");
   for (const route of active) {
     const row = f.routes[route];
@@ -104,6 +109,10 @@ export function validateTargetedFreeze(f: TargetedReaderFreeze) {
       new Set(active.map((r) => f.routes[r][k])).size === active.length,
       "TARGETED_DUPLICATE_INPUT",
     );
+  if (f.series === retestSeries) {
+    same(f.archived, {}, "TARGETED_ARCHIVE_ROUTES");
+    return;
+  }
   same(
     Object.keys(f.archived).sort(),
     ["c06-98", "c06-99"],
@@ -325,7 +334,7 @@ export function verifyTargetedReceipt(
   );
   const native = { raw: files.raw, transport: t, dispatch: d };
   const mark = goReaderResponse(native, packet, pin.decision_sha256, {
-    series: targetedSeries,
+    series: f.series,
     series_sha256: seriesDigest,
     route,
   });
@@ -401,7 +410,7 @@ export function verifyTargetedReceipt(
           !["PASS", "FAIL"].includes(r.verdict),
       ));
   const result = {
-    series: targetedSeries,
+    series: f.series,
     series_sha256: seriesDigest,
     route,
     decision_sha256: pin.decision_sha256,

@@ -2,7 +2,9 @@ import { rehearsalFetch } from "./stage-c-rehearsal.ts";
 import { caseDefinition } from "./stage-c-plan.ts";
 import { elmNote } from "./stage-b-scenarios-protocol.ts";
 import { installStageCFault } from "./stage-c-fault.ts";
-import { loadCampaign } from "./campaign.ts";
+import { retestWorkload } from "./stage-c-targeted-policy.ts";
+import { setTimeout as delay } from "node:timers/promises";
+import { ledger, loadCampaign } from "./campaign.ts";
 import { forbiddenPayload } from "./payload-guard.ts";
 // Owned fixture/live entry. A detached sender owns its durable campaign accounting.
 import fs from "node:fs";
@@ -19,6 +21,7 @@ import {
 import type {
   Execution,
   Operation,
+  ModelCall,
   PushDispatch,
 } from "../../../sut/secretary/src/pi_secretary/src/contracts.ts";
 import { appendJSON, readJSON, requireThat, writeJSON, read } from "./io.ts";
@@ -63,6 +66,9 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
       "AMBIENT_CONFIGURATION",
     );
     if (run.config.version === 4) configureProfile(run.config.profile);
+    let faultGate:
+      | { writing: boolean; admissions: number; check: () => boolean }
+      | undefined;
     if (run.config.mode === "live") {
       requireThat(run.live?.key && run.live.facility, "LIVE_PERMIT_REQUIRED");
       configureProfile(run.config.profile);
@@ -70,6 +76,22 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         run.live.rehearsal &&
         readJSON(path.join(run.live.facility, "inputs/stage-c-preflight.json"))
           .rehearsal_read;
+      if (
+        run.config.version === 5 &&
+        run.config.case_id === "C12b" &&
+        run.live.route &&
+        readJSON(path.join(run.live.facility, "configs/stage-c-freeze.json"))
+          .targeted_supplement?.series === retestWorkload.series
+      ) {
+        faultGate = {
+          writing: false,
+          admissions: 0,
+          check: () => {
+            const entries = [...ledger(run.live!.facility).entries.values()];
+            return !faultGate!.admissions && entries.every((e) => e.settled);
+          },
+        };
+      }
       globalThis.fetch = meteredFetch(
         {
           root: run.live.facility,
@@ -83,6 +105,45 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
           key: run.live.key,
           route: run.live.route,
           maxSends: run.config.max_sends,
+          guardAdmission: faultGate
+            ? async (signal, role, admit) => {
+                const gate = faultGate!;
+                while (
+                  gate.writing ||
+                  gate.admissions ||
+                  !gate.check() ||
+                  (role !== "task" &&
+                    app?.store
+                      .all<ModelCall>("ModelCall")
+                      .some(
+                        (c) => c.state === "IN_FLIGHT" && c.scope.execution_id,
+                      ))
+                ) {
+                  await delay(25, undefined, { signal });
+                }
+                gate.admissions++;
+                try {
+                  return await admit();
+                } finally {
+                  gate.admissions--;
+                }
+              }
+            : undefined,
+          deadline: (hash) => {
+            const active = app?.store
+              .all<ModelCall>("ModelCall")
+              .filter(
+                (c) =>
+                  c.state === "IN_FLIGHT" &&
+                  c.started_at &&
+                  (!hash || c.request.sha256 === hash),
+              );
+            return active?.length
+              ? Math.min(
+                  ...active.map((c) => Date.parse(c.started_at!) + 120000),
+                )
+              : undefined;
+          },
           forbidden: () => forbiddenPayload(run.live!.facility, run.lineage),
         },
         run.live.rehearsal
@@ -476,7 +537,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         run.config.version === 5) &&
       run.config.case_id === "C12b"
     )
-      installStageCFault(app, run);
+      installStageCFault(app, run, undefined, faultGate);
     requireThat(app.world?.ready && app.world.configured, "WORLD_NOT_READY");
     const role = (
       await app.world.pool.query(

@@ -119,11 +119,15 @@ export async function checkGoProvider(
   );
   return checkGoUsage(goCredential(), transport);
 }
-export async function checkGoUsage(key: string, transport: typeof fetch) {
+export async function checkGoUsage(
+  key: string,
+  transport: typeof fetch,
+  signal = AbortSignal.timeout(15000),
+) {
   const r = await transport(goUsage, {
     headers: { authorization: "Bearer " + key },
     redirect: "error",
-    signal: AbortSignal.timeout(15000),
+    signal,
   });
   requireThat(
     r.ok,

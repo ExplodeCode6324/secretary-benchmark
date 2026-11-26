@@ -1,3 +1,9 @@
+import {
+  delivery,
+  deliveryRequest,
+  nativeWriteRecipe,
+} from "./stage-c-fault.ts";
+import { retestWorkload } from "./stage-c-targeted-policy.ts";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { ledger } from "./campaign.ts";
@@ -118,6 +124,67 @@ export function targetedWorkloadResult(
         ?.response_complete === true &&
       (e.usage as { route?: string } | null)?.route === "opencode-go",
   );
+  const retest = closure.series === retestWorkload.series;
+  let boundTaskResponse = false;
+  if (retest && route === "c12b" && trial.recovery_members) {
+    const member = (name: string) => {
+      const digest = trial.recovery_members[name];
+      if (!digest) return null;
+      const bytes = read(path.join(dir, name));
+      requireThat(sha(bytes) === digest, "RETEST_RECOVERY_MEMBER");
+      return bytes.toString();
+    };
+    const barrier = JSON.parse(member("stage-c-barrier.json") ?? "null");
+    if (barrier) {
+      requireThat(
+        barrier.run === terminal.run &&
+          barrier.lineage === terminal.run &&
+          barrier.request ===
+            deliveryRequest(terminal.run, nativeWriteRecipe) &&
+          barrier.expected_hash === sha(delivery.bytes) &&
+          path.basename(barrier.resource) === delivery.name,
+        "RETEST_BARRIER_BINDING",
+      );
+      const writes = (member("stage-c-physical-writes.jsonl") ?? "")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+      const matches = writes.filter(
+        (w) =>
+          [
+            "run",
+            "domain",
+            "lineage",
+            "request",
+            "execution",
+            "resource",
+            "expected_hash",
+          ].every((k) => w[k] === barrier[k]) &&
+          w.observed_hash === barrier.expected_hash,
+      );
+      if (matches.length >= 2 && isDeepStrictEqual(matches[0], barrier)) {
+        mechanical = { effects: "FAIL", observed_writes: matches.length };
+        assertions.effects = "FAIL";
+      }
+      boundTaskResponse = attempts.some((e) => {
+        if (
+          !e.settled ||
+          e.outcome !== "RESPONSE_COMPLETE" ||
+          !(e.usage as any)?.response_complete ||
+          (e.usage as any)?.route !== "opencode-go"
+        )
+          return false;
+        const send = JSON.parse(
+          read(path.join(dir, "send-" + e.attempt.id + ".json")).toString(),
+        );
+        return (
+          send.id === e.attempt.id &&
+          send.attribution?.role === "task" &&
+          barrier.task_contexts?.includes(send.attribution.context_sha256)
+        );
+      });
+    }
+  }
   if (!obs || !hasResponse) {
     requireThat(!semanticGrades, "TARGETED_UNBOUND_GRADE");
     return {
@@ -134,6 +201,8 @@ export function targetedWorkloadResult(
   }
   for (const assertion of Object.keys(assertions)) {
     const witness = obs.witness.assertions[assertion];
+    if (retest && assertion === "effects" && mechanical?.effects === "FAIL")
+      continue;
     assertions[assertion] = decisive(witness)
       ? witness
       : (semanticGrades?.[assertion] ?? witness ?? "NOT_TESTED");
@@ -194,6 +263,7 @@ export function targetedWorkloadResult(
       (o: any) => o.host_assisted === true,
     );
     if (
+      (!retest || (boundTaskResponse && observation?.unknown_journal)) &&
       observation?.old_exit &&
       observation?.new_start &&
       observation?.verify_receipt_sha256
@@ -222,7 +292,7 @@ export function targetedWorkloadResult(
         gate = "CLOSED";
       } else gaps.push("RECOVERY_EVIDENCE_INCOMPLETE");
     } else {
-      assertions.effects = "NOT_TESTED";
+      assertions.effects = mechanical?.effects ?? "NOT_TESTED";
       gaps.push("MISSING_BOUND_RECOVERY");
     }
   }

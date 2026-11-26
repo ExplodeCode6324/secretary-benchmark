@@ -371,6 +371,12 @@ export function meteredFetch(
     key: string;
     maxSends: number;
     forbidden?: string[] | (() => string[]);
+    guardAdmission?: <T>(
+      signal: AbortSignal,
+      role: string,
+      admit: () => Promise<T>,
+    ) => Promise<T>;
+    deadline?: (context: string | undefined) => number | undefined;
   },
   transport: typeof fetch = globalThis.fetch,
 ): typeof fetch {
@@ -542,15 +548,24 @@ export function meteredFetch(
           },
           options.maxSends,
         );
+      const admit = () =>
+        admitGoSend(
+          options.root,
+          options.stageFreeze!,
+          options.key,
+          worst,
+          transport,
+          commitReservation,
+          {
+            signal: request.signal,
+            deadline: () =>
+              options.deadline?.(attribution.getStore()?.context_sha256),
+          },
+        );
       const goAdmission = options.route
-        ? await admitGoSend(
-            options.root,
-            options.stageFreeze!,
-            options.key,
-            worst,
-            transport,
-            commitReservation,
-          )
+        ? await (options.guardAdmission
+            ? options.guardAdmission(request.signal, role, admit)
+            : admit())
         : null;
       const id = goAdmission ? goAdmission.result : await commitReservation();
       phase = "SENT_OR_RESERVED";

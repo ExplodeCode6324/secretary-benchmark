@@ -21,6 +21,51 @@ import {
   recordGoReservation,
   type LocalAmounts,
 } from "./stage-c-go-local-usage.ts";
+import { retestWorkload } from "./stage-c-targeted-policy.ts";
+type RequestWindow = {
+  signal: AbortSignal;
+  deadline: () => number | undefined;
+};
+export async function retestQuota(
+  key: string,
+  transport: typeof fetch,
+  window: RequestWindow,
+) {
+  const deadline = window.deadline();
+  const check = (allowance: number) => {
+    window.signal.throwIfAborted();
+    requireThat(
+      deadline !== undefined &&
+        deadline - Date.now() >=
+          allowance + retestWorkload.response_headroom_ms,
+      "GO_REQUEST_WINDOW_EXHAUSTED",
+    );
+  };
+  for (let attempt = 0; ; attempt++) {
+    check(retestWorkload.quota_read_timeout_ms);
+    try {
+      const signal = AbortSignal.any([
+        window.signal,
+        AbortSignal.timeout(retestWorkload.quota_read_timeout_ms),
+      ]);
+      const usage = await checkGoUsage(key, transport, signal);
+      check(0);
+      return usage;
+    } catch (error) {
+      const transient =
+        error instanceof TypeError ||
+        (error instanceof Error &&
+          (error.name === "TimeoutError" ||
+            error.message === "GO_METADATA_UNAVAILABLE"));
+      if (
+        window.signal.aborted ||
+        !transient ||
+        attempt >= retestWorkload.metadata_rechecks
+      )
+        throw error;
+    }
+  }
+}
 const account = goAccount;
 const activeFile = path.join(account, "active.json");
 const holdFile = path.join(account, "hold.json");
@@ -100,7 +145,7 @@ export async function claimGoFacility(
 }
 export async function closeGoFacility(root: string, freeze: string) {
   await lease(account, async () => {
-    if (targetedClaim(account)?.freeze === freeze)
+    if (targetedClaim(account, freeze)?.freeze === freeze)
       return closeTargetedAccount(account, root, freeze);
     const current = readJSON(activeFile);
     requireThat(
@@ -117,9 +162,10 @@ export async function admitGoSend(
   worst: number,
   transport: typeof fetch,
   admit: () => Promise<string>,
+  window?: RequestWindow,
 ) {
   return lease(account, async () => {
-    const claim = targetedClaim(account);
+    const claim = targetedClaim(account, freeze);
     const targeted = claim?.freeze === freeze;
     assertGoAvailable(targeted ? { root, freeze } : undefined);
     const active = targeted ? claim : readJSON(activeFile);
@@ -197,7 +243,14 @@ export async function admitGoSend(
           : undefined,
       );
       if (targeted) checkTargetedSpend(account, freeze, current, worst);
-      usage = await checkGoUsage(key, transport);
+      const retest =
+        frozen &&
+        JSON.parse(frozen.toString()).targeted_supplement?.series ===
+          retestWorkload.series;
+      if (retest) requireThat(window, "GO_REQUEST_WINDOW_MISSING");
+      usage = retest
+        ? await retestQuota(key, transport, window!)
+        : await checkGoUsage(key, transport);
       checkGoHeadroom(usage, worst, {
         rolling: local.rolling + unsettled,
         weekly: local.weekly + unsettled,

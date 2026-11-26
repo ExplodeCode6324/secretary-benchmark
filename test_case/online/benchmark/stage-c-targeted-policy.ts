@@ -24,6 +24,26 @@ export const targetedWorkload = {
   c12b_recipe: nativeWriteRecipe,
   route: "opencode-go",
 } as const;
+export const retestWorkload = {
+  ...targetedWorkload,
+  series: "issue122-r75-retest-v1",
+  decision_sha256:
+    "ac4fcbb85b32332b15378543c136fd2e0d973ca0e91e11827b9cc0d4212f35a6",
+  carry_sha256:
+    "5e34327c61d3b842ab3b1dac2ab52766b2e6770297e440846096ae88aff7fd2d",
+  reader_operator_release_sha256:
+    "540e14c1f8d809c17b0dfb3d6d3c0f631a6bad499de85ae9b096040f48463065",
+  reader_native_sha256:
+    "5f4464007d84c5c6306d21f00ffe76972b78f9b25a403bbebd065f9abee11c67",
+  reader_package_sha256:
+    "50d202461d7ff96286e6cbc5ed38cc23207f76fc624b48a4f9feb5763106a907",
+  candidate_limit: 2,
+  reader_equivalent_cap: 0.5013504,
+  metadata_rechecks: 2,
+  quota_read_timeout_ms: 5000,
+  response_headroom_ms: 40000,
+} as const;
+export type TargetedPolicy = typeof targetedWorkload | typeof retestWorkload;
 export const targetedLanes = [
   {
     scenario: "C16-combined",
@@ -34,12 +54,14 @@ export const targetedLanes = [
   },
   { scenario: "C12b", seed: 643644539, cap: 25, seconds: 668, profile: "DEP" },
 ] as const;
-export function checkTargetedInputs(
-  scope: typeof targetedWorkload,
-  root?: string,
-) {
+export function checkTargetedInputs(scope: TargetedPolicy, root?: string) {
   requireThat(
-    isDeepStrictEqual(scope, targetedWorkload),
+    isDeepStrictEqual(
+      scope,
+      scope.series === retestWorkload.series
+        ? retestWorkload
+        : targetedWorkload,
+    ),
     "TARGETED_WORKLOAD_POLICY",
   );
   if (root) {

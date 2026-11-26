@@ -25,6 +25,7 @@ import {
   validateTargetedInput,
   verifyTargetedReceipt,
   targetedRoutes,
+  retestSeries,
   type TargetedRoute,
   type CalibrationIdentity,
   type TargetedReaderFreeze,
@@ -147,6 +148,29 @@ export function readerAction(
     f.workload_freeze_sha256,
     f.workload_dispatch_sha256,
   );
+  requireThat(f.series === closed.series, "TARGETED_WORKLOAD_SERIES");
+  if (f.series === retestSeries) {
+    const policy = object(
+      path.join(facility, "configs/stage-c-freeze.json"),
+    ).targeted_supplement;
+    requireThat(
+      Object.values(f.routes).every(
+        (row) => row.decision_sha256 === policy.decision_sha256,
+      ),
+      "TARGETED_DECISION_BINDING",
+    );
+    requireThat(
+      Object.keys(f.routes).length > 1,
+      "TARGETED_NO_ELIGIBLE_CANDIDATE",
+    );
+    if (route !== "calibration")
+      requireThat(
+        closed.state.terminals[
+          workloadLanes[route as keyof typeof workloadLanes]
+        ]?.status === "COMPLETED",
+        "TARGETED_INCOMPLETE_WORKLOAD",
+      );
+  }
   const grade = closed.grade;
   requireThat(
     grade?.reader === goReader &&

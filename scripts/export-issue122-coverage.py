@@ -136,6 +136,8 @@ def main():
     parser.add_argument("--evidence", type=Path, default=EVIDENCE)
     parser.add_argument("--supplement", type=Path, help="Verified public targeted result")
     parser.add_argument("--supplement-sha256", help="Digest from the independently verified supplement export")
+    parser.add_argument("--retest", type=Path)
+    parser.add_argument("--retest-sha256")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     baseline = checked_bytes(args.evidence / "issue122-completion.json", BASE_SHA)
@@ -153,10 +155,34 @@ def main():
         result["supplement_sha256"] = args.supplement_sha256
         result["effective_assertion_coverage"] = effective_supplement(result, checked_bytes(args.supplement, args.supplement_sha256))
     result["tables"] = ["historical", "effective"] if args.supplement else ["historical"]
+    if bool(args.retest) != bool(args.retest_sha256):
+        parser.error("--retest and --retest-sha256 must be supplied together")
+    if args.retest:
+        retest = checked_bytes(args.retest, args.retest_sha256)
+        if (args.supplement_sha256 != PUBLISHED_SUPPLEMENT_SHA or
+                retest["parent_supplement_sha256"] != PUBLISHED_SUPPLEMENT_SHA or
+                retest["schema"] != "issue122-retest-result-v1" or retest["archived_reader_rows"] or
+                retest["historical_baseline_sha256"] != BASE_SHA or retest["original_observations"] != 99):
+            raise ValueError("Retest parent binding changed")
+        rows = retest["workloads"]
+        if len(rows) != 2 or {(r["case"], r["repeat"]) for r in rows} != {("C16-combined", 1), ("C12b", 1)}:
+            raise ValueError("Unexpected retest position")
+        previous = checked_bytes(args.supplement, PUBLISHED_SUPPLEMENT_SHA)
+        projection = effective_supplement(result, {**retest, "archived_reader_rows": previous["archived_reader_rows"]})
+        for group, parent in zip(projection, result["effective_assertion_coverage"], strict=True):
+            for i, cell in enumerate(group["positions"]):
+                if group["case"] in {"C16-combined", "C12b"} and cell["repeat"] == 1:
+                    cell["origin"] = "retest"
+                else:
+                    group["positions"][i] = parent["positions"][i]
+            group["decided"] = sum(c["result"] in {"PASS", "FAIL"} for c in group["positions"])
+        result["retest_sha256"] = args.retest_sha256
+        result["retest_assertion_coverage"] = projection
+        result["tables"].append("retest")
     if args.output:
         args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     else:
-        print(json.dumps({k: v for k, v in result.items() if k not in {"matrix", "exclusions", "effective_assertion_coverage"}}))
+        print(json.dumps({k: v for k, v in result.items() if k not in {"matrix", "exclusions", "effective_assertion_coverage", "retest_assertion_coverage"}}))
 
 
 if __name__ == "__main__":

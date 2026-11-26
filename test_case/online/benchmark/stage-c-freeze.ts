@@ -1,5 +1,6 @@
 import {
-  targetedWorkload,
+  retestWorkload,
+  type TargetedPolicy,
   targetedLanes,
   checkTargetedInputs,
 } from "./stage-c-targeted-policy.ts";
@@ -70,7 +71,7 @@ export type Preflight = {
   c16_dedicated_batch?: true;
   remaining_series?: RemainingSeries;
   go_continuation?: GoContinuation;
-  targeted_supplement?: typeof targetedWorkload;
+  targeted_supplement?: TargetedPolicy;
   first_contact?: {
     ledger_sha256: string;
     first_bytes: number;
@@ -554,7 +555,15 @@ export function projectCampaign(
         }),
       "TARGETED_PROJECTED_LANES",
     );
-    batches.push(lanes);
+    batches.push(
+      supplement.series === retestWorkload.series
+        ? [...lanes].sort(
+            (a, b) =>
+              Number(b.lane.scenario === "C12b") -
+              Number(a.lane.scenario === "C12b"),
+          )
+        : lanes,
+    );
   } else if (inputs.c16_dedicated_batch) {
     requireThat(
       !rehearsal &&
@@ -590,7 +599,7 @@ export function projectCampaign(
     "STAGE_C_READER_TIMING",
   );
   const observationCount = supplement
-    ? 4
+    ? supplement.candidate_limit
     : lanes.length + lanes.filter((l) => l.pair).length;
   const expectedReader =
     batches.length * timing.calibration.median_seconds +
@@ -639,7 +648,7 @@ export function projectCampaign(
     candidate_observations: observationCount,
     ...(supplement
       ? {
-          archived_reader_only: 2,
+          archived_reader_only: supplement.candidate_limit - 2,
           workload_equivalent_cap: supplement.workload_equivalent_cap,
           reader_equivalent_cap: supplement.reader_equivalent_cap,
         }
@@ -880,7 +889,7 @@ export function freezeBatch(root: string, index: number, checked: string) {
   );
   if (inputs.targeted_supplement) {
     checkTargetedInputs(inputs.targeted_supplement, root);
-    verifyTargetedCarry(goAccount, root);
+    verifyTargetedCarry(goAccount, root, inputs.targeted_supplement);
   }
   const residual = residualDefinition(inputs.go_continuation);
   if (residual) checkGoResidualFiles(root, residual);

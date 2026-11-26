@@ -24,7 +24,7 @@ import {
   recordGoReservation,
   type LocalAmounts,
 } from "./stage-c-go-local-usage.ts";
-import { retestWorkload } from "./stage-c-targeted-policy.ts";
+import { continuationWorkload, retestWorkload, isRetest } from "./stage-c-targeted-policy.ts";
 type RequestWindow = {
   signal: AbortSignal;
   deadline: () => number | undefined;
@@ -96,6 +96,9 @@ export function checkGoHeadroom(
 export function holdGo(freeze: string, reason: string, root?: string) {
   const account = root ? accountFor(root) : goAccount,
     holdFile = path.join(account, "hold.json");
+  if (root && targetedClaim(account, freeze)?.freeze === freeze &&
+      fs.existsSync(path.join(account, continuationWorkload.series + ".json")) &&
+      readJSON(path.join(account, continuationWorkload.series + ".json")).freeze === freeze) return;
   if (holdTargetedAccount(account, freeze, reason)) return;
   if (!fs.existsSync(holdFile))
     writeJSON(holdFile, { freeze, reason, at: new Date().toISOString() });
@@ -243,6 +246,8 @@ export async function admitGoSend(
     let finalCheck: (() => void) | undefined;
     try {
       if (targeted) checkTargetedSend(root, freeze);
+      const series = frozen && JSON.parse(frozen.toString()).targeted_supplement?.series;
+      const continuing = series === continuationWorkload.series;
       local = localGoAmounts(
         root,
         Date.now(),
@@ -250,7 +255,7 @@ export async function admitGoSend(
           ? (id, r) => {
               if (r.freeze === freeze)
                 requireThat(
-                  current.entries.has(id) && r.settled,
+                  current.entries.has(id) && (r.settled || continuing),
                   "TARGETED_UNMATCHED_ACCOUNT_RESERVATION",
                 );
               else
@@ -261,11 +266,8 @@ export async function admitGoSend(
             }
           : undefined,
       );
-      if (targeted) checkTargetedSpend(account, freeze, current, worst);
-      const retest =
-        frozen &&
-        JSON.parse(frozen.toString()).targeted_supplement?.series ===
-          retestWorkload.series;
+      if (targeted && !continuing) checkTargetedSpend(account, freeze, current, worst);
+      const retest = isRetest(series);
       if (retest) {
         requireThat(window, "GO_REQUEST_WINDOW_MISSING");
         const deadline = window.deadline();
@@ -281,7 +283,7 @@ export async function admitGoSend(
       usage = retest
         ? await retestQuota(key, transport, window!)
         : await checkGoUsage(key, transport);
-      checkGoHeadroom(usage, worst, {
+      if (!continuing) checkGoHeadroom(usage, worst, {
         rolling: local.rolling + unsettled,
         weekly: local.weekly + unsettled,
         monthly: local.monthly + unsettled,

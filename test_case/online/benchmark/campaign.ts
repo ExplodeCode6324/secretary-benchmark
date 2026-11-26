@@ -488,6 +488,10 @@ export async function createCampaign(
   if (baselineLimits) validateBaselineLimits(baselineLimits, ceiling ?? null);
   if (physicalPolicy) {
     validatePhysical(physicalPolicy);
+    if(completionPolicy(physicalPolicy) && physicalPolicy.continuation){
+      const bytes=read(path.join(root,"configs/stage-c-freeze.json"));
+      requireThat(sha(bytes)===physicalPolicy.freeze_sha256 && JSON.parse(bytes.toString()).targeted_supplement?.series==="issue122-r77-continuation-v1","TARGETED_FREEZE_BINDING");
+    }
     requireThat(
       ceiling === undefined && baselineLimits === undefined,
       "STAGE_B_MIXED_POLICY",
@@ -619,12 +623,13 @@ export async function reserve(
         "STAGE_B_PHYSICAL_CHANGED",
       );
       const entries = [...current.entries.values()];
+      const continuing = completionPolicy(policy) && policy.continuation;
       requireThat(
-        !entries.some((entry) => entry.component_violation),
+        continuing || !entries.some((entry) => entry.component_violation),
         "STAGE_B_BOUND_VIOLATION",
       );
       requireThat(
-        !entries.some(
+        continuing || !entries.some(
           (entry) =>
             entry.outcome === "PROVENANCE_CHANGE" ||
             (entry.legacy_echo &&
@@ -634,7 +639,7 @@ export async function reserve(
         "STAGE_B_PROVENANCE_CHANGE",
       );
       requireThat(
-        !entries.some(
+        continuing || !entries.some(
           (entry) =>
             entry.attempt.model === model &&
             entry.outcome === "VERSION_TRANSITION",
@@ -642,7 +647,7 @@ export async function reserve(
         "STAGE_B_VERSION_HOLD",
       );
       requireThat(
-        !entries.some(
+        continuing || !entries.some(
           (entry) =>
             entry.attempt.model === model &&
             ["IDENTITY_MISMATCH_FIRST_CONTACT", "IDENTITY_UNKNOWN"].includes(
@@ -663,7 +668,7 @@ export async function reserve(
         "STAGE_B_LANE_NOT_ACTIVE",
       );
       requireThat(
-        !entries.some(
+        continuing || !entries.some(
           (entry) =>
             model !== "deepseek-flash" &&
             entry.attempt.model === model &&
@@ -672,7 +677,7 @@ export async function reserve(
         "STAGE_B_ACCOUNT_BLOCKED",
       );
       requireThat(
-        !entries.some(
+        continuing || !entries.some(
           (entry) =>
             entry.attempt.model === "deepseek-flash" &&
             [
@@ -686,7 +691,7 @@ export async function reserve(
         "STAGE_B_PRIMARY_BLOCKED",
       );
       requireThat(
-        !entries.some(
+        continuing || !entries.some(
           (entry) =>
             entry.attempt.lane === details.lane &&
             [
@@ -720,7 +725,7 @@ export async function reserve(
       );
     }
     requireThat(campaign.state === "OPEN", "CAMPAIGN_CLOSED");
-    if (maxSends !== undefined)
+    if (maxSends !== undefined && !(campaign.physical_policy && completionPolicy(campaign.physical_policy) && campaign.physical_policy.continuation))
       requireThat(
         [...current.entries.values()].filter(
           (v) =>

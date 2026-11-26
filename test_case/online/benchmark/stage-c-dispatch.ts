@@ -1,7 +1,9 @@
 import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
 import { checkGoUsage } from "./stage-c-go-provider.ts";
 import { rehearsalFetch, rehearsalKey } from "./stage-c-rehearsal.ts";
-import { retestWorkload } from "./stage-c-targeted-policy.ts";
+import { confirmedSystemFailure, externalInterruption, nextDispatchTime } from "./stage-c-continuation.ts";
+import {setTimeout as delay} from "node:timers/promises";
+import { continuationWorkload, retestWorkload, isRetest } from "./stage-c-targeted-policy.ts";
 import { residualDefinition } from "./stage-c-go-residual.ts";
 import {
   allGoReservationsSettled,
@@ -31,6 +33,8 @@ type State = {
   started_at: string;
   ended: boolean;
   terminals: Record<string, Terminal>;
+  history?:Record<string,Terminal[]>;
+  pending?:Record<string,{run?:string,reason:string,retry_at:number}>;
   probes: Record<string, never>;
   repairs: Record<string, never>;
   current: string | null;
@@ -80,6 +84,7 @@ export async function completionCommand(
   const go = inputs.go_continuation;
   const targeted = Boolean(inputs.targeted_supplement);
   const usesGo = Boolean(go || targeted);
+  const continuing=inputs.targeted_supplement?.series===continuationWorkload.series;
   const contact = "r1-C04-nonexistent--deepseek-flash";
   if (mode === "first-contact")
     requireThat(
@@ -109,7 +114,7 @@ export async function completionCommand(
           residualDefinition(go)?.freeze,
           targeted,
         );
-      await publication();
+      if(!continuing) await publication();
       await createCampaign(root, approval, undefined, undefined, policy);
       const state: State = {
         schema: "issue122-completion-dispatch-v1",
@@ -120,6 +125,7 @@ export async function completionCommand(
         probes: {},
         repairs: {},
         current: null,
+        ...(continuing?{pending:{},history:{}}:{}),
       };
       writeJSON(stateFile, state);
       return state;
@@ -160,6 +166,14 @@ export async function completionCommand(
         status: "INCOMPLETE",
         reason: "INTERRUPTED_TRAJECTORY",
       };
+      if(continuing){
+        const lane=state.current;
+        const terminal=state.terminals[lane];
+        terminal.run=active?.lane===lane ? active.run : undefined;
+        (state.history![lane]??=[]).push(terminal);
+        state.pending![lane]={run:terminal.run,reason:"INTERRUPTED_TRAJECTORY",retry_at:Date.now()+1000};
+        delete state.terminals[lane];
+      }
       state.current = null;
       writeJSON(stateFile, state);
     }
@@ -182,12 +196,14 @@ export async function completionCommand(
         "GO_FIRST_CONTACT_REPLAY_REQUIRED",
       );
     }
+    do {
     if (mode === "dispatch" || mode === "first-contact")
       for (const row of batch.filter(
         (r) => mode !== "first-contact" || r.lane.lane === contact,
       )) {
         const l = row.lane;
-        if (state.terminals[l.lane]) continue;
+        const pending=state.pending?.[l.lane];
+        if (state.terminals[l.lane] || (pending && Date.now()<pending.retry_at)) continue;
         const record = ledger(root);
         const held = [...record.entries.values()].find(
           (e) =>
@@ -205,7 +221,7 @@ export async function completionCommand(
               "GO_RATE_LIMIT",
             ].includes(e.outcome ?? ""),
         );
-        if (held) {
+        if (held && !continuing) {
           const reason =
             held.component_violation || held.bound_violation
               ? "RESERVATION_BOUND"
@@ -223,14 +239,14 @@ export async function completionCommand(
           Date.parse(policy.providers[l.model].checked_at) + 86400000,
         );
         let hold: string | undefined;
-        if (Date.now() + l.seconds * 1000 > until)
+        if (!continuing && Date.now() + l.seconds * 1000 > until)
           hold = "BATCH_OR_SOURCE_WINDOW";
         else
           try {
             if (usesGo) {
               assertGoAvailable(targeted ? { root, freeze: hash } : undefined);
               const usage = await publication();
-              checkGoHeadroom(usage, 0.7718592, localGoAmounts(root));
+              if(!continuing) checkGoHeadroom(usage, 0.7718592, localGoAmounts(root));
             } else await publication();
           } catch (error) {
             hold =
@@ -239,6 +255,11 @@ export async function completionCommand(
                 : "PUBLICATION_UNAVAILABLE";
           }
         if (hold) {
+          if(continuing){
+            (state.history![l.lane]??=[]).push({status:"INCOMPLETE",reason:hold,run:pending?.run});
+            state.pending![l.lane]={reason:hold,retry_at:Date.now()+30000,run:pending?.run};
+            writeJSON(stateFile,state); continue;
+          }
           if (usesGo) holdGo(hash, hold, root);
           for (const remaining of batch)
             state.terminals[remaining.lane.lane] ??= {
@@ -266,17 +287,22 @@ export async function completionCommand(
         );
         state.current = l.lane;
         writeJSON(stateFile, state);
-        if (inputs.targeted_supplement?.series === retestWorkload.series) {
+        if (isRetest(inputs.targeted_supplement?.series)) {
           const claim = path.join(
             root,
             "campaign",
             "retest-claims",
             l.lane + ".json",
           );
-          requireThat(!fs.existsSync(claim), "RETEST_LANE_ALREADY_CLAIMED");
-          writeJSON(claim, { freeze: hash, lane: l.lane, seed: l.seed });
+          if(continuing && pending && fs.existsSync(claim)) {
+            const saved=readJSON(claim);
+            requireThat(saved.freeze===hash && saved.lane===l.lane && saved.seed===l.seed,"RETEST_LANE_ALREADY_CLAIMED");
+          } else {
+            requireThat(!fs.existsSync(claim),"RETEST_LANE_ALREADY_CLAIMED");
+            writeJSON(claim,{freeze:hash,lane:l.lane,seed:l.seed});
+          }
         }
-        const r = await d.create({
+        const r = continuing && pending?.run ? d.load(pending.run) : await d.create({
           version: 5,
           mode: "live",
           track: "issue122",
@@ -295,16 +321,17 @@ export async function completionCommand(
           lane: l.lane,
           model: l.model,
           freeze_sha256: hash,
-          deadline: Math.min(Date.now() + l.seconds * 1000, until),
+          deadline: continuing ? Date.now()+l.seconds*1000 : Math.min(Date.now() + l.seconds * 1000, until),
         };
         writeJSON(activeFile, active);
+        const started=Date.now();
         try {
           const result = await executeTrial(d, r, desc, row);
           const failure = firstLaneFailure(
             [...ledger(root).entries.values()],
             l.lane,
           );
-          let reason = failure?.reason;
+          let reason = continuing ? undefined : failure?.reason;
           if (inputs.targeted_supplement?.series === retestWorkload.series) {
             const report = readJSON(
               path.join(r.evidence, "stage-c-trial.json"),
@@ -318,6 +345,11 @@ export async function completionCommand(
             } catch {
               reason ??= "RETEST_ACCOUNT_HELD";
             }
+          }
+          if(continuing){
+            const report=readJSON(path.join(r.evidence,"stage-c-trial.json"));
+            const special=report.observations.find((o:any)=>o.host_assisted && o.first_recovery_failure);
+            if(special) reason=String(special.first_recovery_failure);
           }
           state.terminals[l.lane] = {
             run: r.id,
@@ -344,11 +376,34 @@ export async function completionCommand(
             terminal.status = "INCOMPLETE";
             terminal.reason ??= reason;
           }
+          if(continuing){
+            const terminal=state.terminals[l.lane], facility=externalInterruption(root,r,started);
+            const system=confirmedSystemFailure(r);
+            if(system) {
+              await d.seal(r.id);
+              terminal.status="INCOMPLETE"; terminal.reason="CONFIRMED_SECRETARY_SYSTEM_FAILURE";
+              writeJSON(path.join(root,"campaign","secretary-system-failure.json"),{...system,freeze_sha256:hash,lane:l.lane});
+              for(const next of batch) state.terminals[next.lane.lane]??={status:"UNRUN",reason:terminal.reason};
+              state.pending={};
+            } else if(terminal.status==="INCOMPLETE" && (facility || /RECOVERY_BLOCKED|SCENARIO_PRODUCT_BLOCKED|PG_|PROCESS_|EAGAIN|ENOSPC|ECONN|FETCH_FAILED|SUPERVISOR_STOP_UNCONFIRMED/.test(terminal.reason??"")) && !/C12B_WRONG_BYTES|C12B_WRONG_PATH|C12B_SHELL_REQUESTED|C12B_CAPABILITY_EXCLUDED/.test(terminal.reason??"")){
+              const original=terminal.reason??"TRIAL_FAILED";
+              (state.history![l.lane]??=[]).push({...terminal,reason:facility?.reason??original});
+              const report=path.join(r.evidence,"stage-c-trial.json");
+              if(fs.existsSync(report)){
+                const bytes=read(report);fs.copyFileSync(report,path.join(root,"campaign",sha(bytes)+".json"));
+              }
+              state.pending![l.lane]={run:r.id,reason:facility?.reason??original,retry_at:Math.max(nextDispatchTime(r),Date.now()+Math.min(60000,1000*state.history![l.lane].length))};
+              delete state.terminals[l.lane];
+            } else delete state.pending![l.lane];
+          }
           writeJSON(activeFile, { ...active, state: "CLOSED" });
           state.current = null;
           writeJSON(stateFile, state);
         }
       }
+    if(!continuing || mode!=="dispatch" || !Object.keys(state.pending??{}).length) break;
+    await delay(Math.max(1,Math.min(60000, Math.min(...Object.values(state.pending!).map(p=>p.retry_at))-Date.now())));
+    } while(true);
     if (mode === "first-contact") return state;
     for (const row of batch)
       state.terminals[row.lane.lane] ??= {

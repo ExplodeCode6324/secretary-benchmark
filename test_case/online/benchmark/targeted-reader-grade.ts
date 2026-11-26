@@ -12,6 +12,7 @@ import {
 
 export const targetedSeries = "issue122-r67-evidence-v1";
 export const retestSeries = "issue122-r75-retest-v1";
+export const continuationSeries = "issue122-r77-continuation-v1";
 export type TargetedRoute = keyof typeof supplementSlots;
 export const targetedRoutes = Object.keys(supplementSlots) as TargetedRoute[];
 const hex = (v: unknown) => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
@@ -44,7 +45,7 @@ export type RouteFreeze = {
   binding_sha256: string;
 };
 export interface TargetedReaderFreeze {
-  series: typeof targetedSeries | typeof retestSeries;
+  series: typeof targetedSeries | typeof retestSeries | typeof continuationSeries;
   rubric_sha256: string;
   key_sha256: string;
   workload_freeze_sha256: string;
@@ -66,7 +67,7 @@ export interface TargetedReaderFreeze {
 }
 export function validateTargetedFreeze(f: TargetedReaderFreeze) {
   requireThat(
-    (f.series === targetedSeries || f.series === retestSeries) &&
+    (f.series === targetedSeries || f.series === retestSeries || f.series === continuationSeries) &&
       hex(f.key_sha256) &&
       f.rubric_sha256 ===
         sha(gradeJSONBytes(scoringRubric(goReader, goVisibilityVersion))),
@@ -87,7 +88,7 @@ export function validateTargetedFreeze(f: TargetedReaderFreeze) {
     "TARGETED_UNAVAILABLE",
   );
   const eligible =
-    f.series === retestSeries
+    f.series !== targetedSeries
       ? targetedRoutes.filter((r) => !r.startsWith("c06-"))
       : targetedRoutes;
   const active = eligible.filter((r) => !unavailable.includes(r));
@@ -109,7 +110,7 @@ export function validateTargetedFreeze(f: TargetedReaderFreeze) {
       new Set(active.map((r) => f.routes[r][k])).size === active.length,
       "TARGETED_DUPLICATE_INPUT",
     );
-  if (f.series === retestSeries) {
+  if (f.series !== targetedSeries) {
     same(f.archived, {}, "TARGETED_ARCHIVE_ROUTES");
     return;
   }
@@ -378,7 +379,7 @@ export function verifyTargetedReceipt(
       (typeof cash === "number" && Number.isFinite(cash) && cash >= 0),
     "TARGETED_PROVIDER_CASH",
   );
-  const badPayer = unauthorized || (cash ?? 0) > 0;
+  const badPayer = f.series !== continuationSeries && (unauthorized || (cash ?? 0) > 0);
   if (badPayer)
     requireThat(t.quota_stop === true, "TARGETED_BILLING_HOLD_MISSING");
   const supplemental = badPayer

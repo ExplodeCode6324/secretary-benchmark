@@ -1,3 +1,4 @@
+import { continuationWorkload, isRetest } from "./stage-c-targeted-policy.ts";
 import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
 import { isDeepStrictEqual } from "node:util";
 import fs from "node:fs";
@@ -52,7 +53,7 @@ export function targetedResult(
     path.join(seriesDir, "series.json"),
     final.series_sha256,
   );
-  const retest = f.series === retestSeries;
+  const retest = isRetest(f.series);
   const routes = retest
     ? targetedRoutes.filter((r) => !r.startsWith("c06-"))
     : targetedRoutes;
@@ -236,7 +237,7 @@ function workloadSummary(
     })),
   ];
   const archived =
-    closure.series === retestSeries
+    isRetest(closure.series)
       ? []
       : (["c06-98", "c06-99"] as const).map((route, i) => {
           const original = old.comparison_rows_effective.find(
@@ -299,7 +300,7 @@ function workloadSummary(
       !closure.rehearsal &&
       workloads[1].gate === "CLOSED" &&
       (workloads[1].verdict === "PASS" ||
-        (closure.series === retestSeries && workloads[1].verdict === "FAIL")),
+        (isRetest(closure.series) && workloads[1].verdict === "FAIL")),
   };
 }
 /** The independent proof digest must come from verified archive readback. */
@@ -321,7 +322,7 @@ export function retestBeforeReader(
   const hash = (s: unknown) =>
     typeof s === "string" && /^[a-f0-9]{64}$/.test(s);
   requireThat(
-    closure.series === retestSeries &&
+    isRetest(closure.series) &&
       proof.series === closure.series &&
       proof.schema === "issue122-r75-reader-activation-blocked-v1" &&
       proof.status === "STOPPED_BEFORE_READER_ACTIVATION" &&

@@ -1,3 +1,4 @@
+import { appendRefusal, retryTime, SenderWindowError } from "./stage-c-continuation.ts";
 import { admitGoSend, holdGo } from "./stage-c-go-quota.ts";
 import {
   goAPI,
@@ -377,6 +378,7 @@ export function meteredFetch(
       deadline: number | undefined,
       admit: () => Promise<T>,
     ) => Promise<T>;
+    callID?: (hash: string | undefined) => string | undefined;
     deadline?: (context: string | undefined) => number | undefined;
   },
   transport: typeof fetch = globalThis.fetch,
@@ -391,6 +393,7 @@ export function meteredFetch(
         : "/chat/completions");
   let sends = 0;
   return async (input, init) => {
+    const started = Date.now();
     let phase = "PROVIDER_REQUEST_INVALID",
       bodyHash: string | null = null;
     try {
@@ -438,7 +441,9 @@ export function meteredFetch(
           "GO_ROLE_SETTINGS_CHANGED",
         );
       phase = "EPISODE_SEND_LIMIT";
-      requireThat(++sends <= options.maxSends, "EPISODE_SEND_LIMIT");
+      const campaign = loadCampaign(options.root), policy = campaign.physical_policy;
+      const continuing = policy && completionPolicy(policy) && policy.continuation;
+      if (!continuing) requireThat(++sends <= options.maxSends, "EPISODE_SEND_LIMIT");
       const maxOutput =
         payload.max_output_tokens ??
         payload.max_completion_tokens ??
@@ -450,9 +455,7 @@ export function meteredFetch(
           maxOutput <= model.maxTokens,
         "PROVIDER_OUTPUT_CAP_MISSING",
       );
-      const campaign = loadCampaign(options.root),
-        limits = campaign.baseline_limits,
-        policy = campaign.physical_policy;
+      const limits = campaign.baseline_limits;
       requireThat(
         policy?.freeze_sha256 === options.stageFreeze &&
           policy?.providers[options.model]?.route === options.route,
@@ -547,7 +550,7 @@ export function meteredFetch(
             request_sha256: bodyHash!,
             reserved_usd: worst,
           },
-          options.maxSends,
+          continuing ? undefined : options.maxSends,
           guard,
         );
       const admit = () =>
@@ -586,6 +589,7 @@ export function meteredFetch(
               local_unreflected_usd: goAdmission.local,
             }
           : {}),
+        ...(continuing ? { model_call:options.callID?.(attribution.getStore()?.context_sha256) } : {}),
         attribution: attribution.getStore() ?? { role: "component-or-probe" },
         payload,
         at: new Date().toISOString(),
@@ -608,7 +612,7 @@ export function meteredFetch(
             Date.parse(attempts[0].at) + limits.batch,
             Date.parse(laneStart.at) + limits.lane,
           );
-          const remaining = expires - Date.now();
+          const remaining = (continuing ? active.deadline : expires) - Date.now();
           requireThat(remaining > 0, "STAGE_B_LANE_TIME");
           signal = AbortSignal.any([signal, AbortSignal.timeout(remaining)]);
         }
@@ -633,6 +637,10 @@ export function meteredFetch(
               { physical_send: false },
               0,
             );
+            if (continuing) {
+              const ctx = attribution.getStore();
+              appendRefusal(options.root, {lane:options.lane, run:options.run, role:ctx?.role, context_sha256:ctx?.context_sha256, model_call:options.callID?.(ctx?.context_sha256), deadline:options.deadline?.(ctx?.context_sha256), started, reason:"GO_REQUEST_WINDOW_EXHAUSTED", phase:"AFTER_RESERVATION_BEFORE_POST", request_sha256:bodyHash, reservation_id:id});
+            }
             throw Error("RETEST_CONFIRMED_NO_POST");
           }
         }
@@ -664,6 +672,7 @@ export function meteredFetch(
       appendJSON(path.join(options.evidence, "http.jsonl"), {
         id,
         status: response.status,
+        ...(continuing && response.headers.has("retry-after") ? { retry_at: retryTime(response.headers.get("retry-after")) } : {}),
         at: new Date().toISOString(),
       });
       if (!response.ok || !response.body) {
@@ -932,7 +941,7 @@ export function meteredFetch(
               ? {
                   route: options.route,
                   billing_basis: "opencode_go_subscription_allowance",
-                  cash_charge_usd: null,
+                  cash_charge_usd: continuing ? goMeter!.receipt.cash_debit_usd : null,
                   go_meter: goMeter!.receipt,
                 }
               : {}),
@@ -1013,6 +1022,11 @@ export function meteredFetch(
       );
     } catch (error) {
       if (phase !== "SENT_OR_RESERVED") {
+        const pol = options.stageFreeze && loadCampaign(options.root).physical_policy;
+        if (pol && completionPolicy(pol) && pol.continuation) {
+          const ctx = attribution.getStore(), reason = error instanceof Error && /^[A-Z][A-Z0-9_]{1,100}$/.test(error.message) ? error.message : phase;
+          appendRefusal(options.root, {lane:options.lane, run:options.run, role:ctx?.role, context_sha256:ctx?.context_sha256, model_call:options.callID?.(ctx?.context_sha256), deadline:options.deadline?.(ctx?.context_sha256), started, reason, phase, ...(error instanceof SenderWindowError ? {waiting_for:error.waiting_for,wait_started:error.wait_started} : {}), request_sha256:bodyHash});
+        }
         const known = [
           "CAMPAIGN_CLOSED",
           "CAMPAIGN_SOURCE_CHANGED",

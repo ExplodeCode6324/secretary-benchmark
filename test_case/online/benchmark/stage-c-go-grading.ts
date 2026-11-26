@@ -124,7 +124,7 @@ export const supplementSlots = {
   "c06-99": 4,
 } as const;
 export type SupplementNativeBinding = {
-  series: "issue122-r67-evidence-v1" | "issue122-r75-retest-v1";
+  series: "issue122-r67-evidence-v1" | "issue122-r75-retest-v1" | "issue122-r77-continuation-v1";
   series_sha256: string;
   route: keyof typeof supplementSlots;
 };
@@ -139,10 +139,11 @@ export function goReaderResponse(
     input = sha(query),
     packetSha = sha(gradeJSONBytes(packet));
   const calibrated = Array.isArray(packet.controls);
+  const continuation = supplement?.series === "issue122-r77-continuation-v1";
   if (supplement)
     requireThat(
       (supplement.series === "issue122-r67-evidence-v1" ||
-        (supplement.series === "issue122-r75-retest-v1" &&
+        ((supplement.series === "issue122-r75-retest-v1" || continuation) &&
           ["calibration", "c16-repeat1", "c12b"].includes(supplement.route))) &&
         hex(supplement.series_sha256) &&
         Object.hasOwn(supplementSlots, supplement.route) &&
@@ -244,8 +245,8 @@ export function goReaderResponse(
       Number.isSafeInteger(t.go_catalog.data.output_token_limit) &&
       t.go_catalog.data.output_token_limit >= policy.max_output_tokens &&
       isDeepStrictEqual(t.go_usage_before, d.go_usage_before) &&
-      windows(t.go_usage_before, true) &&
-      t.go_headroom?.admitted === true &&
+      windows(t.go_usage_before, !continuation) &&
+      (continuation || t.go_headroom?.admitted === true) &&
       isDeepStrictEqual(
         t.go_local_unreflected_usd,
         d.go_local_unreflected_usd,
@@ -266,12 +267,13 @@ export function goReaderResponse(
       d.created === t.created &&
       Date.parse(t.finished) >= Date.parse(t.created) &&
       typeof t.quota_stop === "boolean" &&
-      (windows(t.go_usage_after, true) || t.quota_stop) &&
+      (windows(t.go_usage_after, !continuation) || t.quota_stop ||
+        (continuation && t.go_usage_after === null && typeof t.go_usage_after_error === "string")) &&
       (![401, 402, 403, 429].includes(t.http_status) || t.quota_stop),
     "STAGE_C_GO_READER_BINDING",
   );
   const evidence_sha256 = sha(gradeJSONBytes(envelope));
-  if (t.go_billing_source === "balance") {
+  if (!continuation && t.go_billing_source === "balance") {
     requireThat(t.quota_stop === true, "STAGE_C_GO_BALANCE_BILLING_HOLD");
     return { rejected: "BALANCE_BILLING", evidence_sha256 };
   }

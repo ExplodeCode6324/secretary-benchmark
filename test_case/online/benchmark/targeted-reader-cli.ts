@@ -26,6 +26,7 @@ import {
   verifyTargetedReceipt,
   targetedRoutes,
   retestSeries,
+  continuationSeries,
   type TargetedRoute,
   type CalibrationIdentity,
   type TargetedReaderFreeze,
@@ -134,6 +135,7 @@ export function readerAction(
   digest: string,
   route: TargetedRoute,
   facility: string,
+  attempt?: string,
 ) {
   requireThat(
     targetedRoutes.includes(route) && /^[0-9a-f]{64}$/.test(digest),
@@ -149,7 +151,9 @@ export function readerAction(
     f.workload_dispatch_sha256,
   );
   requireThat(f.series === closed.series, "TARGETED_WORKLOAD_SERIES");
-  if (f.series === retestSeries) {
+  const continuation = f.series === continuationSeries;
+  requireThat(!attempt || (continuation && action === "verify"), "TARGETED_ATTEMPT_SCOPE");
+  if (f.series === retestSeries || continuation) {
     const policy = object(
       path.join(facility, "configs/stage-c-freeze.json"),
     ).targeted_supplement;
@@ -175,7 +179,7 @@ export function readerAction(
   requireThat(
     grade?.reader === goReader &&
       grade.version === goVisibilityVersion &&
-      grade.max_attempts === 1 &&
+      (continuation ? grade.max_attempts == null || grade.max_attempts === 1 : grade.max_attempts === 1) &&
       grade.packet_sha256 === f.routes.calibration.packet_sha256 &&
       grade.key_sha256 === f.key_sha256 &&
       grade.rubric_sha256 === f.rubric_sha256,
@@ -183,10 +187,18 @@ export function readerAction(
   );
   const input = (r: TargetedRoute, n: string) =>
     path.join(folder, "inputs", r, n);
-  function originals(r: TargetedRoute, origin: CalibrationIdentity | null) {
+  function attemptDirectory(r: TargetedRoute, id?: string): string {
+    const folderRoot = path.join(folder, "exchange", r);
+    if (!continuation) return folderRoot;
+    const selected = id ?? object(path.join(folderRoot, "selection.json")).attempt;
+    requireThat(typeof selected === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(selected), "TARGETED_ATTEMPT_ID");
+    return path.join(folderRoot, "attempts", selected);
+  }
+  function originals(r: TargetedRoute, origin: CalibrationIdentity | null, id?: string) {
     const p = canonical(input(r, "packet.json")),
       b = canonical(input(r, "binding.json"));
-    const ex = (n: string) => path.join(folder, "exchange", r, n);
+    const execution = attemptDirectory(r, id);
+    const ex = (n: string) => path.join(execution, n);
     const rt = bytes(ex("a-transport.json")),
       dt = bytes(ex("a-dispatch.json")),
       raw = text(ex("a-raw.txt")),
@@ -249,7 +261,11 @@ export function readerAction(
       "TARGETED_PRIVATE_KEY",
     );
   } else {
-    const cal = originals("calibration", null);
+    const priorCalibration = continuation && action === "verify"
+      ? object(path.join(attemptDirectory(route, attempt), "calibration-origin.json")).attempt
+      : undefined;
+    if (continuation && action === "verify") requireThat(typeof priorCalibration === "string", "TARGETED_CALIBRATION_ATTEMPT");
+    const cal = originals("calibration", null, priorCalibration);
     requireThat(
       cal.accepted &&
         cal.official.status === "PASSED" &&
@@ -271,7 +287,7 @@ export function readerAction(
     }
   }
   return action === "verify"
-    ? originals(route, origin)
+    ? originals(route, origin, attempt)
     : {
         stage: route === "calibration" ? "calibration" : "candidate",
         route,
@@ -288,7 +304,8 @@ if (
     const [action, ...args] = process.argv.slice(2);
     requireThat(
       action === "prepare" ||
-        (["admit", "verify"].includes(action) && args.length === 4),
+        (["admit", "verify"].includes(action) && args.length === 4) ||
+        (action === "verify-attempt" && args.length === 5),
       "TARGETED_ARGUMENTS",
     );
     process.stdout.write(
@@ -296,11 +313,12 @@ if (
         action === "prepare"
           ? prepareTargetedPacket(args)
           : readerAction(
-              action as "admit" | "verify",
+              action === "verify-attempt" ? "verify" : action as "admit" | "verify",
               args[0],
               args[1],
               args[2] as TargetedRoute,
               args[3],
+              args[4],
             ),
       ) + "\n",
     );

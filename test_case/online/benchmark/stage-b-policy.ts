@@ -90,6 +90,7 @@ export type PhysicalPolicy = {
   | {
       schema: "issue122-completion-physical-v1";
       rehearsal?: true;
+      continuation?: true;
       lanes: ScheduledLane[];
       batch_seconds: number;
     }
@@ -132,6 +133,7 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
     : stageModels;
   if (current) {
     requireThat(
+      (!policy.continuation || (policy.providers["deepseek-flash"]?.route==="opencode-go" && policy.lanes.length===2 && ["r1-C12b--deepseek-flash","r1-C16-combined--deepseek-flash"].every(id=>policy.lanes.some(l=>l.lane===id && l.repeat===1 && l.model==="deepseek-flash")))) &&
       count(policy.batch_seconds) &&
         policy.batch_seconds <= 43200 &&
         Array.isArray(policy.lanes) &&
@@ -176,6 +178,7 @@ export function validatePhysical(policy: PhysicalPolicy, allowLegacy = false) {
           ? [
               "lanes",
               "batch_seconds",
+              ...(policy.continuation === true ? ["continuation"] : []),
               ...(policy.rehearsal === true ? ["rehearsal"] : []),
             ]
           : []),
@@ -622,12 +625,13 @@ export function checkAdmission(
   );
   const remaining = forLane.length ? 1 : lane.cap;
   requireThat(
-    forLane.length < lane.cap &&
+    (current && policy.continuation || forLane.length < lane.cap) &&
       (current ||
         (forModel.length + remaining <= 640 &&
           prior.length + remaining <= 1920)),
     "STAGE_B_REQUEST_LIMIT",
   );
+  if (current && policy.continuation) return;
   const start = prior.length ? Date.parse(prior[0].at) : now;
   if (!prior.length) {
     for (const rule of Object.values(policy.providers).filter(

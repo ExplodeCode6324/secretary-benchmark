@@ -1,3 +1,4 @@
+import { continuationWorkload, isRetest } from "./stage-c-targeted-policy.ts";
 import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
 import {
   retestWorkload,
@@ -201,7 +202,7 @@ export function projectCampaign(
   requireThat(
     !inputs.rehearsal_go ||
       (inputs.evidence_class === "OFFLINE_SSE" &&
-        inputs.targeted_supplement?.series === retestWorkload.series &&
+        isRetest(inputs.targeted_supplement?.series) &&
         ["NORMAL", "INTERRUPT_C16", "EXHAUST_C16"].includes(
           inputs.rehearsal_go,
         )),
@@ -210,7 +211,7 @@ export function projectCampaign(
   const models = inputs.models;
   const rehearsal = inputs.evidence_class === "OFFLINE_SSE";
   const goRehearsal =
-    rehearsal && inputs.targeted_supplement?.series === retestWorkload.series;
+    rehearsal && isRetest(inputs.targeted_supplement?.series);
   requireThat(
     (inputs.evidence_class === undefined || rehearsal) &&
       (!inputs.rehearsal_scenario ||
@@ -579,7 +580,7 @@ export function projectCampaign(
       "TARGETED_PROJECTED_LANES",
     );
     batches.push(
-      supplement.series === retestWorkload.series
+      isRetest(supplement.series)
         ? [...lanes].sort(
             (a, b) =>
               Number(b.lane.scenario === "C12b") -
@@ -677,7 +678,7 @@ export function projectCampaign(
         }
       : {}),
     scheduled_seconds: lanes.reduce((s, l) => s + l.lane.seconds, 0),
-    maximum_physical_requests: lanes.reduce((s, l) => s + l.lane.cap, 0),
+    maximum_physical_requests: supplement?.series === continuationWorkload.series ? null : lanes.reduce((s, l) => s + l.lane.cap, 0),
     expected_usd_at_peak_rates: lanes.reduce(
       (s, l) => s + l.forecast.expected_usd,
       0,
@@ -823,6 +824,7 @@ export function loadCompletion(root: string, hash: string, approval: string) {
     validateC16Limits(frozen.batch_index, frozen.batch, projection);
   const policy: PhysicalPolicy = {
     schema: "issue122-completion-physical-v1",
+    ...(inputs.targeted_supplement?.series === continuationWorkload.series ? { continuation: true as const } : {}),
     ...(rehearsal ? { rehearsal: true as const } : {}),
     freeze_sha256: hash,
     providers: frozen.providers,

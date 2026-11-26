@@ -1,3 +1,4 @@
+import { continuationWorkload, isRetest } from "./stage-c-targeted-policy.ts";
 import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
 import fs from "node:fs";
 import path from "node:path";
@@ -19,9 +20,10 @@ function facilityPolicy(root: string): TargetedPolicy {
   return scope;
 }
 function claimSeries(account: string, freeze?: string) {
-  const file = path.join(account, retestWorkload.series + ".json");
-  if (freeze && fs.existsSync(file) && readJSON(file).freeze === freeze)
-    return retestWorkload.series;
+  for (const series of [continuationWorkload.series, retestWorkload.series]) {
+    const file = path.join(account, series + ".json");
+    if (freeze && fs.existsSync(file) && readJSON(file).freeze === freeze) return series;
+  }
   return targetedWorkload.series;
 }
 type Claim = { root: string; freeze: string; closed: boolean };
@@ -52,7 +54,7 @@ export function verifyTargetedCarry(
       sha(read(path.join(account, name))) === expected,
       "TARGETED_ACCOUNT_CARRY_CHANGED",
     );
-  if (scope.series === retestWorkload.series)
+  if (isRetest(scope.series))
     for (const [name, digest] of Object.entries(carry.parent_records))
       requireThat(
         sha(read(path.join(account, name))) === digest,

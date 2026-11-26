@@ -1,3 +1,4 @@
+import { continuationWorkload, isRetest } from "./stage-c-targeted-policy.ts";
 import { rehearsalFetch } from "./stage-c-rehearsal.ts";
 import { caseDefinition } from "./stage-c-plan.ts";
 import { elmNote } from "./stage-b-scenarios-protocol.ts";
@@ -90,8 +91,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         run.config.version === 5 &&
         run.config.case_id === "C12b" &&
         run.live.route &&
-        readJSON(path.join(run.live.facility, "configs/stage-c-freeze.json"))
-          .targeted_supplement?.series === retestWorkload.series
+        isRetest(readJSON(path.join(run.live.facility, "configs/stage-c-freeze.json")).targeted_supplement?.series)
       ) {
         const root = run.live.facility,
           freeze = run.config.freeze_sha256;
@@ -114,6 +114,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
           route: run.live.route,
           maxSends: run.config.max_sends,
           guardAdmission: faultGate?.admit,
+          callID: (hash) => app?.store.all<ModelCall>("ModelCall").find(c => c.state === "IN_FLIGHT" && c.request.sha256 === hash)?.id,
           deadline: (hash) => {
             const active = app?.store
               .all<ModelCall>("ModelCall")

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { stableID } from "../../../sut/secretary/src/pi_secretary/src/execution-utils.ts";
 import { randomUUID } from "node:crypto";
 import type {
   TaskPlan,
@@ -161,6 +162,7 @@ export async function exerciseRecovery(
   probe?: string,
   guard?: (future: string[]) => void,
   taskRecipe?: typeof nativeWriteRecipe,
+  continuing = false,
 ) {
   const file = (name: string) => path.join(old.evidence, name);
   const core = path.join(old.active, "core");
@@ -188,7 +190,8 @@ export async function exerciseRecovery(
       }
     });
   guard?.(probe ? [probe] : []);
-  const accepted = await supervise(old, async () => {
+  const saved=(name:string)=>continuing && fs.existsSync(file(name)) ? readJSON(file(name)):null;
+  const accepted = saved("stage-c-task-accepted.json") ?? await supervise(old, async () => {
     const receipt = await client.command("task-requests", {
       request_id: request,
       goal: task.goal,
@@ -198,6 +201,7 @@ export async function exerciseRecovery(
       receipt.acceptance === "ACCEPTED" && receipt.request_id === request,
       "C12B_REQUEST",
     );
+    if(continuing) writeJSON(file("stage-c-task-accepted.json"),receipt);
     return receipt;
   });
   await waitForFault(
@@ -261,12 +265,17 @@ export async function exerciseRecovery(
     "C12B_FAULT_PREREQUISITE_NOT_REACHED",
   );
   const bound: Occurrence = readJSON(file("stage-c-barrier.json"));
+  const savedRestart=saved("stage-c-restart-checkpoint.json");
+  const {fresh,restart,pre_restart_journal} = savedRestart
+    ? {fresh:old,restart:verifyRestart(savedRestart.restart,read),pre_restart_journal:savedRestart.pre_restart_journal}
+    : await (async()=> {
+  const faultProcess=old.process!;
   requireThat(
     bound.run === old.id &&
       bound.lineage === old.lineage &&
       bound.domain === old.endpoint!.data_domain_id &&
       bound.request === request &&
-      bound.pid === old.process!.pid &&
+      bound.pid === faultProcess.pid &&
       bound.expected_hash === sha(delivery.bytes),
     "C12B_BINDING",
   );
@@ -299,8 +308,12 @@ export async function exerciseRecovery(
     },
     read,
   );
+  const checkpoint={restart, pre_restart_journal:before.digest};
+  if(continuing) writeJSON(file("stage-c-restart-checkpoint.json"),checkpoint);
+  return {fresh,...checkpoint};
+  })();
   const observed = () => readJSON(file("observed.json"));
-  const verifyID = randomUUID();
+  const verifyID = continuing ? stableID(request+":verify-write") : randomUUID();
   let verify: Awaited<ReturnType<CoreClient["command"]>> | undefined;
   let unknownDigest: string | null = null;
   let reconciled = false;
@@ -310,6 +323,9 @@ export async function exerciseRecovery(
     await supervise(
       fresh,
       async () => {
+        const savedUnknown=saved("stage-c-unknown-checkpoint.json");
+        if (savedUnknown) unknownDigest=savedUnknown.digest;
+        else {
         await until(
           () =>
             observed().operations.some(
@@ -327,6 +343,8 @@ export async function exerciseRecovery(
           "C12B_UNKNOWN_HISTORY",
         );
         unknownDigest = unknown.digest;
+        if(continuing) writeJSON(file("stage-c-unknown-checkpoint.json"),{digest:unknownDigest,operation:bound.operation});
+        }
         verify = await supervise(
           fresh,
           () =>
@@ -352,7 +370,7 @@ export async function exerciseRecovery(
         );
         if (probe) {
           guard?.([]);
-          const request_id = randomUUID();
+          const request_id = continuing ? stableID(request+":probe") : randomUUID();
           const r = await supervise(
             fresh,
             () =>
@@ -432,7 +450,7 @@ export async function exerciseRecovery(
     old_exit: restart.old_exit.sha256,
     new_start: restart.new_start.sha256,
     operation: bound.operation,
-    pre_restart_journal: before.digest,
+    pre_restart_journal,
     unknown_journal: unknownDigest,
     final_journal: final.digest,
     verify_request: verifyID,

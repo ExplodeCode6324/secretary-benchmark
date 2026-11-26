@@ -1,3 +1,4 @@
+import { continuationWorkload, isRetest } from "./stage-c-targeted-policy.ts";
 import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
 import { retestWorkload, targetedWorkload } from "./stage-c-targeted-policy.ts";
 import { verifyTargetedCarry } from "./stage-c-targeted-account.ts";
@@ -156,7 +157,8 @@ function verifyPricingOriginals(
 function verifyRehearsalAccount(root: string, hash: string) {
   const account = path.join(root, "fixture-account");
   verifyTargetedCarry(account, root);
-  const name = retestWorkload.series + ".json";
+  const series = readJSON(path.join(root,"configs/stage-c-freeze.json")).targeted_supplement.series;
+  const name = series + ".json";
   const claim = readJSON(path.join(account, name));
   requireThat(
     claim.closed === true && claim.root === root && claim.freeze === hash,
@@ -168,7 +170,7 @@ function verifyRehearsalAccount(root: string, hash: string) {
     "hold.json",
     "usage-reservations",
     name,
-    retestWorkload.series + "-hold.json",
+    series + "-hold.json",
     targetedWorkload.series + ".json",
     targetedWorkload.series + "-hold.json",
     "reader-baseline.json",
@@ -248,7 +250,7 @@ function ownedStoppedRuns(d: Domains): Run[] {
         requireThat(
           f.evidence_class === "OFFLINE_SSE" &&
             policy.rehearsal === true &&
-            f.targeted_supplement?.series === retestWorkload.series,
+            isRetest(f.targeted_supplement?.series),
           "ARCHIVE_REHEARSAL_SOURCE",
         );
         verifyRehearsalAccount(d.root, policy.freeze_sha256);

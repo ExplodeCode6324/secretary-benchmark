@@ -48,7 +48,21 @@ export const retestWorkload = {
   quota_read_timeout_ms: 5000,
   response_headroom_ms: 60000,
 } as const;
-export type TargetedPolicy = typeof targetedWorkload | typeof retestWorkload;
+export const continuationWorkload = {
+  ...retestWorkload,
+  series: "issue122-r77-continuation-v1",
+  decision_sha256: "b683c5ed3f7ad4e65def42739543633ffbdb435797eb1999ca00115960d4af92",
+  workload_equivalent_cap: null,
+  reader_equivalent_cap: null,
+  proof_verifier_sha256:"c3363c93fc5da6cf1692c272d1a148d05b3722577709f3d9030df2698d43232b",
+  before_observation_sha256:"5bfd8f4e3fb6a351e2353933c32b17be7c0b4403e6551c36fa9af50b3995d0c8",
+  request_budget: null,
+  interruption_policy: "RECONCILE_AND_CONTINUE",
+  stop_policy: "CONFIRMED_SECRETARY_SYSTEM_FAILURE_ONLY",
+} as const;
+export const isRetest = (series: unknown) =>
+  series === retestWorkload.series || series === continuationWorkload.series;
+export type TargetedPolicy = typeof targetedWorkload | typeof retestWorkload | typeof continuationWorkload;
 export const targetedLanes = [
   {
     scenario: "C16-combined",
@@ -63,7 +77,7 @@ export function checkTargetedInputs(scope: TargetedPolicy, root?: string) {
   requireThat(
     isDeepStrictEqual(
       scope,
-      scope.series === retestWorkload.series
+      scope.series === continuationWorkload.series ? continuationWorkload : scope.series === retestWorkload.series
         ? retestWorkload
         : targetedWorkload,
     ),
@@ -71,12 +85,12 @@ export function checkTargetedInputs(scope: TargetedPolicy, root?: string) {
   );
   if (root) {
     const file = (name: string) => read(path.join(root, "inputs", name));
-    if (scope.series === retestWorkload.series) {
+    if ("before_observation_sha256" in scope) {
       const bytes = file("reader-before.json");
       const record = JSON.parse(bytes.toString());
       requireThat(
         sha(bytes) === scope.before_observation_sha256 &&
-          (record.facility === root || isGoRehearsal(root)) &&
+          ((scope.series===continuationWorkload.series?record.observed?.facility:record.facility) === root || isGoRehearsal(root)) &&
           record.series === scope.series &&
           record.verifier_sha256 === scope.proof_verifier_sha256,
         "RETEST_READER_BASELINE",

@@ -1,3 +1,4 @@
+import { continuationWorkload, isRetest } from "./stage-c-targeted-policy.ts";
 import {
   delivery,
   deliveryRequest,
@@ -60,9 +61,11 @@ export function targetedWorkloadResult(
   const assertions: Record<string, string> = Object.fromEntries(
     caseDefinition(scenario).assertions.map((a) => [a, "NOT_TESTED"]),
   );
-  const attempts = [...ledger(facility).entries.values()].filter(
+  const laneAttempts = [...ledger(facility).entries.values()].filter(
     (e) => e.attempt.lane === lane,
   );
+  const continuing = closure.series === continuationWorkload.series;
+  const attempts = continuing ? laneAttempts.filter(e => e.attempt.run === terminal.run) : laneAttempts;
   let gate = "OPEN",
     verdict = "UNRESOLVED",
     gaps: string[] = [],
@@ -81,8 +84,9 @@ export function targetedWorkloadResult(
     freeze_sha256: closure.freeze_sha256,
     dispatch_sha256: closure.dispatch_sha256,
     trial_sha256: terminal.report_sha256 ?? null,
-    workload_attempts: attempts.length,
-    ...(closure.series === retestWorkload.series
+    workload_attempts: laneAttempts.length,
+    ...(continuing ? {selected_attempts: attempts.length, previous_trajectories: closure.state.history?.[lane] ?? [], interruption: terminal.interruption ?? null} : {}),
+    ...(isRetest(closure.series)
       ? {
           workload_confirmed_unsent_reservations: attempts.filter(
             (e) => e.outcome === "RETEST_CONFIRMED_NO_POST",
@@ -138,7 +142,7 @@ export function targetedWorkloadResult(
         ?.response_complete === true &&
       (e.usage as { route?: string } | null)?.route === "opencode-go",
   );
-  const retest = closure.series === retestWorkload.series;
+  const retest = isRetest(closure.series);
   let boundTaskResponse = false;
   if (retest && route === "c12b" && trial.recovery_members) {
     const member = (name: string) => {

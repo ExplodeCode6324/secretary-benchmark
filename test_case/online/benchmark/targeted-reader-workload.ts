@@ -1,3 +1,4 @@
+import { continuationWorkload, isRetest } from "./stage-c-targeted-policy.ts";
 import { retestWorkload, targetedWorkload } from "./stage-c-targeted-policy.ts";
 import fs from "node:fs";
 import path from "node:path";
@@ -31,7 +32,7 @@ export function checkWorkloadClosure(
   requireThat(
     sha(frozenBytes) === freezeSha &&
       (!dispatchSha || sha(stateBytes) === dispatchSha) &&
-      [targetedWorkload.series, retestWorkload.series].includes(
+      [targetedWorkload.series, retestWorkload.series, continuationWorkload.series].includes(
         frozen.targeted_supplement?.series,
       ) &&
       Array.isArray(frozen.batch) &&
@@ -42,7 +43,7 @@ export function checkWorkloadClosure(
       ) &&
       state.freeze_sha256 === freezeSha &&
       (terminalRoute
-        ? frozen.targeted_supplement.series === retestWorkload.series &&
+        ? isRetest(frozen.targeted_supplement.series) &&
           Object.hasOwn(state.terminals, workloadLanes[terminalRoute]) &&
           state.current !== workloadLanes[terminalRoute] &&
           Object.keys(state.terminals).every((l) =>

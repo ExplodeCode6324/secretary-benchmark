@@ -531,7 +531,7 @@ export function meteredFetch(
         }
       }
       phase = "CAMPAIGN_RESERVATION_REFUSED";
-      const commitReservation = () =>
+      const commitReservation = (guard?: () => void) =>
         reserve(
           options.root,
           {
@@ -548,6 +548,7 @@ export function meteredFetch(
             reserved_usd: worst,
           },
           options.maxSends,
+          guard,
         );
       const admit = () =>
         admitGoSend(
@@ -615,10 +616,31 @@ export function meteredFetch(
           cutoff === undefined || Date.now() < cutoff,
           "STAGE_C_PROBE_CUTOFF",
         );
-        response = await transport(
-          new Request(request, { redirect: "error", signal }),
-        );
+        const outbound = new Request(request, { redirect: "error", signal });
+        if (goAdmission?.finalCheck) {
+          try {
+            goAdmission.finalCheck();
+          } catch {
+            holdGo(options.stageFreeze!, "GO_REQUEST_WINDOW_EXHAUSTED");
+            await settle(
+              options.root,
+              id,
+              "RETEST_CONFIRMED_NO_POST",
+              { physical_send: false },
+              0,
+            );
+            throw Error("RETEST_CONFIRMED_NO_POST");
+          }
+        }
+        response = await transport(outbound);
       } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === "RETEST_CONFIRMED_NO_POST" &&
+          ledger(options.root).entries.get(id)?.outcome ===
+            "RETEST_CONFIRMED_NO_POST"
+        )
+          throw error;
         if (goAdmission?.targeted)
           holdGo(options.stageFreeze!, "GO_TARGETED_TRANSPORT_UNCERTAIN");
         await settle(

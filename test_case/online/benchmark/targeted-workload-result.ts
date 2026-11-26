@@ -79,6 +79,13 @@ export function targetedWorkloadResult(
     dispatch_sha256: closure.dispatch_sha256,
     trial_sha256: terminal.report_sha256 ?? null,
     workload_attempts: attempts.length,
+    ...(closure.series === retestWorkload.series
+      ? {
+          workload_confirmed_unsent_reservations: attempts.filter(
+            (e) => e.outcome === "RETEST_CONFIRMED_NO_POST",
+          ).length,
+        }
+      : {}),
     terminal_reason:
       typeof terminal.reason === "string" &&
       /^[A-Z_0-9]{2,100}$/.test(terminal.reason)
@@ -109,7 +116,9 @@ export function targetedWorkloadResult(
       trial.run === terminal.run &&
       trial.descriptor.scenario === scenario &&
       trial.evidence_class === "LIVE" &&
-      trial.physical_provider_sends === attempts.length &&
+      trial.physical_provider_sends ===
+        attempts.filter((e) => e.outcome !== "RETEST_CONFIRMED_NO_POST")
+          .length &&
       attempts.every((e) => e.attempt.run === terminal.run),
     "TARGETED_SEALED_TRIAL",
   );

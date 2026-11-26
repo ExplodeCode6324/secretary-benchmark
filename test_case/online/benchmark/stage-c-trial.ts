@@ -132,7 +132,9 @@ export async function executeTrial(
   const sends = () =>
     live
       ? [...ledger(root).entries.values()].filter(
-          (e) => e.attempt.episode === run.lineage,
+          (e) =>
+            e.attempt.episode === run.lineage &&
+            e.outcome !== "RETEST_CONFIRMED_NO_POST",
         ).length
       : 0;
   const rehearsal =

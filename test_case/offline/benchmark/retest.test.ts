@@ -439,3 +439,50 @@ test("a verified physical write with incorrect initial bytes is recorded before 
   );
   assert.equal(fs.existsSync(path.join(dir, "stage-c-barrier.json")), false);
 });
+
+import { reserve } from "../../online/benchmark/campaign.ts";
+import { targetedAccountedAmount } from "../../online/benchmark/stage-c-targeted-account.ts";
+test("deadline refusal inside the reservation lease charges zero and leaves no reservation", async (t) => {
+  const root = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "retest-reservation-")),
+  );
+  t.after(() => fs.rmSync(root, { recursive: true }));
+  writeJSON(path.join(root, "campaign/manifest.json"), {
+    version: 1,
+    approval_id: "fixture",
+    source: fingerprint(),
+    facility: root,
+    state: "OPEN",
+    ceiling_usd: null,
+    created_at: new Date().toISOString(),
+  });
+  await assert.rejects(
+    reserve(
+      root,
+      {
+        model: "deepseek-flash",
+        run: "fixture",
+        episode: "fixture",
+        reserved_usd: 0.1,
+        request_sha256: "f".repeat(64),
+      },
+      1,
+      () => {
+        throw Error("GO_REQUEST_WINDOW_EXHAUSTED");
+      },
+    ),
+    /WINDOW_EXHAUSTED/,
+  );
+  assert.equal(ledger(root).entries.size, 0);
+  const unsent = {
+    outcome: "RETEST_CONFIRMED_NO_POST",
+    settled: true,
+    actual_usd: 0,
+    usage: { physical_send: false },
+  };
+  assert.equal(targetedAccountedAmount(unsent as any), 0);
+  assert.throws(
+    () => targetedAccountedAmount({ ...unsent, actual_usd: null } as any),
+    /UNSENT_PROOF/,
+  );
+});

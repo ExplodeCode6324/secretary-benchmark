@@ -161,7 +161,7 @@ export async function admitGoSend(
   key: string,
   worst: number,
   transport: typeof fetch,
-  admit: () => Promise<string>,
+  admit: (guard?: () => void) => Promise<string>,
   window?: RequestWindow,
 ) {
   return lease(account, async () => {
@@ -222,6 +222,7 @@ export async function admitGoSend(
       .filter((e) => !e.settled && !hasGoReservation(root, e.attempt.id))
       .reduce((n, e) => n + e.attempt.reserved_usd, 0);
     let usage;
+    let finalCheck: (() => void) | undefined;
     try {
       if (targeted) checkTargetedSend(root, freeze);
       local = localGoAmounts(
@@ -247,7 +248,18 @@ export async function admitGoSend(
         frozen &&
         JSON.parse(frozen.toString()).targeted_supplement?.series ===
           retestWorkload.series;
-      if (retest) requireThat(window, "GO_REQUEST_WINDOW_MISSING");
+      if (retest) {
+        requireThat(window, "GO_REQUEST_WINDOW_MISSING");
+        const deadline = window.deadline();
+        finalCheck = () => {
+          window.signal.throwIfAborted();
+          requireThat(
+            deadline !== undefined &&
+              deadline - Date.now() >= retestWorkload.response_headroom_ms,
+            "GO_REQUEST_WINDOW_EXHAUSTED",
+          );
+        };
+      }
       usage = retest
         ? await retestQuota(key, transport, window!)
         : await checkGoUsage(key, transport);
@@ -267,8 +279,18 @@ export async function admitGoSend(
       );
       throw e;
     }
-    const result = await admit();
+    const result = await admit(
+      finalCheck &&
+        (() => {
+          try {
+            finalCheck();
+          } catch (error) {
+            holdGo(freeze, "GO_REQUEST_WINDOW_EXHAUSTED");
+            throw error;
+          }
+        }),
+    );
     recordGoReservation(root, result, freeze, worst, usage);
-    return { result, usage, unsettled, local, targeted };
+    return { result, usage, unsettled, local, targeted, finalCheck };
   });
 }

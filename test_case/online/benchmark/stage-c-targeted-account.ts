@@ -169,6 +169,15 @@ export function targetedAccountedAmount(
       billing_source?: string | null;
     };
   } | null;
+  if (e.outcome === "RETEST_CONFIRMED_NO_POST") {
+    requireThat(
+      e.settled &&
+        e.actual_usd === 0 &&
+        (e.usage as { physical_send?: boolean })?.physical_send === false,
+      "RETEST_UNSENT_PROOF",
+    );
+    return 0;
+  }
   const meter = usage?.go_meter;
   const list = meter?.list_cost;
   requireThat(

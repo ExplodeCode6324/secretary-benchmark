@@ -567,6 +567,7 @@ export async function reserve(
   root: string,
   details: Omit<Attempt, "id" | "at" | "pid">,
   maxSends?: number,
+  beforeReservation?: () => void,
 ) {
   return locked(directory(root), async () => {
     const campaign = assertCampaignSource(root),
@@ -738,6 +739,7 @@ export async function reserve(
         current.charged_usd + details.reserved_usd <= campaign.ceiling_usd,
       "CAMPAIGN_BUDGET_EXHAUSTED",
     );
+    beforeReservation?.();
     const attempt: Attempt = {
       ...details,
       id: randomUUID(),

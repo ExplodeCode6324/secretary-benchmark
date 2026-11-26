@@ -105,9 +105,16 @@ The frozen workload ran on benchmark `a15268d`, Secretary `873b66f4` and the Go 
 | Position | Live evidence | Disposition |
 |---|---|---|
 | C12b repeat 1 | Eight HTTP responses. Exactly one write and a witnessed old-process exit. After a direct same-domain restart the operation reached UNKNOWN, verification was accepted, and reconciliation found the expected content. Both grading checks accepted the original blind response. | PASS for effects and obligation. Required live witness obtained. |
-| C16 repeat 1 | Seventy HTTP responses, 50 inputs and one maintenance cycle recorded. Secretary entered CAPACITY_BLOCKED with 85,270 input tokens against 85,196 usable. The trial ended before the final observation. | UNRESOLVED. The five assertion positions are NOT_TESTED. Repeats 2 and 3 retain their measured maintenance FAILs. The 3/3 adjudicability gate remains open at 2/3. |
+| C16 repeat 1 | Seventy HTTP responses, 50 inputs and one maintenance cycle recorded. Secretary entered CAPACITY_BLOCKED with a conservative input estimate of 85,270 tokens against 85,196 usable. The trial ended before the final observation. | UNRESOLVED. The five assertion positions are NOT_TESTED. Repeats 2 and 3 retain their measured maintenance FAILs. The 3/3 adjudicability gate remains open at 2/3. |
 
-R79 coverage is **95 PASS, 12 FAIL, 1 UNRESOLVED and 81 NOT_TESTED**. The R71 table above remains available as `effective_assertion_coverage`. C06 reader candidates 98 and 99 remain unassessed and are optional for this gate. The C16 capacity stop occurred within Secretary. This run had zero transport retries, preparation quarantines and seal/checkpoint gaps. Resumption still depends on proving an intact checkpoint. A crash during physical database preparation after cluster initialization was outside the rehearsed cases.
+R79 coverage is **95 PASS, 12 FAIL, 1 UNRESOLVED and 81 NOT_TESTED**. The R71 table above remains available as `effective_assertion_coverage`. C06 reader candidates 98 and 99 remain unassessed and are optional for this gate. The C16 capacity stop occurred within Secretary. The single UNRESOLVED assertion is historical C04-nonexistent repeat 2 (natural_access). Operator readback of the archived workload verified the C12b old-process exit and operation identity, and found zero preparation quarantines or seal/checkpoint gaps. The transport recorded zero retries. Resumption still depends on proving an intact checkpoint. A crash during physical database preparation after cluster initialization was outside the rehearsed cases.
+
+The C16 partial evidence is in the workload archive under `facility/evidence/07b0f49a-e543-4842-99cf-5ef25821ca19/`. The following member hashes allow independent verification.
+
+| Archive member | Observation | SHA-256 |
+|---|---|---|
+| `stage-c-trial.json` | 50 inputs, one maintenance cycle, planned restart unreached, SCENARIO_PRODUCT_BLOCKED | `0c7caf8cf003f36b804936289fdd33a924359fbdd966d440adba66a770e9cf43` |
+| `observed.json` | Secretary recovery reported CAPACITY_BLOCKED with estimated input 85,270, usable 85,196 and output reserve 4,096 | `103578e11f2fa7b2706d3da9dc94ade1de77008cf7be010609e0ddd874d23c19` |
 
 The workload forecast was 265 requests and US$1.26174210 list-equivalent. Actuals were 78 HTTP responses, 902,917 input and 41,939 output tokens, US$0.15657433 list-equivalent and US$0 reported cash. The reader forecast was US$0.28508160 equivalent. Calibration and the C12b candidate used two calls, 10,803 input and 47,413 output tokens, US$0.03006825 equivalent and US$0 reported cash. Calibration matched 28 controls and supplied the basis for the C12b grade. All 80 requests have usage receipts. Historical uncertain request 97 remains separately recorded.
 

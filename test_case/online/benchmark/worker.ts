@@ -260,13 +260,15 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
                     mode:
                       rehearsalInputs.rehearsal_go === "CONTINUATION_CONTROLS"
                         ? "CONTROLS"
-                        : goMode === "INTERRUPT_C16" &&
-                            (!continuationFixture || firstIncarnation)
-                          ? "INTERRUPT"
-                          : run.config.version === 5 &&
-                              run.config.case_id === "C12b"
-                            ? "TRANSIENT"
-                            : "NORMAL",
+                        : goMode === "IDENTITY_C16"
+                          ? "IDENTITY"
+                          : goMode === "INTERRUPT_C16" &&
+                              (!continuationFixture || firstIncarnation)
+                            ? "INTERRUPT"
+                            : run.config.version === 5 &&
+                                run.config.case_id === "C12b"
+                              ? "TRANSIENT"
+                              : "NORMAL",
                   }
                 : undefined,
             )

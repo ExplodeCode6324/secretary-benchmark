@@ -90,6 +90,14 @@ export function targetedWorkloadResult(
     ...(continuing
       ? {
           selected_attempts: attempts.length,
+          identity_changes: attempts
+            .filter((e) => /IDENTITY|VERSION_TRANSITION/.test(e.outcome ?? ""))
+            .map((e) => ({
+              id: e.attempt.id,
+              at: e.attempt.at,
+              outcome: e.outcome,
+              returned_model: e.returned_model ?? null,
+            })),
           previous_trajectories: closure.state.history?.[lane] ?? [],
           interruption: terminal.interruption ?? null,
         }
@@ -328,7 +336,18 @@ export function targetedWorkloadResult(
     if (!src || !semanticGrades || grade?.maintenance_evidence_inconclusive)
       assertions.maintenance_current = "UNRESOLVED";
     assertions.use_current = closed.use;
+    if (obs.extra_restarts?.some((restart: any) => restart.critical)) {
+      gate = "OPEN";
+      for (const assertion of ["maintenance_current", "use_current"])
+        if (assertions[assertion] !== "FAIL")
+          assertions[assertion] = "UNRESOLVED";
+      verdict = Object.values(assertions).includes("FAIL")
+        ? "FAIL"
+        : "UNRESOLVED";
+      gaps.push("EXTRA_RESTART_IN_CONTINUITY_WINDOW");
+    }
     mechanical = {
+      ...(continuing ? { extra_restarts: obs.extra_restarts ?? [] } : {}),
       retention: closed.retention,
       use: closed.use,
       visibility: closed.branch,

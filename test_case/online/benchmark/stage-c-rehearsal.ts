@@ -22,7 +22,7 @@ export function rehearsalFetch(
   go?: {
     evidence?: string;
     streamControl?: () => Promise<void>;
-    mode: "NORMAL" | "TRANSIENT" | "INTERRUPT" | "CONTROLS";
+    mode: "NORMAL" | "TRANSIENT" | "INTERRUPT" | "CONTROLS" | "IDENTITY";
   },
 ): typeof fetch {
   let reads = 0;
@@ -272,6 +272,26 @@ export function rehearsalFetch(
         },
       },
     ];
+    // The change occurs in the usage frame after an apparently valid tool frame.
+    if (go?.mode === "IDENTITY" && go.evidence) {
+      const checkpoint = path.join(
+        go.evidence,
+        "stage-c-timeline-checkpoint.json",
+      );
+      const injected = path.join(
+        go.evidence,
+        "offline-identity-transition.json",
+      );
+      if (
+        fs.existsSync(checkpoint) &&
+        JSON.parse(fs.readFileSync(checkpoint, "utf8")).trail?.cycles
+          ?.length === 1 &&
+        !fs.existsSync(injected)
+      ) {
+        frames[frames.length - 1].model = "different-fixture-model";
+        writeJSON(injected, { id: common.id });
+      }
+    }
     const bytes =
       frames.map((f) => "data: " + JSON.stringify(f) + "\n\n").join("") +
       "data: [DONE]\n\n";

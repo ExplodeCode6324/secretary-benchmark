@@ -1039,6 +1039,35 @@ export function meteredFetch(
           () => commitSettlement(cancelling ? "CANCELLED_UNCERTAIN" : outcome),
           () => commitSettlement("STREAM_UNCERTAIN"),
         ));
+      // Validate the complete identity trail before exposing any content to Secretary.
+      // A later SSE frame may contradict the first one.
+      if (continuing) {
+        const chunks: Uint8Array<ArrayBuffer>[] = [];
+        try {
+          for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            await observe(chunk.value);
+            chunks.push(new Uint8Array(chunk.value));
+          }
+          await finish("RESPONSE_COMPLETE");
+        } catch (error) {
+          await reader.cancel().catch(() => {});
+          await finish("STREAM_UNCERTAIN");
+          throw safeTransportError(error);
+        }
+        const entry = ledger(options.root).entries.get(id)!;
+        requireThat(
+          entry.outcome === "RESPONSE_COMPLETE" &&
+            (entry.usage as { identity_status?: string })?.identity_status ===
+              "MATCH",
+          "GO_RESPONSE_QUARANTINED",
+        );
+        return new Response(new Blob(chunks), {
+          status: response.status,
+          headers: response.headers,
+        });
+      }
       return new Response(
         new ReadableStream<Uint8Array>({
           async pull(controller) {

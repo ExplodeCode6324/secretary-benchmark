@@ -42,3 +42,42 @@ jobs:
           echo "$(brew --prefix postgresql@18)/bin" >> "$GITHUB_PATH"
       - run: npm ci
       - run: npm run verify
+
+  continuation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [CONTINUATION_CONTROLS, EXHAUST_C16, IDENTITY_C16, SYSTEM_C16, CONTROLLER_CRASH]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.x'
+      - name: PostgreSQL 18 tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get update
+          sudo apt-get install -y postgresql-18
+          echo '/usr/lib/postgresql/18/bin' >> "$GITHUB_PATH"
+      - run: npm ci
+      - name: Run public PG18 continuation fixtures
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          if [ "$MODE" = CONTROLLER_CRASH ]; then
+            python3 scripts/rehearse-issue122-continuation.py --checkout . --mode NORMAL --crash-after-unknown
+          else
+            python3 scripts/rehearse-issue122-continuation.py --checkout . --mode "$MODE"
+          fi

@@ -3,6 +3,8 @@ import { checkGoUsage } from "./stage-c-go-provider.ts";
 import { rehearsalFetch, rehearsalKey } from "./stage-c-rehearsal.ts";
 import {
   confirmedSystemFailure,
+  boundModelBlock,
+  resumableLaneFailure,
   externalInterruption,
   nextDispatchTime,
   providerRetryAt,
@@ -28,7 +30,14 @@ import { executeTrial } from "./stage-c-trial.ts";
 import { checkAdmission } from "./stage-b-policy.ts";
 import { firstLaneFailure } from "./stage-b-dispatch.ts";
 import { checkPublication } from "./stage-b-freeze.ts";
-import { readJSON, writeJSON, requireThat, sha, read } from "./io.ts";
+import {
+  appendJSON,
+  readJSON,
+  writeJSON,
+  requireThat,
+  sha,
+  read,
+} from "./io.ts";
 
 type Terminal = {
   status: "COMPLETED" | "INCOMPLETE" | "UNRUN";
@@ -283,8 +292,9 @@ export async function completionCommand(
             hold = "GO_PROVIDER_RETRY_AFTER";
           if (hold) {
             if (continuing) {
-              (state.history![l.lane] ??= []).push({
-                status: "INCOMPLETE",
+              appendJSON(path.join(root, "campaign", "facility-waits.jsonl"), {
+                lane: l.lane,
+                at: new Date().toISOString(),
                 reason: hold,
                 run: pending?.run,
               });
@@ -369,9 +379,10 @@ export async function completionCommand(
               reason,
               retry_at: Date.now() + 30000,
             };
-            (state.history![l.lane] ??= []).push({
+            appendJSON(path.join(root, "campaign", "facility-waits.jsonl"), {
+              lane: l.lane,
+              at: new Date().toISOString(),
               run: pending?.run,
-              status: "INCOMPLETE",
               reason,
             });
             state.current = null;
@@ -461,20 +472,29 @@ export async function completionCommand(
                   path.join(root, "campaign", "secretary-system-failure.json"),
                   { ...system, freeze_sha256: hash, lane: l.lane },
                 );
-                for (const next of batch)
-                  state.terminals[next.lane.lane] ??= {
-                    status: "UNRUN",
-                    reason: terminal.reason,
-                  };
+                for (const next of batch) {
+                  const lane = next.lane.lane;
+                  const prior = state.pending?.[lane];
+                  const file =
+                    prior?.run &&
+                    path.join(d.load(prior.run).evidence, "stage-c-trial.json");
+                  state.terminals[lane] ??= prior?.run
+                    ? {
+                        status: "INCOMPLETE",
+                        run: prior.run,
+                        reason: prior.reason,
+                        ...(file && fs.existsSync(file)
+                          ? { report_sha256: sha(read(file)) }
+                          : {}),
+                      }
+                    : { status: "UNRUN", reason: terminal.reason };
+                }
                 state.pending = {};
               } else if (
                 terminal.status === "INCOMPLETE" &&
-                (facility ||
-                  /RECOVERY_BLOCKED|SCENARIO_PRODUCT_BLOCKED|PG_|PROCESS_|EAGAIN|ENOSPC|ECONN|FETCH_FAILED|SUPERVISOR_STOP_UNCONFIRMED/.test(
-                    terminal.reason ?? "",
-                  )) &&
-                !/C12B_WRONG_BYTES|C12B_WRONG_PATH|C12B_SHELL_REQUESTED|C12B_CAPABILITY_EXCLUDED/.test(
+                resumableLaneFailure(
                   terminal.reason ?? "",
+                  Boolean(boundModelBlock(root, r)),
                 )
               ) {
                 const original = terminal.reason ?? "TRIAL_FAILED";

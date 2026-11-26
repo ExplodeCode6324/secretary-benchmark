@@ -89,7 +89,8 @@ export type Preflight = {
     | "INTERRUPT_C16"
     | "EXHAUST_C16"
     | "CONTINUATION_CONTROLS"
-    | "SYSTEM_C16";
+    | "SYSTEM_C16"
+    | "IDENTITY_C16";
   rehearsal_read?: "ORIGINAL_OFFSET" | "OTHER_EVENT";
   rehearsal_scenario?: "C16-combined" | "C06-stale-cold" | "C12b";
   models: StageModel[];
@@ -213,7 +214,7 @@ export function projectCampaign(
           "INTERRUPT_C16",
           "EXHAUST_C16",
           ...(inputs.targeted_supplement?.series === continuationWorkload.series
-            ? ["CONTINUATION_CONTROLS", "SYSTEM_C16"]
+            ? ["CONTINUATION_CONTROLS", "SYSTEM_C16", "IDENTITY_C16"]
             : []),
         ].includes(inputs.rehearsal_go)),
     "RETEST_REHEARSAL_MODE",
@@ -273,7 +274,7 @@ export function projectCampaign(
           "INTERRUPT_C16",
           "EXHAUST_C16",
           ...(inputs.targeted_supplement?.series === continuationWorkload.series
-            ? ["CONTINUATION_CONTROLS", "SYSTEM_C16"]
+            ? ["CONTINUATION_CONTROLS", "SYSTEM_C16", "IDENTITY_C16"]
             : []),
         ].includes(inputs.rehearsal_go ?? "") && !inputs.rehearsal_scenario
       : inputs.rehearsal_go === undefined,

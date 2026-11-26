@@ -98,7 +98,8 @@ export function nextDispatchTime(run: Run, now = Date.now()) {
     ),
   );
 }
-export async function resumeModelBlock(root: string, run: Run) {
+export function boundModelBlock(root: string, run: Run) {
+  if (!fs.existsSync(path.join(run.evidence, "observed.json"))) return;
   const observed = readJSON(path.join(run.evidence, "observed.json"));
   const session = observed.sessions.find(
     (s: any) => s.id === observed.session_id && s.state === "RECOVERY_BLOCKED",
@@ -136,6 +137,26 @@ export async function resumeModelBlock(root: string, run: Run) {
     );
   });
   if (!refused && !sent) return;
+  return { session, call };
+}
+export function resumableLaneFailure(reason: string, bound: boolean) {
+  if (
+    /^(?:Error: )?(?:ENOSPC|EAGAIN|ECONNRESET|ECONNREFUSED)(?:$|:| )/.test(
+      reason,
+    )
+  )
+    return true;
+  return (
+    bound &&
+    /^(SCENARIO_PRODUCT_BLOCKED|RECOVERY_BLOCKED|C12B_SUPERVISOR_TIMEOUT|C12B_FAULT_PREREQUISITE_NOT_REACHED|WAIT_TIMEOUT)$/.test(
+      reason,
+    )
+  );
+}
+export async function resumeModelBlock(root: string, run: Run) {
+  const match = boundModelBlock(root, run);
+  if (!match) return;
+  const { session, call } = match;
   const request_id = stableID(
     [run.id, "session/resume", session.id, session.revision].join(":"),
   );

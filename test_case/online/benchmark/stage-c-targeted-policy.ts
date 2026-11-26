@@ -52,7 +52,7 @@ export const continuationWorkload = {
   ...retestWorkload,
   series: "issue122-r77-continuation-v1",
   decision_sha256:
-    "b683c5ed3f7ad4e65def42739543633ffbdb435797eb1999ca00115960d4af92",
+    "4d91dfed5e67adefab65d28d7697c2e46e2eb02ea17dae20ed7688ecb12f177d",
   reader_operator_release_sha256:
     "d5b08a410acea24718a8be79bf744f67327d2200003985ee8ab1084a8d53be9e",
   reader_native_sha256:
@@ -97,6 +97,21 @@ export function checkTargetedInputs(scope: TargetedPolicy, root?: string) {
   );
   if (root) {
     const file = (name: string) => read(path.join(root, "inputs", name));
+    // The synthetic account has no live parent or credentials. Only an isolated
+    // rehearsal root accepts its fixed record, alongside both explicit mock inputs.
+    if (
+      scope.series === continuationWorkload.series &&
+      isGoRehearsal(root) &&
+      sha(file("targeted-carry.json")) ===
+        "03dcd0c9503dd0b606aa84c10b76d729db27cf9fdbaeeb8a5af89b7061696948"
+    ) {
+      for (const name of ["reader-before.json", "targeted-decisions.json"])
+        requireThat(
+          file(name).toString() === "PUBLIC_OFFLINE_FIXTURE\n",
+          "RETEST_PUBLIC_FIXTURE",
+        );
+      return;
+    }
     if ("before_observation_sha256" in scope) {
       const bytes = file("reader-before.json");
       const record = JSON.parse(bytes.toString());

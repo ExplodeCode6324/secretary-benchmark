@@ -12,6 +12,7 @@ import {
   requireThat,
   read,
   writeJSON,
+  appendJSON,
   readJSON,
   deploymentGuard,
   repository,
@@ -261,6 +262,13 @@ export async function executeTrial(
         physical: proof,
         witness,
         c16,
+        ...(continuing && scenario === "C16-combined"
+          ? {
+              extra_restarts: lines(
+                path.join(r.evidence, "stage-c-extra-restarts.jsonl"),
+              ),
+            }
+          : {}),
         ...(targetedCapture ? { targeted_capture: targetedCapture } : {}),
       };
     }
@@ -357,6 +365,25 @@ export async function executeTrial(
             ? run.endpoint?.data_domain_id
             : undefined,
         );
+    if (continuing && id === "C16-combined" && run.endpoint) {
+      const file = path.join(run.evidence, "stage-c-timeline-checkpoint.json");
+      const checkpoint = fs.existsSync(file) ? readJSON(file) : null;
+      const step = checkpoint?.step ?? 0;
+      const firstMaintenance = descriptor.steps.findIndex(
+        (s) => s.action === "UNRELATED_ACTIVITY",
+      );
+      appendJSON(path.join(run.evidence, "stage-c-extra-restarts.jsonl"), {
+        step,
+        next_action: descriptor.steps[step]?.action ?? null,
+        maintenance_commits:
+          checkpoint?.trail?.cycles?.map((c: any) => c.job) ?? [],
+        planned_restart_completed: !!checkpoint?.trail?.restart,
+        critical:
+          firstMaintenance >= 0 &&
+          step >= firstMaintenance &&
+          step <= descriptor.steps.length,
+      });
+    }
     if (continuing && !priorFault) await resumeModelBlock(root, active);
     const host = secretaryHost(d, active, "stage-c-trail.json");
     if (id === "C16-combined" && continuing) {

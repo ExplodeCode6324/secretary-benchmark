@@ -184,8 +184,36 @@ test(
     assert.equal(report.rows.length, 5);
     const combined = assertCombinedRehearsal(root, hash, report);
     assert.equal(combined.dispositions.INCOMPLETE, 1);
-    assert.equal(combined.unpriced_reservation_usd, reserved);
-    const interrupted = ledger(root).entries.get(orphan)!;
+    const entries = ledger(root).entries;
+    // Official Flash may return a price range during the weekday peak. The
+    // synthetic stream has no supplier charge that could resolve that range.
+    let expectedUnpriced = reserved;
+    for (const [id, e] of entries) {
+      if (id === orphan) continue;
+      assert.equal(e.outcome, "RESPONSE_COMPLETE");
+      const tariff = (
+        e.usage as {
+          scheduled_cost_usd: {
+            minimum: number;
+            maximum: number;
+            exact: number | null;
+          };
+        }
+      ).scheduled_cost_usd;
+      assert(tariff.minimum > 0 && tariff.maximum >= tariff.minimum);
+      if (tariff.minimum < tariff.maximum) {
+        assert.equal(tariff.exact, null);
+        assert.equal(e.actual_usd, null);
+        expectedUnpriced += e.attempt.reserved_usd;
+      } else {
+        assert.equal(tariff.exact, tariff.minimum);
+        assert.equal(e.actual_usd, tariff.exact);
+      }
+    }
+    assert(
+      Math.abs(combined.unpriced_reservation_usd - expectedUnpriced) < 1e-10,
+    );
+    const interrupted = entries.get(orphan)!;
     assert.equal(interrupted.outcome, "INTERRUPTED_IN_FLIGHT");
     assert.equal(interrupted.charged_usd, reserved);
     assert(report.rows.some((r: any) => r.spans_observed_identity_strata));

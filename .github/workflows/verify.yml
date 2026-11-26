@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [CONTINUATION_CONTROLS, EXHAUST_C16, IDENTITY_C16, SYSTEM_C16, CONTROLLER_CRASH]
+        mode: [CONTINUATION_CONTROLS, EXHAUST_C16, IDENTITY_C16, SYSTEM_C16, CONTROLLER_CRASH, TRANSIENT_PG]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:

@@ -61,12 +61,17 @@ test("only the failed call and matching context authorize a product resume", (t)
     "C12B_FINISHED_WITHOUT_WRITE",
     "C12B_PREFAULT_CONTENT_MISMATCH",
     "CAPACITY_BLOCKED",
+    "PG_OWNERSHIP_MISMATCH",
+    "PROCESS_WITNESS_UNCONFIRMED",
+    "PG_COMMAND_FAILED_pg_ctl",
   ])
     assert.equal(resumableLaneFailure(reason, true), false);
   session.state = "CAPACITY_BLOCKED";
   writeJSON(observation, observed);
   assert.equal(boundModelBlock(root, run), undefined);
   assert.equal(resumableLaneFailure("ENOSPC: disk full", false), true);
+  assert.equal(resumableLaneFailure("PG_TRANSIENT_57P03", false), true);
+  assert.equal(resumableLaneFailure("spawn /usr/bin/node EAGAIN", false), true);
   const backoff = path.join(root, "campaign", "provider-backoff.jsonl");
   appendJSON(backoff, { retry_at: retryTime("60", 1000) });
   appendJSON(backoff, { retry_at: retryTime("1", 2000) });

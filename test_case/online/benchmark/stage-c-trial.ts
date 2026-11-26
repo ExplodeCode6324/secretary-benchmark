@@ -1,3 +1,5 @@
+import { query } from "./postgres.ts";
+import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
 import { resumeModelBlock } from "./stage-c-continuation.ts";
 import { continuationWorkload, isRetest } from "./stage-c-targeted-policy.ts";
 import { trialWitness, c16Disposition } from "./stage-c-observations.ts";
@@ -350,6 +352,23 @@ export async function executeTrial(
     if (!live) initializeGuard(root, run.lineage);
     activate(run);
     setFutureInputs(root, run.lineage, visibleInputs(descriptor.steps));
+    if (
+      rehearsal &&
+      continuing &&
+      id === "C12b" &&
+      isGoRehearsal(root) &&
+      readJSON(path.join(root, "inputs/stage-c-preflight.json"))
+        .rehearsal_go === "TRANSIENT_PG"
+    ) {
+      const injected = path.join(run.evidence, "offline-pg-sqlstate.json");
+      if (!fs.existsSync(injected)) {
+        writeJSON(injected, { run: run.id, sqlstate: "57P03" });
+        await query(
+          run.database,
+          "DO $$ BEGIN RAISE EXCEPTION 'offline PG temporarily unavailable' USING ERRCODE = '57P03'; END $$",
+        );
+      }
+    }
     const priorFault =
       continuing &&
       id === "C12b" &&

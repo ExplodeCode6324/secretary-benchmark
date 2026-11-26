@@ -208,13 +208,13 @@ export function boundModelBlock(root: string, run: Run) {
   if (!refused && !externalOutcome(last?.outcome)) return;
   return { session, call };
 }
+export function transientFacilityFailure(reason: string) {
+  return /^(?:Error: )?(?:(?:ENOSPC|ENOMEM|EAGAIN|ECONNRESET|ECONNREFUSED|ETIMEDOUT)(?:$|:| )|(?:spawn(?:Sync)? [^:\n]+ )(?:EAGAIN|ENOMEM)$|PG_TRANSIENT_(?:EAGAIN|ENOMEM|ENOSPC|ECONNREFUSED|ECONNRESET|ETIMEDOUT|53300|57P03)$)/.test(
+    reason,
+  );
+}
 export function resumableLaneFailure(reason: string, bound: boolean) {
-  if (
-    /^(?:Error: )?(?:ENOSPC|EAGAIN|ECONNRESET|ECONNREFUSED)(?:$|:| )/.test(
-      reason,
-    )
-  )
-    return true;
+  if (transientFacilityFailure(reason)) return true;
   return (
     bound &&
     /^(SCENARIO_PRODUCT_BLOCKED|RECOVERY_BLOCKED|C12B_SUPERVISOR_TIMEOUT|C12B_FAULT_PREREQUISITE_NOT_REACHED|WAIT_TIMEOUT)$/.test(

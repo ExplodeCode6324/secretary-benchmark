@@ -5,6 +5,7 @@ import {
   confirmedSystemFailure,
   identitySequence,
   boundModelBlock,
+  transientFacilityFailure,
   resumableLaneFailure,
   externalInterruption,
   nextDispatchTime,
@@ -54,7 +55,10 @@ type State = {
   ended: boolean;
   terminals: Record<string, Terminal>;
   history?: Record<string, Terminal[]>;
-  pending?: Record<string, { run?: string; reason: string; retry_at: number }>;
+  pending?: Record<
+    string,
+    { run?: string; reason: string; retry_at: number; checkpoint?: string }
+  >;
   probes: Record<string, never>;
   repairs: Record<string, never>;
   current: string | null;
@@ -313,6 +317,7 @@ export async function completionCommand(
                 run: pending?.run,
               });
               state.pending![l.lane] = {
+                ...pending,
                 reason: hold,
                 retry_at: Math.max(Date.now() + 30000, providerRetryAt(root)),
                 run: pending?.run,
@@ -384,11 +389,29 @@ export async function completionCommand(
                     lane: l.lane,
                     freeze_sha256: hash,
                   });
+            if (pending?.checkpoint) {
+              requireThat(
+                d.continuationCheckpoint(r.id) === pending.checkpoint,
+                "CONTINUATION_CHECKPOINT_CHANGED",
+              );
+            }
           } catch (error) {
             if (!continuing) throw error;
             const reason =
               error instanceof Error ? error.message : "DOMAIN_CREATE_FAILED";
+            if (!transientFacilityFailure(reason)) {
+              state.terminals[l.lane] = {
+                status: pending?.run ? "INCOMPLETE" : "UNRUN",
+                run: pending?.run,
+                reason,
+              };
+              delete state.pending![l.lane];
+              state.current = null;
+              writeJSON(stateFile, state);
+              continue;
+            }
             state.pending![l.lane] = {
+              ...pending,
               run: pending?.run,
               reason,
               retry_at: Date.now() + 30000,
@@ -527,16 +550,28 @@ export async function completionCommand(
                     path.join(root, "campaign", sha(bytes) + ".json"),
                   );
                 }
-                state.pending![l.lane] = {
-                  run: r.id,
-                  reason: facility?.reason ?? original,
-                  retry_at: Math.max(
-                    nextDispatchTime(r),
-                    Date.now() +
-                      Math.min(60000, 1000 * state.history![l.lane].length),
-                  ),
-                };
-                delete state.terminals[l.lane];
+                try {
+                  const checkpoint = transientFacilityFailure(original)
+                    ? d.continuationCheckpoint(r.id)
+                    : undefined;
+                  state.pending![l.lane] = {
+                    run: r.id,
+                    checkpoint,
+                    reason: original,
+                    retry_at: Math.max(
+                      nextDispatchTime(r),
+                      Date.now() +
+                        Math.min(60000, 1000 * state.history![l.lane].length),
+                    ),
+                  };
+                  delete state.terminals[l.lane];
+                } catch (error) {
+                  terminal.reason =
+                    error instanceof Error
+                      ? error.message
+                      : "CONTINUATION_CHECKPOINT_UNVERIFIED";
+                  delete state.pending![l.lane];
+                }
               } else delete state.pending![l.lane];
             }
             writeJSON(activeFile, { ...active, state: "CLOSED" });

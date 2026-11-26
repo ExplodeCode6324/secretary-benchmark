@@ -896,6 +896,41 @@ export class Domains {
     });
     return run;
   }
+  continuationCheckpoint(id: string) {
+    const run = this.load(id);
+    requireThat(
+      run.state === "STOPPED" &&
+        (!run.process || processStatus(run.process) === "STOPPED"),
+      "CONTINUATION_WORKER_NOT_STOPPED",
+    );
+    requireThat(
+      run.database.systemID &&
+        controlID(run.database) === run.database.systemID &&
+        !pgRunning(run.database),
+      "CONTINUATION_PG_OWNERSHIP_OR_STATE",
+    );
+    const sealFile = path.join(run.evidence, "seal.json"),
+      seal = readJSON(sealFile);
+    requireThat(
+      seal.id === id &&
+        seal.nonce === run.nonce &&
+        JSON.stringify(seal.files) ===
+          JSON.stringify(inventory(run.evidence, new Set(["seal.json"]))) &&
+        JSON.stringify(
+          readJSON(path.join(run.evidence, "domain-files.json")),
+        ) === JSON.stringify(inventory(run.active)),
+      "CONTINUATION_UNVERIFIED_SEAL",
+    );
+    return sha(
+      JSON.stringify([
+        id,
+        run.lineage,
+        run.database.systemID,
+        sha(read(sealFile)),
+        inventory(run.database.directory),
+      ]),
+    );
+  }
   async clean(id: string) {
     assertCampaignClosed(this.root);
     const run = this.load(id);

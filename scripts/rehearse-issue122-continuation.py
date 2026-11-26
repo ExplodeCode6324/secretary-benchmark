@@ -15,7 +15,7 @@ parser.add_argument("--checkout", type=Path, required=True)
 parser.add_argument("--inputs", type=Path)
 parser.add_argument("--carry-source", type=Path)
 parser.add_argument("--crash-after-unknown", action="store_true")
-parser.add_argument("--mode", choices=["NORMAL", "CONTINUATION_CONTROLS", "EXHAUST_C16", "INTERRUPT_C16", "SYSTEM_C16", "IDENTITY_C16"], required=True)
+parser.add_argument("--mode", choices=["NORMAL", "CONTINUATION_CONTROLS", "EXHAUST_C16", "INTERRUPT_C16", "SYSTEM_C16", "IDENTITY_C16", "TRANSIENT_PG"], required=True)
 args = parser.parse_args()
 os.umask(0o077)
 checkout = args.checkout.resolve(strict=True)
@@ -99,6 +99,8 @@ for lane, row in state["terminals"].items():
     if "C12b" in lane:
         result=json.loads((evidence/"stage-c-recovery-receipt.json").read_bytes())["result"]
         assert result["physical_writes"]==1 and result["unknown_journal"] and result["reconciled"]
+        if args.mode=="TRANSIENT_PG":
+            assert any(i["reason"]=="PG_TRANSIENT_57P03" and i["run"]==row["run"] for i in state["history"][lane])
         if args.crash_after_unknown:
             assert any(i["reason"]=="INTERRUPTED_TRAJECTORY" and i["run"]==row["run"] for i in state["history"][lane])
     else:

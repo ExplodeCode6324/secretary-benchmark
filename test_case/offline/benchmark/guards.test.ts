@@ -235,7 +235,17 @@ test(
         await stopDatabase(r.database);
         await assert.rejects(() => d.clean(r.id), /ENOENT/);
         await d.seal(r.id);
+        const checkpoint = d.continuationCheckpoint(r.id);
+        assert.equal(d.continuationCheckpoint(r.id), checkpoint);
+        const changed = path.join(r.database.directory, "fixture-drift");
+        fs.writeFileSync(changed, "fixture");
+        assert.notEqual(d.continuationCheckpoint(r.id), checkpoint);
+        fs.unlinkSync(changed);
         fs.writeFileSync(path.join(r.evidence, "late-evidence"), "preserve");
+        assert.throws(
+          () => d.continuationCheckpoint(r.id),
+          /CONTINUATION_UNVERIFIED_SEAL/,
+        );
         await assert.rejects(() => d.clean(r.id), /EVIDENCE_NOT_SEALED/);
         assert(fs.existsSync(r.active));
         await d.seal(r.id);

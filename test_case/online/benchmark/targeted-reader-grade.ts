@@ -45,7 +45,8 @@ export type RouteFreeze = {
   binding_sha256: string;
 };
 export interface TargetedReaderFreeze {
-  series: typeof targetedSeries | typeof retestSeries | typeof continuationSeries;
+  series:
+    typeof targetedSeries | typeof retestSeries | typeof continuationSeries;
   rubric_sha256: string;
   key_sha256: string;
   workload_freeze_sha256: string;
@@ -67,7 +68,9 @@ export interface TargetedReaderFreeze {
 }
 export function validateTargetedFreeze(f: TargetedReaderFreeze) {
   requireThat(
-    (f.series === targetedSeries || f.series === retestSeries || f.series === continuationSeries) &&
+    (f.series === targetedSeries ||
+      f.series === retestSeries ||
+      f.series === continuationSeries) &&
       hex(f.key_sha256) &&
       f.rubric_sha256 ===
         sha(gradeJSONBytes(scoringRubric(goReader, goVisibilityVersion))),
@@ -379,7 +382,8 @@ export function verifyTargetedReceipt(
       (typeof cash === "number" && Number.isFinite(cash) && cash >= 0),
     "TARGETED_PROVIDER_CASH",
   );
-  const badPayer = f.series !== continuationSeries && (unauthorized || (cash ?? 0) > 0);
+  const badPayer =
+    f.series !== continuationSeries && (unauthorized || (cash ?? 0) > 0);
   if (badPayer)
     requireThat(t.quota_stop === true, "TARGETED_BILLING_HOLD_MISSING");
   const supplemental = badPayer

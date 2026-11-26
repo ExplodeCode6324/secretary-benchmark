@@ -31,25 +31,25 @@ const multiplier = [
   },
 ];
 
-export function goModelRule(model: any, checked: string): ProviderRule {
+export function goModelRule(model: any, checked: string, continuing=false): ProviderRule {
   requireThat(
     model?.id === goModel &&
       model.canonical_id === goCanonicalModel &&
       model.name === goVersion &&
       model.api?.["chat-completions"]?.base_url === goAPI &&
-      model.go?.monthly_usage?.go === 100 &&
+      (continuing || (model.go?.monthly_usage?.go === 100 &&
       model.go?.monthly_usage?.["go-plus"] === 200 &&
-      model.go?.monthly_usage?.["go-teams"] === 105 &&
+      model.go?.monthly_usage?.["go-teams"] === 105)) &&
       model.go.training === false &&
       model.go.zdr === true &&
       model.capabilities?.tools?.supported === true &&
       model.capabilities?.reasoning?.effort?.includes("max") &&
       model.limit?.context === 1_000_000 &&
       model.limit?.output === 384_000 &&
-      model.cost?.text?.input?.price === 0.15 &&
+      (continuing || (model.cost?.text?.input?.price === 0.15 &&
       model.cost.text.input.cache?.read === 0.003 &&
       model.cost.text.output?.price === 0.6 &&
-      isDeepStrictEqual(model.cost.multipliers, multiplier),
+      isDeepStrictEqual(model.cost.multipliers, multiplier))),
     "STAGE_C_GO_MODEL_OR_PRICE_CHANGED",
   );
   const source = {
@@ -93,6 +93,7 @@ export function goCredential() {
 export async function checkGoProvider(
   rule: ProviderRule,
   transport: typeof fetch = fetch,
+  continuing = false,
 ) {
   const read = async (url: string) => {
     const r = await transport(url, {
@@ -113,16 +114,16 @@ export async function checkGoProvider(
   const models = catalogue.data?.filter((m: any) => m.id === goModel);
   requireThat(
     models?.length === 1 &&
-      goModelRule(models[0], rule.checked_at).provenance_sha256 ===
-        rule.provenance_sha256,
+      (goModelRule(models[0], rule.checked_at,continuing).provenance_sha256 === rule.provenance_sha256 || continuing),
     "GO_PUBLICATION_CHANGED",
   );
-  return checkGoUsage(goCredential(), transport);
+  return checkGoUsage(goCredential(), transport, undefined, continuing);
 }
 export async function checkGoUsage(
   key: string,
   transport: typeof fetch,
   signal = AbortSignal.timeout(15000),
+  continuing = false,
 ) {
   const r = await transport(goUsage, {
     headers: { authorization: "Bearer " + key },
@@ -141,10 +142,10 @@ export async function checkGoUsage(
   requireThat(
     ["rolling", "weekly", "monthly"].every(
       (k) =>
-        usage.usage?.[k]?.status === "ok" &&
+        (continuing ? typeof usage.usage?.[k]?.status==="string" : usage.usage?.[k]?.status === "ok") &&
         Number.isFinite(usage.usage[k].percent) &&
         usage.usage[k].percent >= 0 &&
-        usage.usage[k].percent <= 100 &&
+        (continuing || usage.usage[k].percent <= 100) &&
         Number.isFinite(Date.parse(usage.usage[k].resetsAt)),
     ),
     "GO_SUBSCRIPTION_QUOTA_HOLD",

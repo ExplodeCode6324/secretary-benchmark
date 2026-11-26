@@ -3,7 +3,8 @@ import { goAPI, goUsage } from "./stage-c-go-provider.ts";
 // Only the three protocol trajectories below enter this separate measurement class.
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { appendJSON, readJSON, requireThat } from "./io.ts";
+import fs from "node:fs";
+import { appendJSON, readJSON, requireThat, writeJSON } from "./io.ts";
 export const rehearsalCases = [
   "C04-irrelevant",
   "C04-resident",
@@ -18,7 +19,7 @@ export function rehearsalFetch(
     correction: string;
     mode: "ORIGINAL_OFFSET" | "OTHER_EVENT";
   },
-  go?: { evidence?: string; mode: "NORMAL" | "TRANSIENT" | "INTERRUPT" },
+  go?: { evidence?: string; mode: "NORMAL" | "TRANSIENT" | "INTERRUPT" | "CONTROLS" },
 ): typeof fetch {
   let reads = 0;
   let number = 0;
@@ -31,7 +32,10 @@ export function rehearsalFetch(
           req.headers.get("authorization") === "Bearer " + rehearsalKey,
         "REHEARSAL_USAGE",
       );
-      const transient = ++reads === 1 && go.mode === "TRANSIENT";
+      reads++;
+      const transient = (reads===1 && go.mode === "TRANSIENT") || (go.mode==="CONTROLS" && reads<=3 && !fs.existsSync(path.join(go.evidence!,"offline-quota-fault.json")));
+      if(go.mode==="CONTROLS" && reads===3 && transient) writeJSON(path.join(go.evidence!,"offline-quota-fault.json"),{reads});
+
       if (go.evidence)
         appendJSON(path.join(go.evidence, "offline-go-transport.jsonl"), {
           method: "GET",
@@ -45,7 +49,7 @@ export function rehearsalFetch(
             k,
             {
               status: "ok",
-              percent: 0,
+              percent: go.mode==="CONTROLS"?100:0,
               resetsAt: new Date(Date.now() + 86400000).toISOString(),
             },
           ]),
@@ -63,6 +67,10 @@ export function rehearsalFetch(
           response: go.mode === "INTERRUPT" ? "INTERRUPTED" : "SCRIPTED",
           at: new Date().toISOString(),
         });
+      if(go.mode==="CONTROLS" && !fs.existsSync(path.join(go.evidence!,"offline-429.json"))){
+        writeJSON(path.join(go.evidence!,"offline-429.json"),{at:new Date().toISOString()});
+        return new Response(null,{status:429,headers:{"retry-after":"1"}});
+      }
       if (go.mode === "INTERRUPT") throw new TypeError("offline interruption");
     }
     requireThat(
@@ -229,10 +237,10 @@ export function rehearsalFetch(
         usage: {
           ...(go
             ? {
-                cost: 0,
+                cost: go.mode==="CONTROLS"?2:0,
                 opencode: {
-                  billing_source: "go",
-                  list_cost: 0.0001,
+                  billing_source: go.mode==="CONTROLS"?"balance":"go",
+                  list_cost: go.mode==="CONTROLS"?5:0.0001,
                   provider: "offline-fixture",
                 },
               }

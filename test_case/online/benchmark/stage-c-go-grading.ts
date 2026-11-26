@@ -124,7 +124,10 @@ export const supplementSlots = {
   "c06-99": 4,
 } as const;
 export type SupplementNativeBinding = {
-  series: "issue122-r67-evidence-v1" | "issue122-r75-retest-v1" | "issue122-r77-continuation-v1";
+  series:
+    | "issue122-r67-evidence-v1"
+    | "issue122-r75-retest-v1"
+    | "issue122-r77-continuation-v1";
   series_sha256: string;
   route: keyof typeof supplementSlots;
 };
@@ -267,8 +270,11 @@ export function goReaderResponse(
       d.created === t.created &&
       Date.parse(t.finished) >= Date.parse(t.created) &&
       typeof t.quota_stop === "boolean" &&
-      (windows(t.go_usage_after, !continuation) || t.quota_stop ||
-        (continuation && t.go_usage_after === null && typeof t.go_usage_after_error === "string")) &&
+      (windows(t.go_usage_after, !continuation) ||
+        t.quota_stop ||
+        (continuation &&
+          t.go_usage_after === null &&
+          typeof t.go_usage_after_error === "string")) &&
       (![401, 402, 403, 429].includes(t.http_status) || t.quota_stop),
     "STAGE_C_GO_READER_BINDING",
   );

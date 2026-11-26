@@ -84,7 +84,7 @@ export type Preflight = {
     rc_mean_bytes: number;
     rc_peak_bytes: number;
   };
-  rehearsal_go?: "NORMAL" | "INTERRUPT_C16" | "EXHAUST_C16";
+  rehearsal_go?: "NORMAL" | "INTERRUPT_C16" | "EXHAUST_C16" | "CONTINUATION_CONTROLS";
   rehearsal_read?: "ORIGINAL_OFFSET" | "OTHER_EVENT";
   rehearsal_scenario?: "C16-combined" | "C06-stale-cold" | "C12b";
   models: StageModel[];
@@ -203,7 +203,7 @@ export function projectCampaign(
     !inputs.rehearsal_go ||
       (inputs.evidence_class === "OFFLINE_SSE" &&
         isRetest(inputs.targeted_supplement?.series) &&
-        ["NORMAL", "INTERRUPT_C16", "EXHAUST_C16"].includes(
+        ["NORMAL", "INTERRUPT_C16", "EXHAUST_C16", ...(inputs.targeted_supplement?.series===continuationWorkload.series?["CONTINUATION_CONTROLS"]:[])].includes(
           inputs.rehearsal_go,
         )),
     "RETEST_REHEARSAL_MODE",
@@ -259,7 +259,7 @@ export function projectCampaign(
   const supplement = inputs.targeted_supplement;
   requireThat(
     goRehearsal
-      ? ["NORMAL", "INTERRUPT_C16", "EXHAUST_C16"].includes(
+      ? ["NORMAL", "INTERRUPT_C16", "EXHAUST_C16", ...(inputs.targeted_supplement?.series===continuationWorkload.series?["CONTINUATION_CONTROLS"]:[])].includes(
           inputs.rehearsal_go ?? "",
         ) && !inputs.rehearsal_scenario
       : inputs.rehearsal_go === undefined,
@@ -887,7 +887,7 @@ function selected(batches: FrozenBatch[], inputs: Preflight, index: number) {
 function frozenProvider(root: string, inputs: Preflight, checked: string) {
   const dir = path.join(root, "inputs/official");
   return inputs.go_continuation || inputs.targeted_supplement
-    ? goModelRule(readJSON(path.join(dir, "go-model.json")), checked)
+    ? goModelRule(readJSON(path.join(dir, "go-model.json")), checked, inputs.targeted_supplement?.series===continuationWorkload.series)
     : flashRule(read(path.join(dir, "flash-pricing.md")), checked);
 }
 export function freezeBatch(root: string, index: number, checked: string) {

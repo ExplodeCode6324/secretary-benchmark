@@ -15,7 +15,11 @@ export function continuationUsage(root:string) {
     return {known,unknown_requests:unknown};
   };
   const cash=metrics(u=>u?.go_meter?.cash_debit_usd),list=metrics(u=>u?.go_meter?.list_cost);
-  return {forecast,actual:{reservations:entries.length,possible_provider_sends:sends.length,confirmed_http_responses:sends.filter(e=>typeof (e.usage as any)?.provider==="object" && (e.usage as any)?.provider!=null).length,
+  const runs=[...new Set(entries.map(e=>e.attempt.run))];
+  const evidenceRows=(name:string)=>runs.flatMap(run=>lines(path.join(root,"evidence",run,name)));
+  const httpCount=new Set(evidenceRows("http.jsonl").map(r=>r.id)).size;
+  const workloadForecast=forecast.batches.flat().map((row:any)=>({lane:row.lane.lane,...row.forecast}));
+  return {forecast:workloadForecast,actual:{model_transport_retries:evidenceRows("stage-c-model-retries.jsonl").length,reservations:entries.length,possible_provider_sends:sends.length,confirmed_http_responses:httpCount,
     refused_before_post:lines(path.join(root,"campaign/facility-refusals.jsonl")).length,
     unknown_delivery:sends.filter(e=>!e.settled || /UNCERTAIN|INTERRUPT/.test(e.outcome??"")).length,
     input_tokens:metrics(u=>u?.provider?.prompt_tokens??u?.provider?.input_tokens),output_tokens:metrics(u=>u?.provider?.completion_tokens??u?.provider?.output_tokens),list_usd:list,cash_usd:cash},

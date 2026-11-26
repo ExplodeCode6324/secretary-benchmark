@@ -1,3 +1,4 @@
+import {continuationUsage} from "./stage-c-continuation-usage.ts";
 import { continuationWorkload, isRetest } from "./stage-c-targeted-policy.ts";
 import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
 import { isDeepStrictEqual } from "node:util";
@@ -42,6 +43,199 @@ const safeReason = (s: unknown) =>
       ? "DETAILS_IN_PRIVATE_ARCHIVE"
       : null;
 
+export function continuationReaderView(
+  seriesDir: string,
+  facility: string,
+  final: any,
+  f: TargetedReaderFreeze,
+) {
+  const grades = new Map<TargetedRoute, ReturnType<typeof readerAction>>();
+  const all: any[] = [];
+  const readers = (["calibration", "c16-repeat1", "c12b"] as const).map(
+    (route) => {
+      const row = final.routes[route];
+      const ex = path.join(seriesDir, "exchange", route);
+      const dir = path.join(ex, "attempts");
+      const list = fs.existsSync(dir) ? fs.readdirSync(dir).sort() : [];
+      const attempts = row.attempts ?? [];
+      requireThat(
+        Array.isArray(attempts) &&
+          isDeepStrictEqual(list, attempts.map((a: any) => a.attempt).sort()),
+        "CONTINUATION_READER_HISTORY",
+      );
+      for (const [index, attempt] of attempts.entries()) {
+        const id = attempt.attempt;
+        requireThat(
+          typeof id === "string" &&
+            /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id),
+          "CONTINUATION_ATTEMPT_ID",
+        );
+        const input = (name: string) => path.join(dir, id, name);
+        const parsed = (name: string) =>
+          JSON.parse(read(input(name)).toString("utf8"));
+        const original = parsed("outcome.json");
+        const ctx = parsed("context.json");
+        requireThat(
+          ctx.sequence === index + 1 &&
+            ctx.attempt === id &&
+            ctx.route === route &&
+            ctx.series_sha256 === final.series_sha256 &&
+            ctx.packet_sha256 === f.routes[route].packet_sha256 &&
+            ctx.query_sha256 === f.routes[route].query_sha256 &&
+            ctx.metadata_sha256 === sha(read(input("metadata.json"))) &&
+            ctx.query_sha256 === sha(read(input("a-query.txt"))) &&
+            Object.entries(ctx).every(([k, v]) => original[k] === v),
+          "CONTINUATION_ATTEMPT_BINDING",
+        );
+        const merged = fs.existsSync(input("reconciliation.json"))
+          ? parsed("reconciliation.json")
+          : original;
+        if (fs.existsSync(input("metering-evidence.json"))) {
+          const meter = parsed("metering-evidence.json");
+          requireThat(
+            meter.attempt === id &&
+              meter.source_sha256 === sha(read(input("metering-source"))),
+            "CONTINUATION_METERING_SOURCE",
+          );
+          for (const key of ["actual_cash_usd", "actual_equivalent_usd"])
+            if (meter[key] != null) merged[key] = meter[key];
+          merged.metering_sha256 = sha(read(input("metering-evidence.json")));
+        }
+        const restore = fs.existsSync(input("restore-selection.json"))
+          ? parsed("restore-selection.json").source_sha256
+          : null;
+        requireThat(
+          restore === null ||
+            (typeof restore === "string" &&
+              /^[0-9a-f]{64}$/.test(restore) &&
+              restore === attempt.reconciliation_sha256),
+          "CONTINUATION_RESTORED_RECEIPT",
+        );
+        const transport = restore
+          ? input("recovery/" + restore + "/a-transport.json")
+          : input("a-transport.json");
+        requireThat(
+          isDeepStrictEqual(merged, attempt) &&
+            attempt.physical_dispatches ===
+              Number(fs.existsSync(input("a-dispatch.json"))) &&
+            attempt.transport_sha256 ===
+              (fs.existsSync(transport) ? sha(read(transport)) : null),
+          "CONTINUATION_ACCOUNTING",
+        );
+        if (attempt.physical_dispatches) {
+          const dispatch = parsed("a-dispatch.json");
+          requireThat(
+            dispatch.series_sha256 === ctx.series_sha256 &&
+              dispatch.route === route &&
+              dispatch.input_sha256 === ctx.query_sha256 &&
+              dispatch.metadata_sha256 === ctx.metadata_sha256,
+            "CONTINUATION_DISPATCH_IDENTITY",
+          );
+        }
+        all.push(attempt);
+      }
+      let mark;
+      if (row.status === "GRADED") {
+        const selected = JSON.parse(
+          read(path.join(ex, "selection.json")).toString(),
+        );
+        requireThat(
+          selected.attempt === row.selected_attempt &&
+            attempts.some(
+              (a: any) =>
+                a.state === "GRADED" && a.attempt === selected.attempt,
+            ),
+          "CONTINUATION_SELECTION",
+        );
+        const archived = json(
+          path.join(dir, selected.attempt, "assessment.json"),
+          selected.assessment_sha256,
+        );
+        const result = readerAction(
+          "verify",
+          seriesDir,
+          final.series_sha256,
+          route,
+          facility,
+        );
+        requireThat(
+          "official" in result &&
+            result.accepted &&
+            gradeJSONBytes(result).equals(gradeJSONBytes(row.assessment)) &&
+            gradeJSONBytes(result).equals(gradeJSONBytes(archived)),
+          "CONTINUATION_GRADE_REPLAY",
+        );
+        mark = result;
+        grades.set(route, result);
+      } else {
+        requireThat(
+          row.status === "NOT_TESTED" &&
+            !row.assessment &&
+            !row.selected_attempt &&
+            !fs.existsSync(path.join(ex, "selection.json")),
+          "CONTINUATION_TERMINAL",
+        );
+        requireThat(
+          (!Object.hasOwn(f.routes, route) &&
+            row.reason === f.unavailable?.[route as "c12b" | "c16-repeat1"]) ||
+            (row.reason === "CONFIRMED_SECRETARY_SYSTEM_FAILURE" &&
+              !!final.confirmed_system_failure_sha256) ||
+            (row.reason === "NO_ELIGIBLE_CANDIDATE" &&
+              Object.keys(f.routes).length === 1),
+          "CONTINUATION_UNTESTED_REASON",
+        );
+      }
+      return {
+        route,
+        status: row.status,
+        reason: safeReason(row.reason),
+        accepted: !!mark,
+        official_status: mark?.official.status ?? null,
+        supplemental_status: mark?.supplemental.status ?? null,
+        official_sha256: mark?.official_sha256 ?? null,
+        supplemental_sha256: mark?.supplemental_sha256 ?? null,
+        matched_controls:
+          route === "calibration" ? (mark?.official.matched ?? null) : null,
+        returned_model: mark?.returned_model ?? null,
+        attempts: attempts.length,
+        native_dispatches: attempts.reduce(
+          (s: number, a: any) => s + a.physical_dispatches,
+          0,
+        ),
+        unresolved_attempts: attempts.filter(
+          (a: any) => a.state === "PENDING_RECONCILIATION",
+        ).length,
+      };
+    },
+  );
+  const totals = final.reader_totals;
+  requireThat(
+    totals.attempts === all.length &&
+      totals.physical_dispatches ===
+        all.reduce((n, a) => n + a.physical_dispatches, 0),
+    "CONTINUATION_COUNTS",
+  );
+  for (const k of ["actual_cash_usd", "actual_equivalent_usd"])
+    requireThat(
+      all.every(
+        (a) =>
+          a[k] === null ||
+          (typeof a[k] === "number" && Number.isFinite(a[k]) && a[k] >= 0),
+      ) &&
+        Math.abs(totals[k] - all.reduce((n, a) => n + (a[k] ?? 0), 0)) < 1e-9 &&
+        totals[k + "_unknown_attempts"] ===
+          all.filter((a) => a[k] === null).length,
+      "CONTINUATION_COST_TOTALS",
+    );
+  for (const k of ["prompt_tokens", "completion_tokens", "total_tokens"])
+    requireThat(
+      totals.token_usage[k] ===
+        all.reduce((n, a) => n + (a.usage?.[k] ?? 0), 0),
+      "CONTINUATION_TOKENS",
+    );
+  return { grades, readers };
+}
+
 /** Input final SHA comes from the independent operator's verified archive readback. */
 export function targetedResult(
   facility: string,
@@ -54,14 +248,17 @@ export function targetedResult(
     final.series_sha256,
   );
   const retest = isRetest(f.series);
+  const continuation = f.series === continuationWorkload.series;
   const routes = retest
     ? targetedRoutes.filter((r) => !r.startsWith("c06-"))
     : targetedRoutes;
   requireThat(
     final.schema ===
-      (retest
-        ? "issue122-r75-reader-final-v1"
-        : "issue122-r67-reader-final-v1") &&
+      (continuation
+        ? "issue122-r77-reader-final-v1"
+        : retest
+          ? "issue122-r75-reader-final-v1"
+          : "issue122-r67-reader-final-v1") &&
       final.all_terminal === true &&
       isDeepStrictEqual(Object.keys(final.routes).sort(), [...routes].sort()),
     "TARGETED_INCOMPLETE_FINAL",
@@ -90,6 +287,43 @@ export function targetedResult(
       frozen.targeted_supplement.reader_operator_release_sha256,
     "TARGETED_OPERATOR_RELEASE",
   );
+  if (continuation) {
+    const stop = final.confirmed_system_failure_sha256;
+    if (stop) validateProductFailure(facility, closure, stop);
+    const { readers, grades } = continuationReaderView(
+      seriesDir,
+      facility,
+      final,
+      f,
+    );
+    return {
+      ...workloadSummary(
+        facility,
+        closure,
+        (route) => {
+          const result = grades.get(route);
+          return result && "official" in result ? result : undefined;
+        },
+        f.archived,
+      ),
+      schema: "issue122-retest-result-v1",
+      parent_supplement_sha256:
+        "fa9333ee77eeb904b6ef778b774cd74ccd6dbebabc2cdf71ffa9bd029088798c",
+      series_sha256: final.series_sha256,
+      reader_final_sha256: finalSHA,
+      workload_freeze_sha256: closure.freeze_sha256,
+      dispatch_sha256: closure.dispatch_sha256,
+      workload_provider: frozen.providers["deepseek-flash"].published_version,
+      workload_requested_model: frozen.role_model.main,
+      reader: frozen.grade.reader,
+      reader_rubric_sha256: frozen.grade.rubric_sha256,
+      reader_operator_release_sha256: final.operator_release_sha256,
+      reader_billing: final.reader_totals,
+      reader_usage: final.reader_totals.token_usage,
+      readers,
+      confirmed_system_failure_sha256: stop,
+    };
+  }
   const readers = routes.map((route) => {
     const row = final.routes[route];
     let assessment;
@@ -236,44 +470,44 @@ function workloadSummary(
       verdict: r.c16.verdict,
     })),
   ];
-  const archived =
-    isRetest(closure.series)
-      ? []
-      : (["c06-98", "c06-99"] as const).map((route, i) => {
-          const original = old.comparison_rows_effective.find(
-            (r: any) => r.case === "C06-resident-B" && r.repeat === i + 2,
-          );
-          const archive = old.archives.find(
-            (a: any) => a.freeze_sha256 === original?.freeze_sha256,
-          );
-          requireThat(
-            original &&
-              original.effective_assessment !== "ACCEPTED" &&
-              archive &&
-              (!sources ||
-                original.freeze_sha256 === sources[route].source_freeze_sha256),
-            "TARGETED_SOURCE_C06",
-          );
-          return {
-            case: "C06-resident-B",
-            repeat: i + 2,
-            reader_accepted: !!gradeFor(route)?.accepted,
-            route,
-            source_archive_sha256:
-              sources?.[route].source_archive_sha256 ?? archive.archive_sha256,
-            source_freeze_sha256: original.freeze_sha256,
-            workload_route: original.workload_route,
-            assertions: agreedAssertions(gradeFor(route)) ?? {
-              natural_access: "NOT_TESTED",
-            },
-          };
-        });
+  const archived = isRetest(closure.series)
+    ? []
+    : (["c06-98", "c06-99"] as const).map((route, i) => {
+        const original = old.comparison_rows_effective.find(
+          (r: any) => r.case === "C06-resident-B" && r.repeat === i + 2,
+        );
+        const archive = old.archives.find(
+          (a: any) => a.freeze_sha256 === original?.freeze_sha256,
+        );
+        requireThat(
+          original &&
+            original.effective_assessment !== "ACCEPTED" &&
+            archive &&
+            (!sources ||
+              original.freeze_sha256 === sources[route].source_freeze_sha256),
+          "TARGETED_SOURCE_C06",
+        );
+        return {
+          case: "C06-resident-B",
+          repeat: i + 2,
+          reader_accepted: !!gradeFor(route)?.accepted,
+          route,
+          source_archive_sha256:
+            sources?.[route].source_archive_sha256 ?? archive.archive_sha256,
+          source_freeze_sha256: original.freeze_sha256,
+          workload_route: original.workload_route,
+          assertions: agreedAssertions(gradeFor(route)) ?? {
+            natural_access: "NOT_TESTED",
+          },
+        };
+      });
   const transactions = [...ledger(facility).entries.values()];
   requireThat(
     transactions.every((e) => workloads.some((w) => w.lane === e.attempt.lane)),
     "TARGETED_EXPORT_FOREIGN_ATTEMPT",
   );
   return {
+    ...(closure.series===continuationWorkload.series ? {workload_usage:continuationUsage(facility)} : {}),
     historical_baseline_sha256: baselineSHA,
     original_observations: old.comparison_rows_effective.length,
     workload_attempts: transactions.length,
@@ -303,6 +537,35 @@ function workloadSummary(
         (isRetest(closure.series) && workloads[1].verdict === "FAIL")),
   };
 }
+function validateProductFailure(
+  facility: string,
+  closure: ReturnType<typeof checkWorkloadClosure>,
+  digest: string,
+) {
+  const record = json(
+    path.join(facility, "campaign/secretary-system-failure.json"),
+    digest,
+  );
+  const t = closure.state.terminals[record.lane];
+  requireThat(
+    record.schema === "issue122-secretary-system-failure-v1" &&
+      record.freeze_sha256 === closure.freeze_sha256 &&
+      typeof record.reason === "string" &&
+      record.reason.length > 0 &&
+      t?.run === record.run &&
+      /^[0-9a-f-]{36}$/.test(record.run) &&
+      /^[a-zA-Z0-9_.-]+$/.test(record.evidence_file) &&
+      ![".", ".."].includes(record.evidence_file),
+    "CONTINUATION_PRODUCT_STOP",
+  );
+  const source = path.join(facility, "evidence", record.run);
+  requireThat(
+    sha(read(path.join(source, "stage-c-trial.json"))) === t.report_sha256 &&
+      sha(read(path.join(source, record.evidence_file))) ===
+        record.evidence_sha256,
+    "CONTINUATION_PRODUCT_EVIDENCE",
+  );
+}
 /** The independent proof digest must come from verified archive readback. */
 export function retestBeforeReader(
   facility: string,
@@ -321,6 +584,112 @@ export function retestBeforeReader(
   const ledgerFile = path.join(facility, "campaign/attempts.jsonl");
   const hash = (s: unknown) =>
     typeof s === "string" && /^[a-f0-9]{64}$/.test(s);
+  if (scope.series === continuationWorkload.series) {
+    requireThat(
+      closure.series === proof.series &&
+        proof.schema === "issue122-r77-reader-activation-blocked-v1" &&
+        proof.status === "STOPPED_BEFORE_READER_ACTIVATION" &&
+        proof.workload_attempts_sha256 ===
+          (fs.existsSync(ledgerFile) ? sha(read(ledgerFile)) : null) &&
+        isDeepStrictEqual(proof.workload_terminals, closure.state.terminals) &&
+        hash(proof.workload_closed_claim_sha256) &&
+        hash(proof.private_evidence_sha256) &&
+        proof.provider_calls_by_evidence_verifier === 0 &&
+        proof.proof_verifier_sha256 === scope.proof_verifier_sha256 &&
+        proof.operator_release_sha256 ===
+          scope.reader_operator_release_sha256 &&
+        proof.operator_package_sha256 === scope.reader_package_sha256 &&
+        proof.native_adapter_sha256 === scope.reader_native_sha256,
+      "CONTINUATION_PREACTIVATION",
+    );
+    if (closure.rehearsal)
+      requireThat(
+        isGoRehearsal(facility) &&
+          proof.evidence_class === "OFFLINE_SSE" &&
+          proof.fixture_before_sha256 === proof.before_observation_sha256 &&
+          sha(
+            read(path.join(facility, "fixture-account/reader-baseline.json")),
+          ) === proof.fixture_before_sha256 &&
+          scope.before_observation_sha256 ===
+            proof.template_before_observation_sha256 &&
+          sha(read(path.join(facility, "inputs/reader-before.json"))) ===
+            proof.template_before_observation_sha256,
+        "CONTINUATION_OFFLINE_BEFORE",
+      );
+    else
+      requireThat(
+        proof.evidence_class === undefined &&
+          proof.before_observation_sha256 === scope.before_observation_sha256,
+        "CONTINUATION_LIVE_BEFORE",
+      );
+    if (proof.stop === "CONFIRMED_SECRETARY_SYSTEM_FAILURE")
+      validateProductFailure(
+        facility,
+        closure,
+        proof.confirmed_system_failure_sha256,
+      );
+    else
+      requireThat(
+        proof.stop === "NO_ELIGIBLE_CANDIDATE" &&
+          proof.confirmed_system_failure_sha256 === null,
+        "CONTINUATION_STOP_REASON",
+      );
+    requireThat(
+      isDeepStrictEqual(proof.reader_totals, {
+        attempts: 0,
+        physical_dispatches: 0,
+        actual_cash_usd: 0,
+        actual_equivalent_usd: 0,
+      }) &&
+        Object.keys(proof.routes).sort().join(",") ===
+          "c12b,c16-repeat1,calibration",
+      "CONTINUATION_ZERO_TOTALS",
+    );
+    const readers = (["calibration", "c16-repeat1", "c12b"] as const).map(
+      (route) => {
+        requireThat(
+          isDeepStrictEqual(proof.routes[route], {
+            status: "NOT_TESTED",
+            reason: proof.stop,
+            physical_dispatches: 0,
+          }),
+          "CONTINUATION_ZERO_ROUTE",
+        );
+        return {
+          route,
+          status: "NOT_TESTED",
+          reason: proof.stop,
+          native_dispatches: 0,
+          possible_provider_sends: 0,
+          confirmed_provider_sends: 0,
+          accepted: false,
+        };
+      },
+    );
+    return {
+      ...workloadSummary(facility, closure, () => undefined),
+      schema: closure.rehearsal
+        ? "issue122-retest-rehearsal-v1"
+        : "issue122-retest-result-v1",
+      ...(closure.rehearsal
+        ? { evidence_class: "OFFLINE_SSE", physical_provider_sends: 0 }
+        : {}),
+      parent_supplement_sha256:
+        "fa9333ee77eeb904b6ef778b774cd74ccd6dbebabc2cdf71ffa9bd029088798c",
+      workload_freeze_sha256: freeze,
+      dispatch_sha256: dispatch,
+      workload_provider: frozen.providers["deepseek-flash"].published_version,
+      workload_requested_model: frozen.role_model.main,
+      reader: frozen.grade.reader,
+      reader_rubric_sha256: frozen.grade.rubric_sha256,
+      reader_operator_release_sha256: proof.operator_release_sha256,
+      reader_activation_blocked_sha256: digest,
+      reader_activation: proof.status,
+      reader_stop: proof.stop,
+      reader_billing: proof.reader_totals,
+      readers,
+    };
+  }
   requireThat(
     isRetest(closure.series) &&
       proof.series === closure.series &&

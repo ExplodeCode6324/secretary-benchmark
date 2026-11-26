@@ -237,6 +237,7 @@ function ownedStoppedRuns(d: Domains): Run[] {
                 goModelRule(
                   readJSON(path.join(d.root, "inputs/official/go-model.json")),
                   f.checked_at,
+                  policy.continuation,
                 ),
                 policy.providers["deepseek-flash"],
               )

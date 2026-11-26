@@ -136,6 +136,7 @@ export function readerAction(
   route: TargetedRoute,
   facility: string,
   attempt?: string,
+  recoveredSource?: string,
 ) {
   requireThat(
     targetedRoutes.includes(route) && /^[0-9a-f]{64}$/.test(digest),
@@ -152,7 +153,10 @@ export function readerAction(
   );
   requireThat(f.series === closed.series, "TARGETED_WORKLOAD_SERIES");
   const continuation = f.series === continuationSeries;
-  requireThat(!attempt || (continuation && action === "verify"), "TARGETED_ATTEMPT_SCOPE");
+  requireThat(
+    !attempt || (continuation && action === "verify"),
+    "TARGETED_ATTEMPT_SCOPE",
+  );
   if (f.series === retestSeries || continuation) {
     const policy = object(
       path.join(facility, "configs/stage-c-freeze.json"),
@@ -179,7 +183,9 @@ export function readerAction(
   requireThat(
     grade?.reader === goReader &&
       grade.version === goVisibilityVersion &&
-      (continuation ? grade.max_attempts == null || grade.max_attempts === 1 : grade.max_attempts === 1) &&
+      (continuation
+        ? grade.max_attempts == null || grade.max_attempts === 1
+        : grade.max_attempts === 1) &&
       grade.packet_sha256 === f.routes.calibration.packet_sha256 &&
       grade.key_sha256 === f.key_sha256 &&
       grade.rubric_sha256 === f.rubric_sha256,
@@ -190,19 +196,63 @@ export function readerAction(
   function attemptDirectory(r: TargetedRoute, id?: string): string {
     const folderRoot = path.join(folder, "exchange", r);
     if (!continuation) return folderRoot;
-    const selected = id ?? object(path.join(folderRoot, "selection.json")).attempt;
-    requireThat(typeof selected === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(selected), "TARGETED_ATTEMPT_ID");
+    const selected =
+      id ?? object(path.join(folderRoot, "selection.json")).attempt;
+    requireThat(
+      typeof selected === "string" &&
+        /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(selected),
+      "TARGETED_ATTEMPT_ID",
+    );
     return path.join(folderRoot, "attempts", selected);
   }
-  function originals(r: TargetedRoute, origin: CalibrationIdentity | null, id?: string) {
+  function originals(
+    r: TargetedRoute,
+    origin: CalibrationIdentity | null,
+    id?: string,
+  ) {
     const p = canonical(input(r, "packet.json")),
       b = canonical(input(r, "binding.json"));
     const execution = attemptDirectory(r, id);
     const ex = (n: string) => path.join(execution, n);
-    const rt = bytes(ex("a-transport.json")),
+    const selector = ex("restore-selection.json");
+    const source = continuation
+      ? r === route && recoveredSource
+        ? recoveredSource
+        : fs.existsSync(selector)
+          ? object(selector).source_sha256
+          : null
+      : null;
+    let output = execution;
+    if (source !== null) {
+      requireThat(
+        typeof source === "string" && /^[0-9a-f]{64}$/.test(source),
+        "TARGETED_RECOVERED_SOURCE",
+      );
+      output = path.join(execution, "recovery", source);
+      const original = bytes(path.join(output, "manifest.json"));
+      const m = JSON.parse(original.toString("utf8"));
+      requireThat(
+        sha(original) === source &&
+          m.series_sha256 === digest &&
+          m.route === r &&
+          m.attempt === path.basename(execution) &&
+          m.packet_sha256 === f.routes[r].packet_sha256 &&
+          m.dispatch_sha256 === sha(bytes(ex("a-dispatch.json"))) &&
+          isDeepStrictEqual(Object.keys(m.files).sort(), [
+            "a-raw.txt",
+            "a-receipt.json",
+            "a-transport.json",
+          ]) &&
+          Object.entries(m.files).every(
+            ([n, h]) => h === sha(bytes(path.join(output, n))),
+          ),
+        "TARGETED_RECOVERED_RECEIPT",
+      );
+    }
+    const rt = bytes(path.join(output, "a-transport.json")),
       dt = bytes(ex("a-dispatch.json")),
-      raw = text(ex("a-raw.txt")),
-      receiptPath = ex("a-receipt.json");
+      raw = text(path.join(output, "a-raw.txt")),
+      receiptPath = path.join(output, "a-receipt.json");
     const result = verifyTargetedReceipt(
       f,
       digest,
@@ -261,10 +311,20 @@ export function readerAction(
       "TARGETED_PRIVATE_KEY",
     );
   } else {
-    const priorCalibration = continuation && action === "verify"
-      ? object(path.join(attemptDirectory(route, attempt), "calibration-origin.json")).attempt
-      : undefined;
-    if (continuation && action === "verify") requireThat(typeof priorCalibration === "string", "TARGETED_CALIBRATION_ATTEMPT");
+    const priorCalibration =
+      continuation && action === "verify"
+        ? object(
+            path.join(
+              attemptDirectory(route, attempt),
+              "calibration-origin.json",
+            ),
+          ).attempt
+        : undefined;
+    if (continuation && action === "verify")
+      requireThat(
+        typeof priorCalibration === "string",
+        "TARGETED_CALIBRATION_ATTEMPT",
+      );
     const cal = originals("calibration", null, priorCalibration);
     requireThat(
       cal.accepted &&
@@ -305,7 +365,8 @@ if (
     requireThat(
       action === "prepare" ||
         (["admit", "verify"].includes(action) && args.length === 4) ||
-        (action === "verify-attempt" && args.length === 5),
+        (action === "verify-attempt" &&
+          (args.length === 5 || args.length === 6)),
       "TARGETED_ARGUMENTS",
     );
     process.stdout.write(
@@ -313,12 +374,15 @@ if (
         action === "prepare"
           ? prepareTargetedPacket(args)
           : readerAction(
-              action === "verify-attempt" ? "verify" : action as "admit" | "verify",
+              action === "verify-attempt"
+                ? "verify"
+                : (action as "admit" | "verify"),
               args[0],
               args[1],
               args[2] as TargetedRoute,
               args[3],
               args[4],
+              args[5],
             ),
       ) + "\n",
     );

@@ -33,6 +33,7 @@ export async function retestQuota(
   key: string,
   transport: typeof fetch,
   window: RequestWindow,
+  continuing = false,
 ) {
   const deadline = window.deadline();
   const check = (allowance: number) => {
@@ -51,7 +52,7 @@ export async function retestQuota(
         window.signal,
         AbortSignal.timeout(retestWorkload.quota_read_timeout_ms),
       ]);
-      const usage = await checkGoUsage(key, transport, signal);
+      const usage = await checkGoUsage(key, transport, signal, continuing);
       check(0);
       return usage;
     } catch (error) {
@@ -281,7 +282,7 @@ export async function admitGoSend(
         };
       }
       usage = retest
-        ? await retestQuota(key, transport, window!)
+        ? await retestQuota(key, transport, window!, continuing)
         : await checkGoUsage(key, transport);
       if (!continuing) checkGoHeadroom(usage, worst, {
         rolling: local.rolling + unsettled,
@@ -307,6 +308,7 @@ export async function admitGoSend(
             finalCheck();
           } catch (error) {
             holdGo(freeze, "GO_REQUEST_WINDOW_EXHAUSTED", root);
+            if (frozen && JSON.parse(frozen.toString()).targeted_supplement?.series===continuationWorkload.series) throw Error("GO_RESERVATION_WINDOW_EXHAUSTED");
             throw error;
           }
         }),

@@ -1,3 +1,4 @@
+import {setTimeout as delay} from "node:timers/promises";
 import { appendRefusal, retryTime, SenderWindowError } from "./stage-c-continuation.ts";
 import { admitGoSend, holdGo } from "./stage-c-go-quota.ts";
 import {
@@ -392,7 +393,7 @@ export function meteredFetch(
         ? "/v1/responses"
         : "/chat/completions");
   let sends = 0;
-  return async (input, init) => {
+  const sendOnce: typeof fetch = async (input, init) => {
     const started = Date.now();
     let phase = "PROVIDER_REQUEST_INVALID",
       bodyHash: string | null = null;
@@ -1067,9 +1068,39 @@ export function meteredFetch(
             },
           );
         }
+        if(pol && completionPolicy(pol) && pol.continuation && error instanceof Error && /^[A-Z][A-Z_0-9]+$/.test(error.message)) throw error;
         throw Error(reason);
       }
       throw error;
+    }
+  };
+  return async (input,init)=>{
+    if(!options.stageFreeze) return sendOnce(input,init);
+    const policy=loadCampaign(options.root).physical_policy;
+    if(!policy || !completionPolicy(policy) || !policy.continuation) return sendOnce(input,init);
+    const request=new Request(input,init), ctx=attribution.getStore();
+    const deadline=options.deadline?.(ctx?.context_sha256);
+    let ordinal=0;
+    for(;;){
+      let response:Response|undefined, reason:string, until:number|null=null;
+      try {
+        response=await sendOnce(request.clone());
+        if(![402,403,408,429,500,502,503,504].includes(response.status)) return response;
+        reason="HTTP_"+response.status;
+        const after=retryTime(response.headers.get("retry-after"));
+        if(after) until=Date.parse(after);
+      } catch(error){
+        reason=error instanceof Error?error.message:"";
+        if(!["GO_METADATA_UNAVAILABLE","GO_SUBSCRIPTION_UNAVAILABLE","GO_REQUEST_WINDOW_EXHAUSTED","GO_RESERVATION_WINDOW_EXHAUSTED","RETEST_CONFIRMED_NO_POST","C12B_SENDER_WINDOW_EXHAUSTED","network error"].includes(reason) || request.signal.aborted) throw error;
+      }
+      const wait=Math.max(250,Math.min(10000,250*2**Math.min(ordinal,6)),(until??0)-Date.now());
+      if(!deadline || deadline-Date.now()-wait<65000){
+        if(response) return response;
+        throw Error(reason);
+      }
+      if(response) await response.body?.cancel();
+      appendJSON(path.join(options.evidence,"stage-c-model-retries.jsonl"),{at:new Date().toISOString(),ordinal:++ordinal,model_call:options.callID?.(ctx?.context_sha256),context_sha256:ctx?.context_sha256,reason,retry_at:new Date(Date.now()+wait).toISOString(),response_exposed:false});
+      await delay(wait,undefined,{signal:request.signal});
     }
   };
 }

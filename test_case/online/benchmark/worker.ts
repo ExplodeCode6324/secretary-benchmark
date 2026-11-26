@@ -87,6 +87,10 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         run.config.version === 5 &&
         run.config.case_id === "C16-combined" &&
         rehearsalInputs?.rehearsal_go;
+      const continuationFixture=rehearsalInputs?.targeted_supplement?.series===continuationWorkload.series;
+      const incarnation=path.join(run.evidence,"offline-incarnation.json");
+      if(continuationFixture && !fs.existsSync(incarnation)) writeJSON(incarnation,{pid:process.pid});
+      const firstIncarnation=continuationFixture && readJSON(incarnation).pid===process.pid;
       if (
         run.config.version === 5 &&
         run.config.case_id === "C12b" &&
@@ -136,7 +140,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
                   })),
                 },
               );
-            if (goMode === "EXHAUST_C16" && active?.length)
+            if (goMode === "EXHAUST_C16" && (!continuationFixture || firstIncarnation) && active?.length)
               return Date.now() + 30000;
             return active?.length
               ? Math.min(
@@ -160,7 +164,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
                 ? {
                     evidence: run.evidence,
                     mode:
-                      goMode === "INTERRUPT_C16"
+                      rehearsalInputs.rehearsal_go==="CONTINUATION_CONTROLS" ? "CONTROLS" : goMode === "INTERRUPT_C16" && (!continuationFixture || firstIncarnation)
                         ? "INTERRUPT"
                         : run.config.version === 5 &&
                             run.config.case_id === "C12b"

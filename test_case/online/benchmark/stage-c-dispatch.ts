@@ -64,7 +64,7 @@ export async function completionCommand(
             rehearsalKey,
             rehearsalFetch(undefined, { mode: "NORMAL" }),
           )
-        : checkGoProvider(policy.providers["deepseek-flash"])
+        : checkGoProvider(policy.providers["deepseek-flash"],fetch,continuing)
       : checkPublication(
           [
             {
@@ -145,6 +145,7 @@ export async function completionCommand(
       const active = fs.existsSync(activeFile) ? readJSON(activeFile) : null;
       if (active?.state === "OPEN")
         writeJSON(activeFile, { ...active, state: "CLOSED" });
+      let ownedRun:string|undefined;
       const dir = path.join(root, "runs");
       for (const f of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
         const r = d.raw(f.replace(/\.json$/, ""));
@@ -153,7 +154,7 @@ export async function completionCommand(
           r.config.lane === state.current &&
           !["RETIRED", "CLEANED"].includes(r.state)
         )
-          await d.seal(r.id);
+          {await d.seal(r.id); ownedRun=r.id;}
       }
       for (const [id, entry] of ledger(root).entries) {
         if (entry.attempt.lane === state.current && !entry.settled) {
@@ -169,7 +170,7 @@ export async function completionCommand(
       if(continuing){
         const lane=state.current;
         const terminal=state.terminals[lane];
-        terminal.run=active?.lane===lane ? active.run : undefined;
+        terminal.run=ownedRun;
         (state.history![lane]??=[]).push(terminal);
         state.pending![lane]={run:terminal.run,reason:"INTERRUPTED_TRAJECTORY",retry_at:Date.now()+1000};
         delete state.terminals[lane];

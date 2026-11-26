@@ -69,6 +69,9 @@ export function targetedWorkloadResult(
     mechanical: any = null,
     pendingProposals: number | null = null;
   const base = {
+    ...(closure.rehearsal
+      ? { evidence_class: "OFFLINE_SSE", physical_provider_sends: 0 }
+      : {}),
     case: scenario,
     repeat: 1,
     reader_accepted: !!semanticGrades,
@@ -115,10 +118,12 @@ export function targetedWorkloadResult(
     sha(raw) === terminal.report_sha256 &&
       trial.run === terminal.run &&
       trial.descriptor.scenario === scenario &&
-      trial.evidence_class === "LIVE" &&
+      trial.evidence_class === (closure.rehearsal ? "OFFLINE_SSE" : "LIVE") &&
       trial.physical_provider_sends ===
-        attempts.filter((e) => e.outcome !== "RETEST_CONFIRMED_NO_POST")
-          .length &&
+        (closure.rehearsal
+          ? 0
+          : attempts.filter((e) => e.outcome !== "RETEST_CONFIRMED_NO_POST")
+              .length) &&
       attempts.every((e) => e.attempt.run === terminal.run),
     "TARGETED_SEALED_TRIAL",
   );

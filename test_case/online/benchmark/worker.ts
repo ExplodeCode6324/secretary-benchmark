@@ -121,9 +121,22 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
                 (c) =>
                   c.state === "IN_FLIGHT" &&
                   c.started_at &&
-                  (!hash || c.request.sha256 === hash),
+                  c.request.sha256 === hash,
               );
-            if (goMode === "EXHAUST_C16") return Date.now() + 30000;
+            if (rehearsalInputs?.rehearsal_go)
+              appendJSON(
+                path.join(run.evidence, "offline-go-deadlines.jsonl"),
+                {
+                  at: new Date().toISOString(),
+                  context_sha256: hash,
+                  matched: active?.map((c) => ({
+                    id: c.id,
+                    started_at: c.started_at,
+                  })),
+                },
+              );
+            if (goMode === "EXHAUST_C16" && active?.length)
+              return Date.now() + 30000;
             return active?.length
               ? Math.min(
                   ...active.map((c) => Date.parse(c.started_at!) + 120000),
@@ -144,10 +157,14 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
                 : undefined,
               run.live.route
                 ? {
+                    evidence: run.evidence,
                     mode:
-                      run.config.version === 5 && run.config.case_id === "C12b"
-                        ? "TRANSIENT"
-                        : "NORMAL",
+                      goMode === "INTERRUPT_C16"
+                        ? "INTERRUPT"
+                        : run.config.version === 5 &&
+                            run.config.case_id === "C12b"
+                          ? "TRANSIENT"
+                          : "NORMAL",
                   }
                 : undefined,
             )

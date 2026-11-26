@@ -1,3 +1,4 @@
+import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
 import { isDeepStrictEqual } from "node:util";
 import fs from "node:fs";
 import path from "node:path";
@@ -75,7 +76,10 @@ export function targetedResult(
     f.workload_freeze_sha256,
     f.workload_dispatch_sha256,
   );
-  requireThat(closure.series === f.series, "TARGETED_SERIES_BINDING");
+  requireThat(
+    !closure.rehearsal && closure.series === f.series,
+    "TARGETED_SERIES_BINDING",
+  );
   const frozen = json(
     path.join(facility, "configs/stage-c-freeze.json"),
     f.workload_freeze_sha256,
@@ -292,6 +296,7 @@ function workloadSummary(
       adjudicable: effective.filter((r) => r.gate === "CLOSED").length,
     },
     c12b_complete_live_witness:
+      !closure.rehearsal &&
       workloads[1].gate === "CLOSED" &&
       (workloads[1].verdict === "PASS" ||
         (closure.series === retestSeries && workloads[1].verdict === "FAIL")),
@@ -328,7 +333,20 @@ export function retestBeforeReader(
       hash(proof.proof_verifier_sha256) &&
       scope.proof_verifier_sha256 === proof.proof_verifier_sha256 &&
       hash(proof.before_observation_sha256) &&
-      scope.before_observation_sha256 === proof.before_observation_sha256 &&
+      (closure.rehearsal
+        ? isGoRehearsal(facility) &&
+          proof.evidence_class === "OFFLINE_SSE" &&
+          proof.fixture_before_sha256 === proof.before_observation_sha256 &&
+          sha(
+            read(path.join(facility, "fixture-account/reader-baseline.json")),
+          ) === proof.fixture_before_sha256 &&
+          scope.before_observation_sha256 ===
+            proof.template_before_observation_sha256 &&
+          sha(read(path.join(facility, "inputs/reader-before.json"))) ===
+            proof.template_before_observation_sha256
+        : proof.evidence_class === undefined &&
+          scope.before_observation_sha256 ===
+            proof.before_observation_sha256) &&
       scope.reader_operator_release_sha256 === proof.operator_release_sha256 &&
       scope.reader_package_sha256 === proof.operator_package_sha256 &&
       scope.reader_native_sha256 === proof.native_adapter_sha256 &&
@@ -390,7 +408,12 @@ export function retestBeforeReader(
   );
   return {
     ...workloadSummary(facility, closure, () => undefined),
-    schema: "issue122-retest-result-v1",
+    schema: closure.rehearsal
+      ? "issue122-retest-rehearsal-v1"
+      : "issue122-retest-result-v1",
+    ...(closure.rehearsal
+      ? { evidence_class: "OFFLINE_SSE", physical_provider_sends: 0 }
+      : {}),
     parent_supplement_sha256:
       "fa9333ee77eeb904b6ef778b774cd74ccd6dbebabc2cdf71ffa9bd029088798c",
     workload_freeze_sha256: freeze,

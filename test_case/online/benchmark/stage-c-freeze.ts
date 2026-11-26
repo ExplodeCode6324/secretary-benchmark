@@ -198,6 +198,15 @@ export function projectCampaign(
         ["ORIGINAL_OFFSET", "OTHER_EVENT"].includes(inputs.rehearsal_read)),
     "STAGE_C_REHEARSAL_READ_MODE",
   );
+  requireThat(
+    !inputs.rehearsal_go ||
+      (inputs.evidence_class === "OFFLINE_SSE" &&
+        inputs.targeted_supplement?.series === retestWorkload.series &&
+        ["NORMAL", "INTERRUPT_C16", "EXHAUST_C16"].includes(
+          inputs.rehearsal_go,
+        )),
+    "RETEST_REHEARSAL_MODE",
+  );
   const models = inputs.models;
   const rehearsal = inputs.evidence_class === "OFFLINE_SSE";
   const goRehearsal =

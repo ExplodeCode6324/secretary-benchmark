@@ -57,6 +57,7 @@ export function checkWorkloadClosure(
     "TARGETED_WORKLOAD_CLOSURE",
   );
   return {
+    rehearsal: frozen.evidence_class === "OFFLINE_SSE",
     state,
     series: frozen.targeted_supplement.series,
     grade: frozen.grade,

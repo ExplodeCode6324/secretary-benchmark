@@ -3,7 +3,7 @@ import { goAPI, goUsage } from "./stage-c-go-provider.ts";
 // Only the three protocol trajectories below enter this separate measurement class.
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { readJSON, requireThat } from "./io.ts";
+import { appendJSON, readJSON, requireThat } from "./io.ts";
 export const rehearsalCases = [
   "C04-irrelevant",
   "C04-resident",
@@ -18,7 +18,7 @@ export function rehearsalFetch(
     correction: string;
     mode: "ORIGINAL_OFFSET" | "OTHER_EVENT";
   },
-  go?: { mode: "NORMAL" | "TRANSIENT" | "INTERRUPT" },
+  go?: { evidence?: string; mode: "NORMAL" | "TRANSIENT" | "INTERRUPT" },
 ): typeof fetch {
   let reads = 0;
   let number = 0;
@@ -31,8 +31,14 @@ export function rehearsalFetch(
           req.headers.get("authorization") === "Bearer " + rehearsalKey,
         "REHEARSAL_USAGE",
       );
-      if (++reads === 1 && go.mode === "TRANSIENT")
-        return new Response(null, { status: 503 });
+      const transient = ++reads === 1 && go.mode === "TRANSIENT";
+      if (go.evidence)
+        appendJSON(path.join(go.evidence, "offline-go-transport.jsonl"), {
+          method: "GET",
+          status: transient ? 503 : 200,
+          at: new Date().toISOString(),
+        });
+      if (transient) return new Response(null, { status: 503 });
       return Response.json({
         usage: Object.fromEntries(
           ["rolling", "weekly", "monthly"].map((k) => [
@@ -51,6 +57,12 @@ export function rehearsalFetch(
         req.url === goAPI + "/chat/completions",
         "REHEARSAL_DESTINATION",
       );
+      if (go.evidence)
+        appendJSON(path.join(go.evidence, "offline-go-transport.jsonl"), {
+          method: "POST",
+          response: go.mode === "INTERRUPT" ? "INTERRUPTED" : "SCRIPTED",
+          at: new Date().toISOString(),
+        });
       if (go.mode === "INTERRUPT") throw new TypeError("offline interruption");
     }
     requireThat(

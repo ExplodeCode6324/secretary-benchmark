@@ -882,9 +882,16 @@ export class Domains {
     this.load(id);
     return run;
   }
-  async seal(id: string) {
+  async seal(id: string, includeDatabase = false) {
     const run = await this.stop(id);
     await stopDatabase(run.database);
+    if (includeDatabase) {
+      writeJSON(path.join(run.evidence, "database-checkpoint.json"), {
+        id,
+        system_id: run.database.systemID,
+        sha256: sha(JSON.stringify(inventory(run.database.directory))),
+      });
+    }
     writeJSON(
       path.join(run.evidence, "domain-files.json"),
       inventory(run.active),
@@ -921,15 +928,17 @@ export class Domains {
         ) === JSON.stringify(inventory(run.active)),
       "CONTINUATION_UNVERIFIED_SEAL",
     );
-    return sha(
-      JSON.stringify([
-        id,
-        run.lineage,
-        run.database.systemID,
-        sha(read(sealFile)),
-        inventory(run.database.directory),
-      ]),
+    const database = readJSON(
+      path.join(run.evidence, "database-checkpoint.json"),
     );
+    requireThat(
+      database.id === id &&
+        database.system_id === run.database.systemID &&
+        database.sha256 ===
+          sha(JSON.stringify(inventory(run.database.directory))),
+      "CONTINUATION_DATABASE_CHANGED",
+    );
+    return sha(read(sealFile));
   }
   async clean(id: string) {
     assertCampaignClosed(this.root);

@@ -43,6 +43,43 @@ const safeReason = (s: unknown) =>
       ? "DETAILS_IN_PRIVATE_ARCHIVE"
       : null;
 
+type BlindAttempt = {
+  id: string;
+  state: string;
+  started: number;
+  calibrationTime?: number;
+  previousCalibration?: string | null;
+};
+export function blindHistory(route: TargetedRoute, attempts: BlindAttempt[]) {
+  let passed: BlindAttempt | undefined, rejected: BlindAttempt | undefined;
+  let pending = false;
+  for (const a of attempts) {
+    requireThat(
+      Number.isFinite(a.started) && !pending && !rejected,
+      "CONTINUATION_REPEAT_AFTER_RECEIPT",
+    );
+    if (passed)
+      requireThat(
+        route === "calibration" &&
+          a.previousCalibration === passed.id &&
+          a.started >= passed.calibrationTime! + 86400000,
+        "CONTINUATION_DUPLICATE_GRADE",
+      );
+    if (a.state === "GRADED") passed = a;
+    else if (a.state === "READER_RECEIPT_REJECTED") rejected = a;
+    else if (a.state === "PENDING_RECONCILIATION") pending = true;
+    else
+      requireThat(
+        [
+          "CONFIRMED_UNSENT",
+          "RECONCILED_NO_GRADE",
+          "PROVIDER_REFUSED",
+        ].includes(a.state),
+        "CONTINUATION_UNKNOWN_DISPOSITION",
+      );
+  }
+  return { passed, rejected };
+}
 export function continuationReaderView(
   seriesDir: string,
   facility: string,
@@ -51,6 +88,7 @@ export function continuationReaderView(
 ) {
   const grades = new Map<TargetedRoute, ReturnType<typeof readerAction>>();
   const all: any[] = [];
+  let failedCalibrationAt: number | undefined;
   const readers = (["calibration", "c16-repeat1", "c12b"] as const).map(
     (route) => {
       const row = final.routes[route];
@@ -63,6 +101,7 @@ export function continuationReaderView(
           isDeepStrictEqual(list, attempts.map((a: any) => a.attempt).sort()),
         "CONTINUATION_READER_HISTORY",
       );
+      const history: BlindAttempt[] = [];
       for (const [index, attempt] of attempts.entries()) {
         const id = attempt.attempt;
         requireThat(
@@ -132,15 +171,115 @@ export function continuationReaderView(
             "CONTINUATION_DISPATCH_IDENTITY",
           );
         }
+        const wire = fs.existsSync(transport)
+          ? JSON.parse(read(transport).toString())
+          : null;
+        const complete =
+          wire?.http_status === 200 &&
+          ["length", "stop"].includes(wire.finish_reason) &&
+          !wire.stream_incomplete &&
+          !wire.transport_exception_type;
+        const received = ["GRADED", "READER_RECEIPT_REJECTED"].includes(
+          attempt.state,
+        );
+        requireThat(
+          received === complete &&
+            (!received || attempt.physical_dispatches === 1),
+          "CONTINUATION_RECEIPT_CLASS",
+        );
+        let calibrationTime;
+        if (
+          received &&
+          (fs.existsSync(input("assessment.json")) ||
+            attempt.state === "GRADED" ||
+            fs.existsSync(
+              restore
+                ? input("recovery/" + restore + "/a-receipt.json")
+                : input("a-receipt.json"),
+            ))
+        ) {
+          const verified = readerAction(
+            "verify",
+            seriesDir,
+            final.series_sha256,
+            route,
+            facility,
+            id,
+            restore ?? undefined,
+          );
+          requireThat(
+            "official" in verified &&
+              verified.accepted === (attempt.state === "GRADED") &&
+              isDeepStrictEqual(verified, parsed("assessment.json")),
+            "CONTINUATION_RECEIPT_REPLAY",
+          );
+          calibrationTime = Date.parse(verified.calibration_native_at);
+        }
+        if (attempt.state === "CONFIRMED_UNSENT")
+          requireThat(
+            !attempt.physical_dispatches,
+            "CONTINUATION_FALSE_UNSENT",
+          );
+        if (attempt.state === "PROVIDER_REFUSED")
+          requireThat(
+            attempt.physical_dispatches === 1 &&
+              [400, 401, 402, 403, 404, 413, 422, 429].includes(
+                wire?.http_status,
+              ),
+            "CONTINUATION_FALSE_REFUSAL",
+          );
+        if (attempt.state === "RECONCILED_NO_GRADE") {
+          const evidence = parsed("provider-evidence.json"),
+            source = parsed("provider-source");
+          requireThat(
+            original.state === "PENDING_RECONCILIATION" &&
+              evidence.resolution === "NO_COMPLETED_GRADE" &&
+              evidence.series_sha256 === ctx.series_sha256 &&
+              evidence.route === route &&
+              evidence.attempt === id &&
+              evidence.packet_sha256 === ctx.packet_sha256 &&
+              [
+                "AUTHENTICATED_PROVIDER_NO_COMPLETION",
+                "AUTHENTICATED_PROVIDER_REJECTION",
+              ].includes(evidence.basis) &&
+              evidence.wire_sha256 === parsed("a-dispatch.json").wire_sha256 &&
+              source.wire_sha256 === evidence.wire_sha256 &&
+              source.resolution === evidence.resolution &&
+              !!source.provider_reference &&
+              source.provider_reference === evidence.provider_reference &&
+              sha(read(input("provider-source"))) === evidence.source_sha256 &&
+              sha(read(input("provider-evidence.json"))) ===
+                attempt.reconciliation_sha256,
+            "CONTINUATION_NO_GRADE_PROOF",
+          );
+        }
+        const started = Date.parse(ctx.started_at);
+        if (route !== "calibration" && failedCalibrationAt !== undefined)
+          requireThat(
+            started < failedCalibrationAt,
+            "CONTINUATION_AFTER_FAILED_CALIBRATION",
+          );
+        history.push({
+          id,
+          state: attempt.state,
+          started,
+          calibrationTime,
+          previousCalibration: ctx.previous_calibration,
+        });
         all.push(attempt);
       }
+      const decision = blindHistory(route, history);
+      if (route === "calibration" && decision.rejected)
+        failedCalibrationAt = decision.rejected.started;
       let mark;
       if (row.status === "GRADED") {
         const selected = JSON.parse(
           read(path.join(ex, "selection.json")).toString(),
         );
         requireThat(
-          selected.attempt === row.selected_attempt &&
+          !decision.rejected &&
+            decision.passed?.id === selected.attempt &&
+            selected.attempt === row.selected_attempt &&
             attempts.some(
               (a: any) =>
                 a.state === "GRADED" && a.attempt === selected.attempt,
@@ -172,12 +311,20 @@ export function continuationReaderView(
           row.status === "NOT_TESTED" &&
             !row.assessment &&
             !row.selected_attempt &&
-            !fs.existsSync(path.join(ex, "selection.json")),
+            (!fs.existsSync(path.join(ex, "selection.json")) ||
+              (route === "calibration" &&
+                decision.rejected &&
+                decision.passed?.id ===
+                  JSON.parse(read(path.join(ex, "selection.json")).toString())
+                    .attempt)),
           "CONTINUATION_TERMINAL",
         );
         requireThat(
           (!Object.hasOwn(f.routes, route) &&
             row.reason === f.unavailable?.[route as "c12b" | "c16-repeat1"]) ||
+            (row.reason === "CALIBRATION_FAILED" &&
+              failedCalibrationAt !== undefined) ||
+            (row.reason === "FIRST_RECEIPT_REJECTED" && !!decision.rejected) ||
             (row.reason === "CONFIRMED_SECRETARY_SYSTEM_FAILURE" &&
               !!final.confirmed_system_failure_sha256) ||
             (row.reason === "NO_ELIGIBLE_CANDIDATE" &&

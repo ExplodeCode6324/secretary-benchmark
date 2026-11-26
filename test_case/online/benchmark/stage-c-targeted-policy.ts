@@ -54,17 +54,17 @@ export const continuationWorkload = {
   decision_sha256:
     "4d91dfed5e67adefab65d28d7697c2e46e2eb02ea17dae20ed7688ecb12f177d",
   reader_operator_release_sha256:
-    "d5b08a410acea24718a8be79bf744f67327d2200003985ee8ab1084a8d53be9e",
+    "96fee3f5ddf40f2394a24aefa1d64fa5b2d0bad8e0772d24599902afda30ee74",
   reader_native_sha256:
     "acfef87d7d7ef2c2af25a2fbdac9a6bec2cd6e51e1ca21b8e2042850d3f6cd6f",
   reader_package_sha256:
-    "075a434c9114922da49a7597bbc99e45e00b9c9be58e3af1c62b5b5ef1688410",
+    "bf0040116ba25e8ca03d9c68cc6c787630fb1a58440cc07f75d779cc8171d1f4",
   workload_equivalent_cap: null,
   reader_equivalent_cap: null,
   proof_verifier_sha256:
-    "c3363c93fc5da6cf1692c272d1a148d05b3722577709f3d9030df2698d43232b",
+    "493dbf54ea6e7d6be6615e1b42cce59e5ee7c6fb7c4712e0aad1f528f2a4cea2",
   before_observation_sha256:
-    "5bfd8f4e3fb6a351e2353933c32b17be7c0b4403e6551c36fa9af50b3995d0c8",
+    "9d46c46dc8b07f06b425e6a171db96369a75213b6160c992ed7dd8bcfc4ba7c3",
   request_budget: null,
   interruption_policy: "RECONCILE_AND_CONTINUE",
   stop_policy: "CONFIRMED_SECRETARY_SYSTEM_FAILURE_ONLY",

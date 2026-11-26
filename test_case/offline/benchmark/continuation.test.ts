@@ -70,3 +70,48 @@ test("only the failed call and matching context authorize a product resume", (t)
   appendJSON(backoff, { retry_at: retryTime("1", 2000) });
   assert.equal(providerRetryAt(root), 61000);
 });
+
+import { blindHistory } from "../../online/benchmark/targeted-result.ts";
+
+test("a received reader result closes the position and only an expired passed calibration may refresh", () => {
+  const graded = {
+    id: "first",
+    state: "GRADED",
+    started: 0,
+    calibrationTime: 500,
+  };
+  const failed = { ...graded, state: "READER_RECEIPT_REJECTED" };
+  const retry = {
+    id: "next",
+    state: "GRADED",
+    started: 86400500,
+    previousCalibration: "first",
+  };
+  assert.throws(
+    () => blindHistory("calibration", [failed, retry]),
+    /REPEAT_AFTER_RECEIPT/,
+  );
+  assert.throws(
+    () => blindHistory("c16-repeat1", [graded, retry]),
+    /DUPLICATE_GRADE/,
+  );
+  assert.throws(
+    () =>
+      blindHistory("calibration", [graded, { ...retry, started: 86400499 }]),
+    /DUPLICATE_GRADE/,
+  );
+  assert.throws(
+    () =>
+      blindHistory("c12b", [
+        { ...failed, state: "PENDING_RECONCILIATION" },
+        retry,
+      ]),
+    /REPEAT_AFTER_RECEIPT/,
+  );
+  assert.equal(blindHistory("calibration", [graded, retry]).passed?.id, "next");
+  assert.equal(
+    blindHistory("c12b", [{ ...failed, state: "RECONCILED_NO_GRADE" }, retry])
+      .passed?.id,
+    "next",
+  );
+});

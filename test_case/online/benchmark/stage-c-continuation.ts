@@ -122,6 +122,32 @@ export function boundModelBlock(root: string, run: Run) {
     (s: any) => s.id === observed.session_id && s.state === "RECOVERY_BLOCKED",
   );
   if (!session) return;
+  const cancelled =
+    /^Error: MODEL_TRANSPORT_CANCELLED:([a-f0-9-]{36}): Error: CORE_STOPPING$/.exec(
+      session.recovery_error ?? "",
+    );
+  if (cancelled && !session.model_blocked_call && run.endpoint) {
+    const call = observed.calls.find(
+      (c: any) =>
+        c.id === cancelled[1] &&
+        c.scope?.session_id === session.id &&
+        c.state === "INTERRUPTED" &&
+        c.failure_kind === "CANCELLED" &&
+        c.error === "Error: CORE_STOPPING" &&
+        !c.response,
+    );
+    if (
+      call &&
+      lines(path.join(root, "campaign", "stage-c-controller-stops.jsonl")).some(
+        (stop) =>
+          stop.run === run.id &&
+          stop.domain === run.endpoint!.data_domain_id &&
+          stop.started <= Date.parse(call.completed_at) &&
+          Date.parse(call.completed_at) <= stop.ended,
+      )
+    )
+      return { session, call };
+  }
   const localID = /^Error: MODEL_TRANSPORT_LOCAL:([a-f0-9-]{36}):/.exec(
     session.recovery_error ?? "",
   )?.[1];

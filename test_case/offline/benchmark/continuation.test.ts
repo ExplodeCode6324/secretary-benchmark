@@ -71,6 +71,51 @@ test("only the failed call and matching context authorize a product resume", (t)
   assert.equal(providerRetryAt(root), 61000);
 });
 
+test("a cancelled native call can resume only within its own controller stop", (t) => {
+  const root = mkdtempSync(
+    path.join(realpathSync(os.tmpdir()), "controller-stop-"),
+  );
+  t.after(() => rmSync(root, { recursive: true }));
+  const run = {
+    id: "run",
+    endpoint: { data_domain_id: "domain" },
+    evidence: path.join(root, "evidence"),
+  } as Run;
+  const id = "e92d2b03-9d14-4369-ac39-7be91d459b4e";
+  const at = Date.now();
+  const call = {
+    id,
+    scope: { session_id: "session" },
+    state: "INTERRUPTED",
+    failure_kind: "CANCELLED",
+    error: "Error: CORE_STOPPING",
+    completed_at: new Date(at).toISOString(),
+  };
+  writeJSON(path.join(run.evidence, "observed.json"), {
+    session_id: "session",
+    sessions: [
+      {
+        id: "session",
+        state: "RECOVERY_BLOCKED",
+        recovery_error:
+          "Error: MODEL_TRANSPORT_CANCELLED:" + id + ": Error: CORE_STOPPING",
+      },
+    ],
+    calls: [call],
+  });
+  mkdirSync(path.join(root, "campaign"));
+  const file = path.join(root, "campaign", "stage-c-controller-stops.jsonl");
+  for (const stop of [
+    { run: "other", domain: "domain", started: at, ended: at },
+    { run: "run", domain: "other", started: at, ended: at },
+    { run: "run", domain: "domain", started: at + 1, ended: at + 2 },
+  ])
+    appendJSON(file, stop);
+  assert.equal(boundModelBlock(root, run), undefined);
+  appendJSON(file, { run: "run", domain: "domain", started: at, ended: at });
+  assert.equal(boundModelBlock(root, run)?.call.id, id);
+});
+
 import { blindHistory } from "../../online/benchmark/targeted-result.ts";
 
 test("a received reader result closes the position and only an expired passed calibration may refresh", () => {

@@ -175,7 +175,20 @@ export async function completionCommand(
           r.config.lane === state.current &&
           !["RETIRED", "CLEANED"].includes(r.state)
         ) {
+          const stopStarted = Date.now();
           await d.seal(r.id);
+          if (continuing && r.endpoint && r.process) {
+            appendJSON(
+              path.join(root, "campaign", "stage-c-controller-stops.jsonl"),
+              {
+                run: r.id,
+                domain: r.endpoint.data_domain_id,
+                pid: r.process.pid,
+                started: stopStarted,
+                ended: Date.now(),
+              },
+            );
+          }
           ownedRun = r.id;
         }
       }

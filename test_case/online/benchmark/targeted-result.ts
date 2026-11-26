@@ -411,10 +411,28 @@ export function continuationReaderView(
         requireThat(
           (row.status === "NOT_TESTED" ||
             (publication &&
-              route !== "calibration" &&
               row.status === "UNRESOLVED" &&
-              ((row.reason === "FIRST_RECEIPT_REJECTED" &&
-                !!decision.rejected) ||
+              ((row.reason === "CALIBRATION_UNAVAILABLE_AT_PUBLICATION" &&
+                route !== "calibration" &&
+                Object.hasOwn(f.routes, route) &&
+                !decision.passed &&
+                !decision.rejected &&
+                !attempts.some(
+                  (a: any) => a.state === "PENDING_RECONCILIATION",
+                ) &&
+                (final.routes.calibration.status === "UNRESOLVED" ||
+                  (final.publication.predecessor_sha256 &&
+                    json(
+                      path.join(
+                        path.dirname(seriesDir),
+                        final.publication.predecessor_sha256,
+                        "series-final.json",
+                      ),
+                      final.publication.predecessor_sha256,
+                    ).routes[route]?.reason === row.reason))) ||
+                (route !== "calibration" &&
+                  row.reason === "FIRST_RECEIPT_REJECTED" &&
+                  !!decision.rejected) ||
                 (["PENDING_RECONCILIATION", "RECONCILED_NO_GRADE"].includes(
                   row.reason,
                 ) &&
@@ -426,7 +444,8 @@ export function continuationReaderView(
             !row.selected_attempt &&
             (!fs.existsSync(path.join(ex, "selection.json")) ||
               (route === "calibration" &&
-                decision.rejected &&
+                (decision.rejected ||
+                  (publication && row.status === "UNRESOLVED")) &&
                 decision.passed?.id ===
                   JSON.parse(read(path.join(ex, "selection.json")).toString())
                     .attempt)),

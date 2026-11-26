@@ -54,11 +54,11 @@ export const continuationWorkload = {
   decision_sha256:
     "66c76890ba4901e2ceceff61a897d900f941e5087e8c0059a4bfb0c0629c933c",
   reader_operator_release_sha256:
-    "328461e161f76233205685a03747e99a760546a53ac9a33efeb08e469766afca",
+    "edbbac72c6b6f324061b6530b7b5fca5b3e5893f21ec3b601bc19b64a638024a",
   reader_native_sha256:
     "acfef87d7d7ef2c2af25a2fbdac9a6bec2cd6e51e1ca21b8e2042850d3f6cd6f",
   reader_package_sha256:
-    "eb42b99ee6fc315108d35e29a0befbe086c94b5711f1733a2dda35b8ecbcd766",
+    "e75dc4e6b84ab9ec66a6ae4092a38658fb58f3e86635de219a4263e725fe2112",
   workload_equivalent_cap: null,
   reader_equivalent_cap: null,
   proof_verifier_sha256:

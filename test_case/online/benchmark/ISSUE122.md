@@ -97,3 +97,20 @@ Run `python3 scripts/export-issue122-coverage.py --output coverage.json` to rebu
 At C16 repeat 1 the historical official result had PASS for `natural_access`, `use_current` and `authority_chain`, and UNRESOLVED for `maintenance_current`. All four are NOT_TESTED in the unassessed Go position. Its fifth assertion, `item_lineage`, was already NOT_TESTED. The other replacements leave the counts unchanged.
 
 A copied evidence bundle with the published supplement produces the same two tables. A baseline-only copy produces the historical table. The CLI summary and output file identify the included tables in `tables`. The two open live gates prevent merge readiness. To replay the pre-activation result from private verified archive members, run `node --import tsx test_case/online/benchmark/targeted-result.ts --activation-blocked ABSOLUTE_WORKLOAD_DIRECTORY evidence/issue122-reader-activation-blocked.json`.
+
+### R79 independent C12b and C16 repeat 1 (2026-11-26)
+
+The frozen workload ran on benchmark `a15268d`, Secretary `873b66f4` and the Go catalogue entry DeepSeek V4.1 Flash 1017 (`deepseek-v4.1-flash`). The freeze digest is `4f24dd26c0c3621dd0c87e0104ddfac028d2f209fe69cc41737ea4f709f61d32`. The normal coverage export now produces three tables. The third table replaces only seven repeat-1 assertion positions. All 189 positions and the 99 original observations retain their provenance. [Measured retest](../../../evidence/issue122-targeted-retest.json)
+
+| Position | Live evidence | Disposition |
+|---|---|---|
+| C12b repeat 1 | Eight HTTP responses. Exactly one write and a witnessed old-process exit. After a direct same-domain restart the operation reached UNKNOWN, verification was accepted, and reconciliation found the expected content. Both grading checks accepted the original blind response. | PASS for effects and obligation. Required live witness obtained. |
+| C16 repeat 1 | Seventy HTTP responses, 50 inputs and one maintenance cycle recorded. Secretary entered CAPACITY_BLOCKED with 85,270 input tokens against 85,196 usable. The trial ended before the final observation. | UNRESOLVED. The five assertion positions are NOT_TESTED. Repeats 2 and 3 retain their measured maintenance FAILs. The 3/3 adjudicability gate remains open at 2/3. |
+
+R79 coverage is **95 PASS, 12 FAIL, 1 UNRESOLVED and 81 NOT_TESTED**. The R71 table above remains available as `effective_assertion_coverage`. C06 reader candidates 98 and 99 remain unassessed and are optional for this gate. The C16 capacity stop occurred within Secretary. This run had zero transport retries, preparation quarantines and seal/checkpoint gaps. Resumption still depends on proving an intact checkpoint. A crash during physical database preparation after cluster initialization was outside the rehearsed cases.
+
+The workload forecast was 265 requests and US$1.26174210 list-equivalent. Actuals were 78 HTTP responses, 902,917 input and 41,939 output tokens, US$0.15657433 list-equivalent and US$0 reported cash. The reader forecast was US$0.28508160 equivalent. Calibration and the C12b candidate used two calls, 10,803 input and 47,413 output tokens, US$0.03006825 equivalent and US$0 reported cash. Calibration matched 28 controls and supplied the basis for the C12b grade. All 80 requests have usage receipts. Historical uncertain request 97 remains separately recorded.
+
+The verified NAS workload archive covers 5,538 files, SHA-256 `f514438af3fe3d4ca6966e65d8f7945c0b34ea2c58f03716d1c20413eea680e7`. The reader archive has 82 verified members, SHA-256 `6f2c9262ee2639f9f88e732c96cf01d8b0c3c0a1d822a16ee3b4e24cbb64d74b`. The latest and only reader publication is `240359819c5ee3db5886c0253547220b26480912230157dd1a5142f9191bcd6a`. Independent replay from both archives verified that publication with zero provider calls.
+
+中文：C12b 已取得真实恢复见证，副作用和义务两项均通过。C16 第一次重复在第 50 个输入后触发 Secretary 容量阻塞，缺少最终观测，按预先裁定保留未决。第 2、3 次维护断言的原始失败继续计入。原批次剩余合并阻塞为 C16 仍只有 2/3 次可裁定。后续自动化及原生对照实验在 #122 单列。

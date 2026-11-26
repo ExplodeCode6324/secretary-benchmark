@@ -73,7 +73,19 @@ test("copied evidence identifies both tables and verifies the supplemental bytes
     assert.deepEqual(copied.tables, ["historical", "effective"]);
     const canonical = spawnSync("python3", [script, "--output", file], { encoding: "utf8" });
     assert.equal(canonical.status, 0, canonical.stderr);
-    assert.deepEqual(copied, JSON.parse(readFileSync(file, "utf8")));
+    const current = JSON.parse(readFileSync(file, "utf8"));
+    assert.deepEqual(copied.effective_assertion_coverage, current.effective_assertion_coverage);
+    assert.deepEqual(copied.matrix, current.matrix);
+    const retest = "issue122-targeted-retest.json";
+    copyFileSync(join("evidence", retest), join(dir, retest));
+    const withRetest = exported("--output", file);
+    assert.equal(withRetest.status, 0, withRetest.stderr);
+    assert.deepEqual(current.tables, ["historical", "effective", "retest"]);
+    assert.deepEqual(current.matrix, copied.matrix);
+    assert.deepEqual(current.effective_assertion_coverage, copied.effective_assertion_coverage);
+    assert.deepEqual(current, JSON.parse(readFileSync(file, "utf8")));
+    writeFileSync(join(dir, retest), "{}");
+    assert.match(exported().stderr, /Evidence digest mismatch/);
     writeFileSync(join(dir, name), "{}");
     assert.match(exported().stderr, /Evidence digest mismatch/);
   } finally {

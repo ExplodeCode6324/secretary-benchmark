@@ -9,6 +9,7 @@ BASE_SHA = "2c900be744be13ae1646242b9243c6f908e82a63204d2ec9b30bacb0062017a3"
 EVIDENCE = Path(__file__).resolve().parents[1] / "evidence"
 FIXTURE_SHA = "c33c2f477b79ad09c5cf991ac808680a6b5f8a67c0343597a27f44328659078e"
 PUBLISHED_SUPPLEMENT_SHA = "fa9333ee77eeb904b6ef778b774cd74ccd6dbebabc2cdf71ffa9bd029088798c"
+PUBLISHED_RETEST_SHA = "b362fe27edc09c4d6b1505219f3d86cefc86293e6a0809436780cf9a46d2a76e"
 LINEAGE_CASES = {"C08-inference", "C09-finished", "C16-combined"}
 
 
@@ -160,6 +161,10 @@ def main():
         parser.error("--retest and --retest-sha256 must be supplied together")
     if args.rehearsal and not args.retest:
         parser.error("--rehearsal requires an offline --retest result")
+    published_retest = args.evidence / "issue122-targeted-retest.json"
+    if args.retest is None and (published_retest.exists() or args.evidence.resolve() == EVIDENCE.resolve()):
+        args.retest = published_retest
+        args.retest_sha256 = PUBLISHED_RETEST_SHA
     if args.retest:
         retest = checked_bytes(args.retest, args.retest_sha256)
         if (args.supplement_sha256 != PUBLISHED_SUPPLEMENT_SHA or

@@ -103,7 +103,7 @@ export function checkTargetedInputs(scope: TargetedPolicy, root?: string) {
       scope.series === continuationWorkload.series &&
       isGoRehearsal(root) &&
       sha(file("targeted-carry.json")) ===
-        "03dcd0c9503dd0b606aa84c10b76d729db27cf9fdbaeeb8a5af89b7061696948"
+        "ab7f29c96ee062d998504f4044506b1eb2e625e038a64e3304ae7bf40eb7ac86"
     ) {
       for (const name of ["reader-before.json", "targeted-decisions.json"])
         requireThat(

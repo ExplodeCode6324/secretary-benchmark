@@ -1168,8 +1168,23 @@ export function meteredFetch(
       try {
         const backoff = providerRetryAt(options.root) - Date.now();
         if (backoff > 0) {
-          if (!deadline || Date.now() + backoff + 65000 > deadline)
+          if (!deadline || Date.now() + backoff + 65000 > deadline) {
+            appendRefusal(options.root, {
+              lane: options.lane,
+              run: options.run,
+              role: ctx?.role,
+              context_sha256: ctx?.context_sha256,
+              model_call: options.callID?.(ctx?.context_sha256),
+              deadline,
+              started: Date.now(),
+              reason: "GO_PROVIDER_RETRY_AFTER",
+              phase: "BEFORE_ACCOUNT_ADMISSION",
+              request_sha256: sha(
+                Buffer.from(await request.clone().arrayBuffer()),
+              ),
+            });
             throw Error("GO_PROVIDER_RETRY_AFTER");
+          }
           await delay(backoff, undefined, { signal: request.signal });
         }
         response = await sendOnce(request.clone());

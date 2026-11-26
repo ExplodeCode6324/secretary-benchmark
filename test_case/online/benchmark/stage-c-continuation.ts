@@ -127,7 +127,13 @@ export async function resumeModelBlock(root: string, run: Run) {
     if (e.attempt.run !== run.id || !e.settled || !externalOutcome(e.outcome))
       return false;
     const file = path.join(run.evidence, "send-" + e.attempt.id + ".json");
-    return fs.existsSync(file) && readJSON(file).model_call === call.id;
+    if (!fs.existsSync(file)) return false;
+    const send = readJSON(file);
+    return (
+      send.id === e.attempt.id &&
+      send.model_call === call.id &&
+      send.attribution?.context_sha256 === call.request.sha256
+    );
   });
   if (!refused && !sent) return;
   const request_id = stableID(

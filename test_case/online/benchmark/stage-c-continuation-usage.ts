@@ -22,26 +22,33 @@ export function continuationUsage(root: string) {
   const evidenceRows = (name: string) =>
     runs.flatMap((run) => lines(path.join(root, "evidence", run, name)));
   const httpCount = new Set(evidenceRows("http.jsonl").map((r) => r.id)).size;
-  const modelForecast = readJSON(
-    path.join(root, "inputs/stage-c-preflight.json"),
-  ).forecast["deepseek-flash"];
   const workloadForecast = forecast.batches.flat().map((row: any) => ({
     lane: row.lane.lane,
     expected_sends: row.forecast.expected_sends,
     range_sends: row.forecast.range.sends,
     input_tokens:
-      row.forecast.expected_sends * modelForecast.expected_input_tokens,
+      row.forecast.expected_sends * row.metered_basis.expected_input_tokens,
     output_tokens:
-      row.forecast.expected_sends * modelForecast.expected_output_tokens,
+      row.forecast.expected_sends * row.metered_basis.expected_output_tokens,
     seconds: row.forecast.expected_seconds,
     peak_rate_equivalent_usd: row.forecast.expected_usd,
   }));
+  const allowance = sends.map((e) => (e.usage as any)?.go_meter?.allowance);
+  const earliest = entries.map((e) => Date.parse(e.attempt.at)),
+    last = entries.map((e) => Date.parse(e.settled_at ?? e.attempt.at));
   return {
     forecast: workloadForecast,
     actual: {
       model_transport_retries: evidenceRows("stage-c-model-retries.jsonl")
         .length,
       reservations: entries.length,
+      measured_send_span_seconds: entries.length
+        ? (Math.max(...last) - Math.min(...earliest)) / 1000
+        : 0,
+      subscription_allowance: {
+        known_receipts: allowance.filter((v) => v != null),
+        unknown_requests: allowance.filter((v) => v == null).length,
+      },
       possible_provider_sends: sends.length,
       confirmed_http_responses: httpCount,
       refused_before_post: lines(

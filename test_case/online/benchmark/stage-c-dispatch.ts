@@ -1,6 +1,9 @@
 import { retestWorkload } from "./stage-c-targeted-policy.ts";
 import { residualDefinition } from "./stage-c-go-residual.ts";
-import { localGoAmounts } from "./stage-c-go-local-usage.ts";
+import {
+  allGoReservationsSettled,
+  localGoAmounts,
+} from "./stage-c-go-local-usage.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { Domains } from "./domain.ts";
@@ -323,6 +326,16 @@ export async function completionCommand(
             ...(fs.existsSync(file) ? { report_sha256: sha(read(file)) } : {}),
           };
         } finally {
+          if (
+            inputs.targeted_supplement?.series === retestWorkload.series &&
+            !allGoReservationsSettled(root, hash, ledger(root))
+          ) {
+            const reason = "GO_TARGETED_UNRESOLVED_AT_CLOSURE";
+            holdGo(hash, reason);
+            const terminal = state.terminals[l.lane];
+            terminal.status = "INCOMPLETE";
+            terminal.reason ??= reason;
+          }
           writeJSON(activeFile, { ...active, state: "CLOSED" });
           state.current = null;
           writeJSON(stateFile, state);
@@ -335,6 +348,14 @@ export async function completionCommand(
         reason: "BATCH_STOPPED",
       };
     await d.closeStoppedCampaign();
+    // An owned worker may have exited while its controller survived. A missing
+    // settlement in either durable ledger also fences the independent reader.
+    if (
+      inputs.targeted_supplement?.series === retestWorkload.series &&
+      !allGoReservationsSettled(root, hash, ledger(root))
+    ) {
+      holdGo(hash, "GO_TARGETED_UNRESOLVED_AT_CLOSURE");
+    }
     if (usesGo) await closeGoFacility(root, hash);
     state.ended = true;
     writeJSON(stateFile, state);

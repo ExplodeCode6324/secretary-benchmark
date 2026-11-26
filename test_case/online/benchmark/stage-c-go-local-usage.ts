@@ -1,3 +1,4 @@
+import type { ledger } from "./campaign.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { mkdir, readJSON, writeJSON, repository, requireThat } from "./io.ts";
@@ -31,6 +32,15 @@ function directory(root: string) {
 function entry(root: string, id: string) {
   requireThat(/^[a-zA-Z0-9-]{1,120}$/.test(id), "GO_LOCAL_RESERVATION_ID");
   return path.join(directory(root), id + ".json");
+}
+export function allGoReservationsSettled(
+  root: string,
+  freeze: string,
+  book: ReturnType<typeof ledger>,
+) {
+  return [...book.entries.values()].every(
+    (e) => e.settled && settledGoReservation(root, e.attempt.id, freeze),
+  );
 }
 export function settledGoReservation(root: string, id: string, freeze: string) {
   const file = entry(root, id);

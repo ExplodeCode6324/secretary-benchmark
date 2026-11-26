@@ -486,3 +486,30 @@ test("deadline refusal inside the reservation lease charges zero and leaves no r
     /UNSENT_PROOF/,
   );
 });
+
+import {
+  allGoReservationsSettled,
+  recordGoReservation,
+  settleGoReservation,
+} from "../../online/benchmark/stage-c-go-local-usage.ts";
+test("an orphan or mismatched shared debit keeps the reader fenced after a supervised exit", (t) => {
+  const parent = path.join(repository, ".local/benchmark/tests");
+  fs.mkdirSync(parent, { recursive: true });
+  const root = fs.mkdtempSync(path.join(parent, "retest-settlement-"));
+  t.after(() => fs.rmSync(root, { recursive: true }));
+  const entry = { settled: true, attempt: { id: "mock-request" } };
+  const book = { entries: new Map([["mock-request", entry]]) } as any;
+  assert.equal(allGoReservationsSettled(root, "freeze", book), false);
+  const expiry = { resetsAt: new Date(Date.now() + 60000).toISOString() };
+  recordGoReservation(root, entry.attempt.id, "freeze", 0.1, {
+    weekly: expiry,
+    monthly: expiry,
+    rolling: expiry,
+  });
+  assert.equal(allGoReservationsSettled(root, "freeze", book), false);
+  settleGoReservation(root, entry.attempt.id, 0.1);
+  assert.equal(allGoReservationsSettled(root, "freeze", book), true);
+  assert.equal(allGoReservationsSettled(root, "foreign", book), false);
+  entry.settled = false;
+  assert.equal(allGoReservationsSettled(root, "freeze", book), false);
+});

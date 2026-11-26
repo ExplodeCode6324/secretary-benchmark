@@ -4,7 +4,7 @@ import { elmNote } from "./stage-b-scenarios-protocol.ts";
 import { installStageCFault } from "./stage-c-fault.ts";
 import { retestWorkload } from "./stage-c-targeted-policy.ts";
 import { recoverySender } from "./stage-c-recovery-sender.ts";
-import { settledGoReservation } from "./stage-c-go-local-usage.ts";
+import { allGoReservationsSettled } from "./stage-c-go-local-usage.ts";
 import { ledger, loadCampaign } from "./campaign.ts";
 import { forbiddenPayload } from "./payload-guard.ts";
 // Owned fixture/live entry. A detached sender owns its durable campaign accounting.
@@ -85,11 +85,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         const root = run.live.facility,
           freeze = run.config.freeze_sha256;
         faultGate = recoverySender(
-          () =>
-            [...ledger(root).entries.values()].every(
-              (e) =>
-                e.settled && settledGoReservation(root, e.attempt.id, freeze),
-            ),
+          () => allGoReservationsSettled(root, freeze, ledger(root)),
           () =>
             !!app?.store
               .all<ModelCall>("ModelCall")

@@ -176,6 +176,10 @@ export function installStageCFault(
         const record = { ...fields(op), observed_hash: proof.evidence.sha256 };
         appendJSON(writes, record);
         if (!fs.existsSync(barrier)) {
+          if (gate && record.observed_hash !== record.expected_hash) {
+            recordFailure(id, "C12B_PREFAULT_CONTENT_MISMATCH");
+            return park();
+          }
           if (gate && (!gate.writing || !gate.check())) {
             recordFailure(id, "C12B_SENDER_NOT_QUIESCENT");
             return park();

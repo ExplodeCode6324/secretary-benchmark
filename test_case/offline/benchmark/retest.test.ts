@@ -376,3 +376,66 @@ test("R71 published view is reproduced unchanged beneath the two retest position
   });
   assert.deepEqual([...seen].sort(), ["C12b", "C16-combined"]);
 });
+
+import { installStageCFault } from "../../online/benchmark/stage-c-fault.ts";
+test("a verified physical write with incorrect initial bytes is recorded before the crash barrier", (t) => {
+  const dir = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "retest-prefault-")),
+  );
+  t.after(() => fs.rmSync(dir, { recursive: true }));
+  const resource = path.join(dir, "continuity.txt");
+  fs.writeFileSync(resource, "wrong");
+  const op = {
+    id: "op",
+    state: "DISPATCHED",
+    scope: { execution_id: "e" },
+    action: { action: "file.write", resource, parameters_hash: "p" },
+  };
+  const auth = {
+    finish(_id: string, _receipt: any, _outcome: any) {},
+    dispatch() {},
+  };
+  const run = "c719ab53-25b4-490b-9172-604f650aa84f",
+    request = deliveryRequest(run, nativeWriteRecipe);
+  const store = {
+    all: () => [],
+    find: () => ({ owner_id: "domain" }),
+    get: (kind: string) =>
+      kind === "Operation"
+        ? op
+        : kind === "Execution"
+          ? { task_id: "task" }
+          : { proposal_request_id: request },
+    bytes: () => Buffer.from("wrong"),
+  };
+  installStageCFault(
+    { authorization: auth, store } as any,
+    { id: run, lineage: "lineage", evidence: dir } as any,
+    () => {
+      throw Error("PARK");
+    },
+    { writing: true, check: () => true },
+  );
+  assert.throws(
+    () =>
+      auth.finish(
+        "op",
+        { result: {}, evidence: { sha256: sha("wrong") } },
+        "APPLIED",
+      ),
+    /PARK/,
+  );
+  assert.equal(
+    JSON.parse(
+      fs.readFileSync(path.join(dir, "stage-c-target-failure.json"), "utf8"),
+    ).reason,
+    "C12B_PREFAULT_CONTENT_MISMATCH",
+  );
+  assert.equal(
+    JSON.parse(
+      fs.readFileSync(path.join(dir, "stage-c-physical-writes.jsonl"), "utf8"),
+    ).observed_hash,
+    sha("wrong"),
+  );
+  assert.equal(fs.existsSync(path.join(dir, "stage-c-barrier.json")), false);
+});

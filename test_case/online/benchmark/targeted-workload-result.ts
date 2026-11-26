@@ -135,6 +135,54 @@ export function targetedWorkloadResult(
       return bytes.toString();
     };
     const barrier = JSON.parse(member("stage-c-barrier.json") ?? "null");
+    const failure = JSON.parse(member("stage-c-target-failure.json") ?? "null");
+    if (!barrier && failure?.reason === "C12B_PREFAULT_CONTENT_MISMATCH") {
+      const writes = (member("stage-c-physical-writes.jsonl") ?? "")
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((v) => JSON.parse(v));
+      const dispatched = (member("stage-c-write-attempts.jsonl") ?? "")
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((v) => JSON.parse(v));
+      const w = writes[0];
+      requireThat(
+        failure.run === terminal.run &&
+          failure.request ===
+            deliveryRequest(terminal.run, nativeWriteRecipe) &&
+          writes.length === 1 &&
+          w.run === terminal.run &&
+          w.request === failure.request &&
+          w.lineage === trial.recovery_lineage &&
+          w.operation === failure.operation &&
+          path.basename(w.resource) === delivery.name &&
+          w.expected_hash === sha(delivery.bytes) &&
+          /^[0-9a-f]{64}$/.test(w.observed_hash) &&
+          w.observed_hash !== w.expected_hash &&
+          dispatched.some((a) =>
+            [
+              "run",
+              "lineage",
+              "domain",
+              "request",
+              "execution",
+              "operation",
+              "resource",
+              "parameter_hash",
+              "pid",
+            ].every((k) => a[k] === w[k]),
+          ),
+        "RETEST_PREFAULT_CONTENT_BINDING",
+      );
+      mechanical = {
+        effects: "FAIL",
+        observed_writes: 1,
+        final_content_matches: false,
+      };
+      assertions.effects = "FAIL";
+    }
     if (barrier) {
       requireThat(
         barrier.run === terminal.run &&

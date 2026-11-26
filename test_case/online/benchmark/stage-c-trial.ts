@@ -178,6 +178,7 @@ export async function executeTrial(
       "stage-c-barrier.json",
       "stage-c-physical-writes.jsonl",
       "stage-c-write-attempts.jsonl",
+      "stage-c-target-failure.json",
       "stage-c-recovery-receipt.json",
     ]) {
       const file = path.join(run.evidence, name);

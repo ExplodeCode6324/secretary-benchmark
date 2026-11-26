@@ -216,6 +216,7 @@ export async function exerciseRecovery(
               "C12B_CAPABILITY_EXCLUDED",
               "C12B_WRITE_PROOF",
               "C12B_SENDER_NOT_QUIESCENT",
+              "C12B_PREFAULT_CONTENT_MISMATCH",
             ].includes(failure.reason),
           "C12B_FAILURE_BINDING",
         );

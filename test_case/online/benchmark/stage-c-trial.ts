@@ -183,7 +183,7 @@ export async function executeTrial(
       const file = path.join(run.evidence, name);
       if (fs.existsSync(file)) members[name] = sha(read(file));
     }
-    return { recovery_members: members };
+    return { recovery_lineage: run.lineage, recovery_members: members };
   };
   writeJSON(reportFile, report);
   const capture = async (r: Run, scenario = id, progress = trail) => {

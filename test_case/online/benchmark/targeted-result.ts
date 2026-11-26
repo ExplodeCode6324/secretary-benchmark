@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { read, repository, sha, requireThat } from "./io.ts";
@@ -296,6 +297,116 @@ function workloadSummary(
         (closure.series === retestSeries && workloads[1].verdict === "FAIL")),
   };
 }
+/** The independent proof digest must come from verified archive readback. */
+export function retestBeforeReader(
+  facility: string,
+  file: string,
+  digest: string,
+) {
+  const proof = json(file, digest);
+  const { workload_freeze_sha256: freeze, workload_dispatch_sha256: dispatch } =
+    proof;
+  const closure = checkWorkloadClosure(facility, freeze, dispatch);
+  const frozen = json(
+    path.join(facility, "configs/stage-c-freeze.json"),
+    freeze,
+  );
+  const scope = frozen.targeted_supplement;
+  const ledgerFile = path.join(facility, "campaign/attempts.jsonl");
+  const hash = (s: unknown) =>
+    typeof s === "string" && /^[a-f0-9]{64}$/.test(s);
+  requireThat(
+    closure.series === retestSeries &&
+      proof.series === closure.series &&
+      proof.schema === "issue122-r75-reader-activation-blocked-v1" &&
+      proof.status === "STOPPED_BEFORE_READER_ACTIVATION" &&
+      proof.series_final_sha256 === null &&
+      proof.workload_attempts_sha256 ===
+        (fs.existsSync(ledgerFile) ? sha(read(ledgerFile)) : null) &&
+      hash(proof.workload_closed_claim_sha256) &&
+      isDeepStrictEqual(proof.workload_terminals, closure.state.terminals) &&
+      hash(proof.proof_verifier_sha256) &&
+      scope.proof_verifier_sha256 === proof.proof_verifier_sha256 &&
+      hash(proof.before_observation_sha256) &&
+      scope.before_observation_sha256 === proof.before_observation_sha256 &&
+      scope.reader_operator_release_sha256 === proof.operator_release_sha256 &&
+      scope.reader_package_sha256 === proof.operator_package_sha256 &&
+      scope.reader_native_sha256 === proof.native_adapter_sha256 &&
+      (proof.stop === "WORKLOAD_HOLD"
+        ? hash(proof.workload_scoped_hold_sha256) &&
+          typeof proof.hold_reason === "string"
+        : proof.stop === "NO_ELIGIBLE_CANDIDATE" &&
+          proof.workload_scoped_hold_sha256 === null &&
+          proof.hold_reason === null),
+    "RETEST_PREACTIVATION_BINDING",
+  );
+  const routes = ["calibration", "c16-repeat1", "c12b"] as const;
+  requireThat(
+    isDeepStrictEqual(Object.keys(proof.routes).sort(), [...routes].sort()),
+    "RETEST_PREACTIVATION_ROUTES",
+  );
+  const readers = routes.map((route) => {
+    const r = proof.routes[route];
+    requireThat(
+      r.status === "NOT_TESTED" &&
+        r.reason === proof.stop &&
+        r.allow_resend === false &&
+        [
+          "reservations",
+          "launches",
+          "native_dispatches",
+          "possible_provider_sends",
+          "confirmed_provider_sends",
+        ].every((k) => r[k] === 0) &&
+        [
+          "official_sha256",
+          "supplemental_sha256",
+          "receipt_sha256",
+          "transport_sha256",
+        ].every((k) => r[k] === null),
+      "RETEST_PREACTIVATION_ROUTE",
+    );
+    return {
+      route,
+      status: r.status,
+      reason: r.reason,
+      native_dispatches: 0,
+      possible_provider_sends: 0,
+      confirmed_provider_sends: 0,
+      accepted: false,
+    };
+  });
+  requireThat(
+    [
+      "reservations",
+      "launches",
+      "possible_provider_sends",
+      "confirmed_provider_sends",
+      "allowance_equivalent_usd",
+      "cash_charge_usd",
+      "new_unresolved_reader_reservation_usd",
+    ].every((k) => proof.reader_totals[k] === 0),
+    "RETEST_PREACTIVATION_TOTALS",
+  );
+  return {
+    ...workloadSummary(facility, closure, () => undefined),
+    schema: "issue122-retest-result-v1",
+    parent_supplement_sha256:
+      "fa9333ee77eeb904b6ef778b774cd74ccd6dbebabc2cdf71ffa9bd029088798c",
+    workload_freeze_sha256: freeze,
+    dispatch_sha256: dispatch,
+    workload_provider: frozen.providers["deepseek-flash"].published_version,
+    workload_requested_model: frozen.role_model.main,
+    reader: frozen.grade.reader,
+    reader_rubric_sha256: frozen.grade.rubric_sha256,
+    reader_operator_release_sha256: proof.operator_release_sha256,
+    reader_activation_blocked_sha256: digest,
+    reader_activation: proof.status,
+    reader_stop: proof.stop,
+    reader_billing: proof.reader_totals,
+    readers,
+  };
+}
 /** Reconstruct the published pre-activation stop. Only the independently
  * archived disposition and its original workload ledger are admissible here. */
 export function blockedTargetedResult(facility: string, receiptPath: string) {
@@ -442,6 +553,14 @@ if (
   fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
 ) {
   const args = process.argv.slice(2);
+  if (args[0] === "--retest-before-reader") {
+    requireThat(args.length === 4, "RETEST_PREACTIVATION_ARGUMENTS");
+    process.stdout.write(
+      JSON.stringify(retestBeforeReader(args[1], args[2], args[3]), null, 2) +
+        "\n",
+    );
+    process.exit(0);
+  }
   if (args[0] === "--sealed-lane") {
     const [, root, freeze, route] = args;
     requireThat(

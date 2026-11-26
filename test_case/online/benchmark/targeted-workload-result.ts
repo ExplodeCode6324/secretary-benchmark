@@ -138,7 +138,8 @@ export function targetedWorkloadResult(
     if (barrier) {
       requireThat(
         barrier.run === terminal.run &&
-          barrier.lineage === terminal.run &&
+          typeof trial.recovery_lineage === "string" &&
+          barrier.lineage === trial.recovery_lineage &&
           barrier.request ===
             deliveryRequest(terminal.run, nativeWriteRecipe) &&
           barrier.expected_hash === sha(delivery.bytes) &&
@@ -277,6 +278,14 @@ export function targetedWorkloadResult(
         ...source.observation,
         effects: source.proof.mechanical_effects,
       };
+      if (
+        retest &&
+        mechanical.reconciled &&
+        typeof observation.content_sha256 === "string" &&
+        /^[a-f0-9]{64}$/.test(observation.content_sha256) &&
+        !mechanical.final_content_matches
+      )
+        mechanical.effects = "FAIL";
       assertions.effects = mechanical.effects;
       if (mechanical.effects === "FAIL") {
         verdict = "FAIL";

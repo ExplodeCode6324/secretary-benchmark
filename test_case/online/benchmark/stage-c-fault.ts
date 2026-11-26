@@ -83,7 +83,22 @@ export function installStageCFault(
               (c) =>
                 c.scope.execution_id === op.scope.execution_id &&
                 c.response &&
-                c.state === "RESPONSE_SAVED",
+                c.state === "RESPONSE_SAVED" &&
+                app.store
+                  .read<{
+                    content?: {
+                      type: string;
+                      name?: string;
+                      arguments?: { path?: string; content?: string };
+                    }[];
+                  }>(c.response)
+                  .content?.some(
+                    (part) =>
+                      part.type === "toolCall" &&
+                      part.name === "write" &&
+                      part.arguments?.path === delivery.name &&
+                      part.arguments?.content === delivery.bytes,
+                  ),
             )
             .map((c) => c.request.sha256),
         }

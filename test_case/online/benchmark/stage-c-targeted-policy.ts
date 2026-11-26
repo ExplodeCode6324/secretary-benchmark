@@ -39,6 +39,10 @@ export const retestWorkload = {
     "50d202461d7ff96286e6cbc5ed38cc23207f76fc624b48a4f9feb5763106a907",
   candidate_limit: 2,
   reader_equivalent_cap: 0.5013504,
+  proof_verifier_sha256:
+    "476979e03d5a42b52ec234d0e679d436893db9119d5e208c1088b56e349df534",
+  before_observation_sha256:
+    "37f3a9a57e6d28c9e64dd9fd901822b350553583d2073ac85ba7b76ab2a5baca",
   metadata_rechecks: 2,
   quota_read_timeout_ms: 5000,
   response_headroom_ms: 40000,
@@ -66,6 +70,17 @@ export function checkTargetedInputs(scope: TargetedPolicy, root?: string) {
   );
   if (root) {
     const file = (name: string) => read(path.join(root, "inputs", name));
+    if (scope.series === retestWorkload.series) {
+      const bytes = file("reader-before.json");
+      const record = JSON.parse(bytes.toString());
+      requireThat(
+        sha(bytes) === scope.before_observation_sha256 &&
+          record.facility === root &&
+          record.series === scope.series &&
+          record.verifier_sha256 === scope.proof_verifier_sha256,
+        "RETEST_READER_BASELINE",
+      );
+    }
     requireThat(
       sha(file("targeted-decisions.json")) === scope.decision_sha256 &&
         sha(file("targeted-carry.json")) === scope.carry_sha256,

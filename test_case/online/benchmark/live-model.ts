@@ -621,7 +621,11 @@ export function meteredFetch(
           try {
             goAdmission.finalCheck();
           } catch {
-            holdGo(options.stageFreeze!, "GO_REQUEST_WINDOW_EXHAUSTED");
+            holdGo(
+              options.stageFreeze!,
+              "GO_REQUEST_WINDOW_EXHAUSTED",
+              options.root,
+            );
             await settle(
               options.root,
               id,
@@ -642,7 +646,11 @@ export function meteredFetch(
         )
           throw error;
         if (goAdmission?.targeted)
-          holdGo(options.stageFreeze!, "GO_TARGETED_TRANSPORT_UNCERTAIN");
+          holdGo(
+            options.stageFreeze!,
+            "GO_TARGETED_TRANSPORT_UNCERTAIN",
+            options.root,
+          );
         await settle(
           options.root,
           id,
@@ -675,7 +683,7 @@ export function meteredFetch(
           failure = observation;
         }
         if (options.route && [401, 402, 403, 429].includes(response.status))
-          holdGo(options.stageFreeze!, outcome);
+          holdGo(options.stageFreeze!, outcome, options.root);
         await settle(options.root, id, outcome, failure, null);
         // Error bodies can echo input/headers; SDK only needs the category and status.
         return new Response(
@@ -742,7 +750,11 @@ export function meteredFetch(
               ) ||
                 (goMeter.receipt.cash_debit_usd ?? 0) > 0)
             )
-              holdGo(options.stageFreeze!, "GO_UNEXPECTED_BILLING_SOURCE");
+              holdGo(
+                options.stageFreeze!,
+                "GO_UNEXPECTED_BILLING_SOURCE",
+                options.root,
+              );
             if (
               options.route &&
               options.lane === "r1-C04-nonexistent--deepseek-flash"
@@ -846,7 +858,7 @@ export function meteredFetch(
             goMeter.receipt,
             completed && outcome === "RESPONSE_COMPLETE",
           );
-          if (reason) holdGo(options.stageFreeze!, reason);
+          if (reason) holdGo(options.stageFreeze!, reason, options.root);
         }
         if (
           firstEcho &&

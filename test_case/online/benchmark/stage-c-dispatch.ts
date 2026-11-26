@@ -1,3 +1,6 @@
+import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
+import { checkGoUsage } from "./stage-c-go-provider.ts";
+import { rehearsalFetch, rehearsalKey } from "./stage-c-rehearsal.ts";
 import { retestWorkload } from "./stage-c-targeted-policy.ts";
 import { residualDefinition } from "./stage-c-go-residual.ts";
 import {
@@ -52,7 +55,12 @@ export async function completionCommand(
     activeFile = path.join(root, "campaign", "active-stage-c.json");
   const publication = () =>
     policy.providers["deepseek-flash"].route
-      ? checkGoProvider(policy.providers["deepseek-flash"])
+      ? isGoRehearsal(root)
+        ? checkGoUsage(
+            rehearsalKey,
+            rehearsalFetch(undefined, { mode: "NORMAL" }),
+          )
+        : checkGoProvider(policy.providers["deepseek-flash"])
       : checkPublication(
           [
             {
@@ -144,7 +152,7 @@ export async function completionCommand(
       for (const [id, entry] of ledger(root).entries) {
         if (entry.attempt.lane === state.current && !entry.settled) {
           if (inputs.targeted_supplement?.series === retestWorkload.series)
-            holdGo(hash, "GO_TARGETED_TRANSPORT_UNCERTAIN");
+            holdGo(hash, "GO_TARGETED_TRANSPORT_UNCERTAIN", root);
           await settle(root, id, "INTERRUPTED_IN_FLIGHT", null, null);
         }
       }
@@ -231,7 +239,7 @@ export async function completionCommand(
                 : "PUBLICATION_UNAVAILABLE";
           }
         if (hold) {
-          if (usesGo) holdGo(hash, hold);
+          if (usesGo) holdGo(hash, hold, root);
           for (const remaining of batch)
             state.terminals[remaining.lane.lane] ??= {
               status: "UNRUN",
@@ -331,7 +339,7 @@ export async function completionCommand(
             !allGoReservationsSettled(root, hash, ledger(root))
           ) {
             const reason = "GO_TARGETED_UNRESOLVED_AT_CLOSURE";
-            holdGo(hash, reason);
+            holdGo(hash, reason, root);
             const terminal = state.terminals[l.lane];
             terminal.status = "INCOMPLETE";
             terminal.reason ??= reason;
@@ -354,7 +362,7 @@ export async function completionCommand(
       inputs.targeted_supplement?.series === retestWorkload.series &&
       !allGoReservationsSettled(root, hash, ledger(root))
     ) {
-      holdGo(hash, "GO_TARGETED_UNRESOLVED_AT_CLOSURE");
+      holdGo(hash, "GO_TARGETED_UNRESOLVED_AT_CLOSURE", root);
     }
     if (usesGo) await closeGoFacility(root, hash);
     state.ended = true;

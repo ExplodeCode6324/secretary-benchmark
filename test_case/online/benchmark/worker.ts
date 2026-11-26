@@ -74,10 +74,18 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
     if (run.config.mode === "live") {
       requireThat(run.live?.key && run.live.facility, "LIVE_PERMIT_REQUIRED");
       configureProfile(run.config.profile);
-      const readMode =
+      const rehearsalInputs =
         run.live.rehearsal &&
-        readJSON(path.join(run.live.facility, "inputs/stage-c-preflight.json"))
-          .rehearsal_read;
+        readJSON(path.join(run.live.facility, "inputs/stage-c-preflight.json"));
+      const readMode =
+        rehearsalInputs &&
+        run.config.version === 5 &&
+        run.config.case_id === "C16-combined" &&
+        rehearsalInputs.rehearsal_read;
+      const goMode =
+        run.config.version === 5 &&
+        run.config.case_id === "C16-combined" &&
+        rehearsalInputs?.rehearsal_go;
       if (
         run.config.version === 5 &&
         run.config.case_id === "C12b" &&
@@ -115,6 +123,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
                   c.started_at &&
                   (!hash || c.request.sha256 === hash),
               );
+            if (goMode === "EXHAUST_C16") return Date.now() + 30000;
             return active?.length
               ? Math.min(
                   ...active.map((c) => Date.parse(c.started_at!) + 120000),
@@ -131,6 +140,14 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
                     probe: caseDefinition("C16-combined").probe,
                     correction: caseDefinition("C16-combined").setup[1],
                     mode: readMode,
+                  }
+                : undefined,
+              run.live.route
+                ? {
+                    mode:
+                      run.config.version === 5 && run.config.case_id === "C12b"
+                        ? "TRANSIENT"
+                        : "NORMAL",
                   }
                 : undefined,
             )

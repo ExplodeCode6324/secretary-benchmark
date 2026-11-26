@@ -1,3 +1,4 @@
+import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { read, requireThat, sha } from "./io.ts";
@@ -75,7 +76,7 @@ export function checkTargetedInputs(scope: TargetedPolicy, root?: string) {
       const record = JSON.parse(bytes.toString());
       requireThat(
         sha(bytes) === scope.before_observation_sha256 &&
-          record.facility === root &&
+          (record.facility === root || isGoRehearsal(root)) &&
           record.series === scope.series &&
           record.verifier_sha256 === scope.proof_verifier_sha256,
         "RETEST_READER_BASELINE",

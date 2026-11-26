@@ -1,3 +1,4 @@
+import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
 import type { ledger } from "./campaign.ts";
 import fs from "node:fs";
 import path from "node:path";
@@ -7,6 +8,8 @@ export const goAccount = path.join(
   repository,
   ".local/benchmark/.issue122-go-account",
 );
+export const accountFor = (root: string) =>
+  isGoRehearsal(root) ? path.join(root, "fixture-account") : goAccount;
 export const goWindows = { rolling: 20, weekly: 50, monthly: 100 } as const;
 export type Window = keyof typeof goWindows;
 export type LocalAmounts = Record<Window, number>;
@@ -23,6 +26,8 @@ const amounts = (fn: (k: Window) => number): LocalAmounts => ({
   monthly: fn("monthly"),
 });
 function directory(root: string) {
+  if (isGoRehearsal(root))
+    return path.join(accountFor(root), "usage-reservations");
   return root.startsWith(
     path.join(repository, ".local/benchmark/tests") + path.sep,
   )

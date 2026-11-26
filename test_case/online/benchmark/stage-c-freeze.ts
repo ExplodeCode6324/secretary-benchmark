@@ -1,3 +1,4 @@
+import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
 import {
   retestWorkload,
   type TargetedPolicy,
@@ -5,7 +6,7 @@ import {
   checkTargetedInputs,
 } from "./stage-c-targeted-policy.ts";
 import { verifyTargetedCarry } from "./stage-c-targeted-account.ts";
-import { goAccount } from "./stage-c-go-local-usage.ts";
+import { accountFor } from "./stage-c-go-local-usage.ts";
 import { nativeWriteRecipe } from "./stage-c-fault.ts";
 import {
   checkGoResidualFiles,
@@ -82,6 +83,7 @@ export type Preflight = {
     rc_mean_bytes: number;
     rc_peak_bytes: number;
   };
+  rehearsal_go?: "NORMAL" | "INTERRUPT_C16" | "EXHAUST_C16";
   rehearsal_read?: "ORIGINAL_OFFSET" | "OTHER_EVENT";
   rehearsal_scenario?: "C16-combined" | "C06-stale-cold" | "C12b";
   models: StageModel[];
@@ -191,12 +193,15 @@ export function projectCampaign(
   requireThat(
     !inputs.rehearsal_read ||
       (inputs.evidence_class === "OFFLINE_SSE" &&
-        inputs.rehearsal_scenario === "C16-combined" &&
+        (inputs.rehearsal_scenario === "C16-combined" ||
+          !!inputs.rehearsal_go) &&
         ["ORIGINAL_OFFSET", "OTHER_EVENT"].includes(inputs.rehearsal_read)),
     "STAGE_C_REHEARSAL_READ_MODE",
   );
   const models = inputs.models;
   const rehearsal = inputs.evidence_class === "OFFLINE_SSE";
+  const goRehearsal =
+    rehearsal && inputs.targeted_supplement?.series === retestWorkload.series;
   requireThat(
     (inputs.evidence_class === undefined || rehearsal) &&
       (!inputs.rehearsal_scenario ||
@@ -242,13 +247,21 @@ export function projectCampaign(
     "GO_PENDING_TEMPLATE_BINDING",
   );
   const supplement = inputs.targeted_supplement;
+  requireThat(
+    goRehearsal
+      ? ["NORMAL", "INTERRUPT_C16", "EXHAUST_C16"].includes(
+          inputs.rehearsal_go ?? "",
+        ) && !inputs.rehearsal_scenario
+      : inputs.rehearsal_go === undefined,
+    "GO_REHEARSAL_MODE",
+  );
   if (supplement) {
     checkTargetedInputs(supplement);
     requireThat(
       !inputs.go_continuation &&
         !inputs.remaining_series &&
         inputs.c16_dedicated_batch &&
-        !rehearsal &&
+        (!rehearsal || goRehearsal) &&
         models.length === 1,
       "TARGETED_WORKLOAD_SCOPE",
     );
@@ -260,7 +273,7 @@ export function projectCampaign(
       (!go ||
         ((inputs.remaining_series || supplement) &&
           inputs.c16_dedicated_batch &&
-          !rehearsal)),
+          (!rehearsal || goRehearsal))),
     "STAGE_C_GO_FREEZE_BINDING",
   );
   const transport = go ? goReaderPolicy : readerPolicy;
@@ -285,6 +298,7 @@ export function projectCampaign(
       c.pair?.position !== "B" &&
       (!supplement || targetedLanes.some((l) => l.scenario === c.id)) &&
       (!rehearsal ||
+        goRehearsal ||
         (inputs.rehearsal_scenario
           ? c.id === inputs.rehearsal_scenario
           : rehearsalCases.some((id) => c.id === id))),
@@ -300,7 +314,7 @@ export function projectCampaign(
       requireThat(capacity && providers[model], "STAGE_C_CAPACITY_REQUIRED");
       const plan = fillerPlan(capacity, c.requires_cold);
       const recipe =
-        rehearsal && !inputs.rehearsal_scenario
+        rehearsal && !goRehearsal && !inputs.rehearsal_scenario
           ? { count: 8, bytes_each: 256 }
           : plan
             ? {
@@ -713,6 +727,10 @@ export function loadCompletion(root: string, hash: string, approval: string) {
   const source = fingerprint();
   const rehearsal = frozen.evidence_class === "OFFLINE_SSE";
   requireThat(
+    isGoRehearsal(root) === (rehearsal && !!frozen.targeted_supplement),
+    "GO_REHEARSAL_ROOT",
+  );
+  requireThat(
     approval === completionApproval(hash, rehearsal) &&
       (rehearsal
         ? root.startsWith(
@@ -879,6 +897,11 @@ export function freezeBatch(root: string, index: number, checked: string) {
       JSON.stringify(source) === JSON.stringify(inputs.source),
     "STAGE_C_CLEAN_PREFLIGHT_REQUIRED",
   );
+  requireThat(
+    isGoRehearsal(root) ===
+      (inputs.evidence_class === "OFFLINE_SSE" && !!inputs.targeted_supplement),
+    "GO_REHEARSAL_ROOT",
+  );
   const age = Date.now() - Date.parse(checked);
   requireThat(
     age >= 0 &&
@@ -889,7 +912,7 @@ export function freezeBatch(root: string, index: number, checked: string) {
   );
   if (inputs.targeted_supplement) {
     checkTargetedInputs(inputs.targeted_supplement, root);
-    verifyTargetedCarry(goAccount, root, inputs.targeted_supplement);
+    verifyTargetedCarry(accountFor(root), root, inputs.targeted_supplement);
   }
   const residual = residualDefinition(inputs.go_continuation);
   if (residual) checkGoResidualFiles(root, residual);

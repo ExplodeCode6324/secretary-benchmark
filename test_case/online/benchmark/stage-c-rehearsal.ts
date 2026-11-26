@@ -1,3 +1,4 @@
+import { goAPI, goUsage } from "./stage-c-go-provider.ts";
 // A rehearsal has an immutable, in-memory transport and a non-secret test credential.
 // Only the three protocol trajectories below enter this separate measurement class.
 import { randomUUID } from "node:crypto";
@@ -10,16 +11,48 @@ export const rehearsalCases = [
   "C16-combined",
 ] as const;
 export const rehearsalKey = "offline-completion-sse";
-export function rehearsalFetch(reader?: {
-  evidence: string;
-  probe: string;
-  correction: string;
-  mode: "ORIGINAL_OFFSET" | "OTHER_EVENT";
-}): typeof fetch {
+export function rehearsalFetch(
+  reader?: {
+    evidence: string;
+    probe: string;
+    correction: string;
+    mode: "ORIGINAL_OFFSET" | "OTHER_EVENT";
+  },
+  go?: { mode: "NORMAL" | "TRANSIENT" | "INTERRUPT" },
+): typeof fetch {
+  let reads = 0;
   let number = 0;
   let pendingProposals = 0;
   return async (input, init) => {
     const req = new Request(input, init);
+    if (go && req.method === "GET") {
+      requireThat(
+        req.url === goUsage &&
+          req.headers.get("authorization") === "Bearer " + rehearsalKey,
+        "REHEARSAL_USAGE",
+      );
+      if (++reads === 1 && go.mode === "TRANSIENT")
+        return new Response(null, { status: 503 });
+      return Response.json({
+        usage: Object.fromEntries(
+          ["rolling", "weekly", "monthly"].map((k) => [
+            k,
+            {
+              status: "ok",
+              percent: 0,
+              resetsAt: new Date(Date.now() + 86400000).toISOString(),
+            },
+          ]),
+        ),
+      });
+    }
+    if (go) {
+      requireThat(
+        req.url === goAPI + "/chat/completions",
+        "REHEARSAL_DESTINATION",
+      );
+      if (go.mode === "INTERRUPT") throw new TypeError("offline interruption");
+    }
     requireThat(
       req.method === "POST" &&
         req.headers.get("authorization") === "Bearer " + rehearsalKey,
@@ -182,6 +215,16 @@ export function rehearsalFetch(reader?: {
         ...common,
         choices: [],
         usage: {
+          ...(go
+            ? {
+                cost: 0,
+                opencode: {
+                  billing_source: "go",
+                  list_cost: 0.0001,
+                  provider: "offline-fixture",
+                },
+              }
+            : {}),
           prompt_tokens: 100,
           completion_tokens: 20,
           total_tokens: 120,

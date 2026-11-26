@@ -1,3 +1,5 @@
+import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
+import { rehearsalKey } from "./stage-c-rehearsal.ts";
 import {
   claimTargetedAccount,
   assertTargetedAccount,
@@ -14,6 +16,7 @@ import { lease, read, readJSON, requireThat, sha, writeJSON } from "./io.ts";
 import { checkGoUsage } from "./stage-c-go-provider.ts";
 import { ledger } from "./campaign.ts";
 import {
+  accountFor,
   goAccount,
   goWindows,
   localGoAmounts,
@@ -67,8 +70,7 @@ export async function retestQuota(
   }
 }
 const account = goAccount;
-const activeFile = path.join(account, "active.json");
-const holdFile = path.join(account, "hold.json");
+
 const windows = goWindows;
 export function checkGoHeadroom(
   usage: any,
@@ -91,13 +93,21 @@ export function checkGoHeadroom(
     "GO_INSUFFICIENT_WINDOW",
   );
 }
-export function holdGo(freeze: string, reason: string) {
+export function holdGo(freeze: string, reason: string, root?: string) {
+  const account = root ? accountFor(root) : goAccount,
+    holdFile = path.join(account, "hold.json");
   if (holdTargetedAccount(account, freeze, reason)) return;
   if (!fs.existsSync(holdFile))
     writeJSON(holdFile, { freeze, reason, at: new Date().toISOString() });
 }
 export function assertGoAvailable(target?: { root: string; freeze: string }) {
-  if (target) return assertTargetedAccount(account, target.root, target.freeze);
+  const holdFile = path.join(account, "hold.json");
+  if (target)
+    return assertTargetedAccount(
+      accountFor(target.root),
+      target.root,
+      target.freeze,
+    );
   requireThat(!fs.existsSync(holdFile), "GO_ACCOUNT_ON_HOLD");
 }
 export async function claimGoFacility(
@@ -106,6 +116,8 @@ export async function claimGoFacility(
   residualSource?: string,
   targeted = false,
 ) {
+  const account = accountFor(root),
+    activeFile = path.join(account, "active.json");
   await lease(account, async () => {
     if (targeted) return claimTargetedAccount(account, root, freeze);
     assertGoAvailable();
@@ -144,6 +156,8 @@ export async function claimGoFacility(
   });
 }
 export async function closeGoFacility(root: string, freeze: string) {
+  const account = accountFor(root),
+    activeFile = path.join(account, "active.json");
   await lease(account, async () => {
     if (targetedClaim(account, freeze)?.freeze === freeze)
       return closeTargetedAccount(account, root, freeze);
@@ -164,6 +178,10 @@ export async function admitGoSend(
   admit: (guard?: () => void) => Promise<string>,
   window?: RequestWindow,
 ) {
+  const account = accountFor(root),
+    activeFile = path.join(account, "active.json");
+  if (isGoRehearsal(root))
+    requireThat(key === rehearsalKey, "GO_REHEARSAL_CREDENTIAL");
   return lease(account, async () => {
     const claim = targetedClaim(account, freeze);
     const targeted = claim?.freeze === freeze;
@@ -276,6 +294,7 @@ export async function admitGoSend(
         reason.startsWith("GO_") || reason.startsWith("TARGETED_")
           ? reason
           : "GO_REQUEST_ADMISSION_FAILED",
+        root,
       );
       throw e;
     }
@@ -285,7 +304,7 @@ export async function admitGoSend(
           try {
             finalCheck();
           } catch (error) {
-            holdGo(freeze, "GO_REQUEST_WINDOW_EXHAUSTED");
+            holdGo(freeze, "GO_REQUEST_WINDOW_EXHAUSTED", root);
             throw error;
           }
         }),

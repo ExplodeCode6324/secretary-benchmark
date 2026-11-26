@@ -1,3 +1,4 @@
+import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { read, readJSON, requireThat, sha, writeJSON } from "./io.ts";
@@ -63,8 +64,10 @@ export function verifyTargetedCarry(
     path.join(reservationDir(account), "reader-candidate-97.json"),
   );
   requireThat(
-    path.dirname(active.root) === path.dirname(account) &&
-      path.dirname(root) === path.dirname(account) &&
+    (isGoRehearsal(root)
+      ? account === path.join(root, "fixture-account")
+      : path.dirname(active.root) === path.dirname(account) &&
+        path.dirname(root) === path.dirname(account)) &&
       root !== active.root &&
       active.closed === true &&
       held.freeze === carry.old_freeze &&

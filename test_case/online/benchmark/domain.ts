@@ -54,6 +54,7 @@ import {
   type StageConfiguration,
   type CompletionConfiguration,
 } from "./memory-config.ts";
+import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
 import { rehearsalKey } from "./stage-c-rehearsal.ts";
 import { goCredential } from "./stage-c-go-provider.ts";
 import { credential } from "./live-model.ts";
@@ -484,6 +485,8 @@ export class Domains {
         );
       } else requireThat(!campaign.physical_policy, "STAGE_B_LEGACY_CONFIG");
     }
+    if (isGoRehearsal(this.root))
+      requireThat(rehearsal && route === "opencode-go", "GO_REHEARSAL_ONLY");
     const live =
       run.config.mode === "live"
         ? {

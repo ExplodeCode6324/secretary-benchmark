@@ -590,7 +590,7 @@ export async function executeTrial(
   } finally {
     if (!["RETIRED", "CLEANED"].includes(d.raw(run.id).state)) {
       try {
-        await d.seal(run.id, Boolean(continuing));
+        await d.seal(run.id, Boolean(continuing), Boolean(continuing && first));
       } catch (e) {
         writeJSON(path.join(run.evidence, "stage-c-seal-failure.json"), {
           error: String(e),

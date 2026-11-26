@@ -174,29 +174,42 @@ export async function completionCommand(
         writeJSON(activeFile, { ...active, state: "CLOSED" });
       let ownedRun: string | undefined;
       const dir = path.join(root, "runs");
-      for (const f of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
-        const r = d.raw(f.replace(/\.json$/, ""));
+      const candidates = [];
+      for (const file of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+        const r = d.raw(file.replace(/\.json$/, ""));
         if (
-          r.config.version === 5 &&
-          r.config.lane === state.current &&
-          !["RETIRED", "CLEANED"].includes(r.state)
+          r.config.version !== 5 ||
+          r.config.lane !== state.current ||
+          r.config.freeze_sha256 !== hash ||
+          ["RETIRED", "CLEANED"].includes(r.state)
+        )
+          continue;
+        if (
+          continuing &&
+          state.preparationQuarantines?.[r.id] === state.current
+        )
+          continue;
+        if (
+          continuing &&
+          (r.state === "CREATING" || r.state === "INCOMPLETE") &&
+          !r.process &&
+          !r.endpoint &&
+          active?.run !== r.id &&
+          state.pending?.[state.current]?.run !== r.id
         ) {
-          const stopStarted = Date.now();
-          await d.seal(r.id);
-          if (continuing && r.endpoint && r.process) {
-            appendJSON(
-              path.join(root, "campaign", "stage-c-controller-stops.jsonl"),
-              {
-                run: r.id,
-                domain: r.endpoint.data_domain_id,
-                pid: r.process.pid,
-                started: stopStarted,
-                ended: Date.now(),
-              },
-            );
-          }
-          ownedRun = r.id;
+          r.state = "INCOMPLETE";
+          d.save(r);
+          (state.preparationQuarantines ??= {})[r.id] = state.current;
+          writeJSON(stateFile, state);
+          continue;
         }
+        candidates.push(r);
+      }
+      if (continuing)
+        requireThat(candidates.length <= 1, "CONTINUATION_AMBIGUOUS_RUN");
+      for (const r of candidates) {
+        await d.seal(r.id, false, continuing);
+        ownedRun = r.id;
       }
       for (const [id, entry] of ledger(root).entries) {
         if (entry.attempt.lane === state.current && !entry.settled) {

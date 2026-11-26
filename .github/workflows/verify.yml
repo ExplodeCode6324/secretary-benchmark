@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [CONTINUATION_CONTROLS, EXHAUST_C16, IDENTITY_C16, SYSTEM_C16, CONTROLLER_CRASH, TRANSIENT_PG, CHECKPOINT_DRIFT, PREPARATION_PG]
+        mode: [CONTINUATION_CONTROLS, EXHAUST_C16, IDENTITY_C16, SYSTEM_C16, CONTROLLER_CRASH, TRANSIENT_PG, CHECKPOINT_DRIFT, PREPARATION_PG, PREPARATION_CRASH]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -78,6 +78,8 @@ jobs:
         run: |
           if [ "$MODE" = CONTROLLER_CRASH ]; then
             python3 scripts/rehearse-issue122-continuation.py --checkout . --mode NORMAL --crash-after-unknown
+          elif [ "$MODE" = PREPARATION_CRASH ]; then
+            python3 scripts/rehearse-issue122-continuation.py --checkout . --mode PREPARATION_PG --crash-after-unknown
           elif [ "$MODE" = CHECKPOINT_DRIFT ]; then
             python3 scripts/rehearse-issue122-continuation.py --checkout . --mode TRANSIENT_PG --damage-checkpoint
           else

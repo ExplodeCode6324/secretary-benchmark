@@ -1,3 +1,4 @@
+import { appendJSON } from "./io.ts";
 import { completionPolicy, activeFile } from "./stage-b-policy.ts";
 import { initializeGuard, forbiddenPayload } from "./payload-guard.ts";
 import { fingerprint } from "./source.ts";
@@ -905,8 +906,25 @@ export class Domains {
     this.load(id);
     return run;
   }
-  async seal(id: string, includeDatabase = false) {
+  async seal(
+    id: string,
+    includeDatabase = false,
+    recordControllerStop = false,
+  ) {
+    const started = Date.now();
     const run = await this.stop(id);
+    if (recordControllerStop && run.endpoint && run.process) {
+      appendJSON(
+        path.join(this.root, "campaign", "stage-c-controller-stops.jsonl"),
+        {
+          run: run.id,
+          domain: run.endpoint.data_domain_id,
+          pid: run.process.pid,
+          started,
+          ended: Date.now(),
+        },
+      );
+    }
     await stopDatabase(run.database);
     if (includeDatabase) {
       writeJSON(path.join(run.evidence, "database-checkpoint.json"), {

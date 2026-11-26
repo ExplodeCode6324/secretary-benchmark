@@ -73,7 +73,7 @@ dispatch=["node","--import","tsx","test_case/online/benchmark/cli.ts","baseline-
 if args.crash_after_unknown:
     worker=subprocess.Popen(dispatch,cwd=checkout,env=env,stdout=subprocess.DEVNULL)
     try:
-        until=time.monotonic()+240
+        until=time.monotonic()+(1200 if args.mode=="PREPARATION_PG" else 240)
         while not list(root.glob("evidence/*/stage-c-unknown-checkpoint.json")):
             if worker.poll() is not None or time.monotonic()>until:
                 raise RuntimeError("No original UNKNOWN checkpoint")

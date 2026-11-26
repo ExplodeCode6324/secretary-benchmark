@@ -24,7 +24,7 @@ import {
 } from "./stage-c-go-local-usage.ts";
 import fs from "node:fs";
 import path from "node:path";
-import { Domains } from "./domain.ts";
+import { DomainPreparationError, Domains } from "./domain.ts";
 import { createCampaign, ledger, loadCampaign, settle } from "./campaign.ts";
 import { loadCompletion, officialFlash, freezeFile } from "./stage-c-freeze.ts";
 import { describeTrial } from "./stage-c-plan.ts";
@@ -59,6 +59,7 @@ type State = {
     string,
     { run?: string; reason: string; retry_at: number; checkpoint?: string }
   >;
+  quarantined?: Record<string, string>;
   probes: Record<string, never>;
   repairs: Record<string, never>;
   current: string | null;
@@ -399,11 +400,25 @@ export async function completionCommand(
             if (!continuing) throw error;
             const reason =
               error instanceof Error ? error.message : "DOMAIN_CREATE_FAILED";
-            if (!transientFacilityFailure(reason)) {
+            if (
+              error instanceof DomainPreparationError ||
+              !transientFacilityFailure(reason)
+            ) {
+              const retained =
+                error instanceof DomainPreparationError
+                  ? error.runId
+                  : pending?.run;
+              if (retained) (state.quarantined ??= {})[retained] = l.lane;
               state.terminals[l.lane] = {
                 status: pending?.run ? "INCOMPLETE" : "UNRUN",
-                run: pending?.run,
+                run: retained,
                 reason,
+                ...(pending?.run
+                  ? {
+                      report_sha256:
+                        state.history?.[l.lane]?.at(-1)?.report_sha256,
+                    }
+                  : {}),
               };
               delete state.pending![l.lane];
               state.current = null;
@@ -566,13 +581,26 @@ export async function completionCommand(
                   };
                   delete state.terminals[l.lane];
                 } catch (error) {
+                  (state.quarantined ??= {})[r.id] = l.lane;
                   terminal.reason =
                     error instanceof Error
                       ? error.message
                       : "CONTINUATION_CHECKPOINT_UNVERIFIED";
                   delete state.pending![l.lane];
                 }
-              } else delete state.pending![l.lane];
+              } else {
+                if (
+                  terminal.status === "INCOMPLETE" &&
+                  (/OWNERSHIP|UNVERIFIED|UNCONFIRMED|REGISTRY_|SHARED_CLUSTER|_MISMATCH|^PROCESS_|^PG_/.test(
+                    terminal.reason ?? "",
+                  ) ||
+                    fs.existsSync(
+                      path.join(r.evidence, "stage-c-seal-failure.json"),
+                    ))
+                )
+                  (state.quarantined ??= {})[r.id] = l.lane;
+                delete state.pending![l.lane];
+              }
             }
             writeJSON(activeFile, { ...active, state: "CLOSED" });
             state.current = null;
@@ -602,7 +630,24 @@ export async function completionCommand(
         status: "UNRUN",
         reason: "BATCH_STOPPED",
       };
-    await d.closeStoppedCampaign();
+    const quarantined = Object.entries(state.quarantined ?? {});
+    if (continuing && quarantined.length) {
+      // Close inference admission independently of a physical domain whose ownership cannot be proven.
+      // Archiving and cleanup still require every physical lifecycle check.
+      const active = fs.existsSync(activeFile) ? readJSON(activeFile) : null;
+      requireThat(
+        (!active || active.state === "CLOSED") &&
+          !state.current &&
+          !Object.keys(state.pending ?? {}).length &&
+          quarantined.every(
+            ([run, lane]) =>
+              state.terminals[lane]?.run === run &&
+              state.terminals[lane]?.status !== "COMPLETED",
+          ),
+        "CONTINUATION_QUARANTINE_NOT_TERMINAL",
+      );
+      await d.closeStoppedCampaign(new Set(quarantined.map(([run]) => run)));
+    } else await d.closeStoppedCampaign();
     // An owned worker may have exited while its controller survived. A missing
     // settlement in either durable ledger also fences the independent reader.
     if (

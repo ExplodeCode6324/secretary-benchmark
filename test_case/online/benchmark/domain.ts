@@ -64,6 +64,17 @@ import {
   closeCampaign,
 } from "./campaign.ts";
 
+export class DomainPreparationError extends Error {
+  constructor(
+    readonly runId: string,
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : "DOMAIN_CREATE_FAILED", {
+      cause,
+    });
+  }
+}
+
 export type Run = {
   version: 1;
   id: string;
@@ -261,12 +272,13 @@ export class Domains {
     });
   }
   /** Recovery close is available only under Domains.use's controller lease. */
-  async closeStoppedCampaign() {
+  async closeStoppedCampaign(quarantined: ReadonlySet<string> = new Set()) {
     const directory = path.join(this.root, "runs");
     for (const file of fs.existsSync(directory)
       ? fs.readdirSync(directory)
       : []) {
       requireThat(/^[a-f0-9-]{36}\.json$/.test(file), "UNKNOWN_RUN_RECORD");
+      if (quarantined.has(file.slice(0, -5))) continue;
       const run = this.raw(file.slice(0, -5));
       requireThat(
         ["STOPPED", "RETIRED", "CLEANED"].includes(run.state),
@@ -436,7 +448,7 @@ export class Domains {
             error: String(error),
           });
         });
-      throw e;
+      throw new DomainPreparationError(run.id, e);
     }
   }
   async start(id: string, directC16Domain?: string) {

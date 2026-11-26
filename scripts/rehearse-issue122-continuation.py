@@ -15,6 +15,7 @@ parser.add_argument("--checkout", type=Path, required=True)
 parser.add_argument("--inputs", type=Path)
 parser.add_argument("--carry-source", type=Path)
 parser.add_argument("--crash-after-unknown", action="store_true")
+parser.add_argument("--damage-checkpoint", action="store_true")
 parser.add_argument("--mode", choices=["NORMAL", "CONTINUATION_CONTROLS", "EXHAUST_C16", "INTERRUPT_C16", "SYSTEM_C16", "IDENTITY_C16", "TRANSIENT_PG"], required=True)
 args = parser.parse_args()
 os.umask(0o077)
@@ -82,7 +83,25 @@ if args.crash_after_unknown:
         if worker.poll() is None:
             worker.terminate()
         worker.wait(timeout=30)
-state=json.loads(run(dispatch))
+if args.damage_checkpoint:
+    assert args.mode == "TRANSIENT_PG" and not args.crash_after_unknown
+    with subprocess.Popen(dispatch,cwd=checkout,env=env,stdout=subprocess.PIPE,text=True) as worker:
+        until=time.monotonic()+240
+        while True:
+            current=json.loads((root/"campaign/stage-c-dispatch.json").read_bytes())
+            pending=current.get("pending",{}).get("r1-C12b--deepseek-flash",{})
+            if pending.get("checkpoint") and current["current"]=="r1-C16-combined--deepseek-flash":
+                break
+            if worker.poll() is not None or time.monotonic()>until:
+                raise RuntimeError("No independently sealed checkpoint")
+            time.sleep(.1)
+        with (root/"pg"/pending["run"]/"data"/"offline-checkpoint-drift").open("xb") as injected:
+            injected.write(b"public rehearsal only")
+        output,_=worker.communicate()
+        assert worker.returncode==0
+        state=json.loads(output)
+else:
+    state=json.loads(run(dispatch))
 print(json.dumps(state),flush=True)
 assert state["ended"] and state["current"] is None
 for lane, row in state["terminals"].items():
@@ -94,6 +113,11 @@ for lane, row in state["terminals"].items():
         assert row["reason"]=="CONFIRMED_SECRETARY_SYSTEM_FAILURE"
         certificate=json.loads((root/"campaign/secretary-system-failure.json").read_bytes())
         assert certificate["run"]==row["run"] and digest((evidence/certificate["evidence_file"]).read_bytes())==certificate["evidence_sha256"]
+        continue
+    if args.damage_checkpoint and "C12b" in lane:
+        assert row["reason"]=="CONTINUATION_DATABASE_CHANGED" and row["status"]=="INCOMPLETE"
+        assert state["quarantined"][row["run"]]==lane
+        assert json.loads((root/"campaign/manifest.json").read_bytes())["state"]=="CLOSED"
         continue
     assert row["status"]=="COMPLETED", row
     if "C12b" in lane:

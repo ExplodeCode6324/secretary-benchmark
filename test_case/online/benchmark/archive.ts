@@ -519,7 +519,8 @@ export async function archiveFacility(
     "ARCHIVE_FOREIGN_FACILITY",
   );
   const sourceIdentity = identity(root);
-  return lease(root, async () => {
+  const rehearsal = isGoRehearsal(root);
+  const archive = () => lease<ArchiveResult>(root, async () => {
     requireThat(
       identity(root) === sourceIdentity && read(markerPath).equals(markerBytes),
       "ARCHIVE_FACILITY_CHANGED",
@@ -531,7 +532,7 @@ export async function archiveFacility(
       const name = path.basename(entry.path);
       requireThat(
         !(name === "facility.json" && entry.path !== "facility.json") &&
-          !(name === "controller.lock" && entry.path !== "controller.lock") &&
+          (name !== "controller.lock" || entry.path === "controller.lock" || (rehearsal && entry.path === "fixture-account/controller.lock")) &&
           name !== "postmaster.pid",
         "ARCHIVE_NESTED_OR_ACTIVE_RESOURCE",
       );
@@ -712,4 +713,9 @@ export async function archiveFacility(
       }
     }
   });
+  if (!rehearsal) return archive();
+  const account = path.join(root, "fixture-account");
+  noLinks(account);
+  requireThat(fs.existsSync(path.join(account, "controller.lock")), "ARCHIVE_REHEARSAL_CLAIM");
+  return lease(account, archive);
 }

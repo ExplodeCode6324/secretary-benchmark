@@ -1,3 +1,22 @@
+import { setTimeout as delay } from "node:timers/promises";
+import {
+  appendRefusal,
+  requirePinnedIdentity,
+  retryTime,
+  SenderWindowError,
+  providerRetryAt,
+} from "./stage-c-continuation.ts";
+import { admitGoSend, holdGo } from "./stage-c-go-quota.ts";
+import {
+  goAPI,
+  goModel,
+  goVersion,
+  goTariff,
+  goResponseMeter,
+  targetedBillingHold,
+} from "./stage-c-go-provider.ts";
+import { snapshot } from "./snapshot.ts";
+import { readJSON } from "./io.ts";
 import {
   echoContract,
   echoScope,
@@ -10,6 +29,12 @@ import {
   safeRetentionUsage,
   type RetentionFrame,
 } from "./stage-b-retention.ts";
+import {
+  physicalTimes,
+  activeFile,
+  completionPolicy,
+} from "./stage-b-policy.ts";
+import { wireIdentity, flashBilling } from "./stage-c-identity.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -75,22 +100,40 @@ export const modelIDs = [
 export type ModelID = (typeof modelIDs)[number];
 export type Profile = "RC" | "DEP";
 export const baselineModels = stageModels;
-export function descriptor(id: ModelID | "gpt-6.2-sol"): Model<Api> {
+export function descriptor(
+  id: ModelID | "gpt-6.2-sol",
+  route?: "opencode-go",
+): Model<Api> {
   requireThat(
     id === "gpt-6.2-sol" || modelIDs.includes(id),
     "MODEL_NOT_APPROVED",
   );
+  requireThat(!route || id === "deepseek-flash", "STAGE_C_GO_MODEL");
   if (id === "deepseek-flash") {
-    const m = structuredClone(getModel("deepseek", "deepseek-flash"));
+    const m = structuredClone(
+      route
+        ? getModel("opencode-go", "deepseek-v4.1-flash")
+        : getModel("deepseek", "deepseek-flash"),
+    );
     requireThat(
       m &&
-        m.baseUrl === "https://api.deepseek.com" &&
+        (route
+          ? m.provider === route && m.id === goModel
+          : m.baseUrl === "https://api.deepseek.com") &&
         m.api === "openai-completions",
       "MODEL_REGISTRY_DRIFT",
     );
     // Peak uncached rates are conservative estimates, not a provider invoice.
     return {
       ...m,
+      ...(route
+        ? {
+            provider: "opencode-go",
+            id: goModel,
+            name: goVersion,
+            baseUrl: goAPI,
+          }
+        : {}),
       cost: { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0.3 },
     };
   }
@@ -230,8 +273,9 @@ export function liveRoles(
   key: string,
   evidence: string,
   tier?: "default",
+  route?: "opencode-go",
 ) {
-  const model = descriptor(id);
+  const model = descriptor(id, route);
   const role = (name: "main" | "task") => {
     const config = benchmarkRoleModel(model, key, name, tier);
     const stream: StreamFn = async (m, context, options) => {
@@ -290,6 +334,38 @@ function networkOutcome(error: unknown) {
     : "NETWORK_UNCERTAIN";
 }
 /** Enforce origin/method/body before sending; reserve and fsync in this process. */
+export function bindCorrectionProbe(
+  records: ReturnType<typeof snapshot>["records"],
+  request: string,
+  digest: string,
+  ctxHash: string | undefined,
+) {
+  const input = records.find(
+    (r) => r.record_type === "Input" && r.dedupe_key === request,
+  );
+
+  const call = records.find(
+    (r) =>
+      r.record_type === "ModelCall" &&
+      r.request.sha256 === ctxHash &&
+      !r.completed_at,
+  );
+  const ctx =
+    call?.record_type === "ModelCall" &&
+    records.find(
+      (r) => r.record_type === "Context" && r.id === call.context_id,
+    );
+  requireThat(
+    input?.record_type === "Input" &&
+      input.payload.sha256 === digest &&
+      ctx &&
+      ctx.record_type === "Context" &&
+      ctx.purpose === "MAIN" &&
+      ctx.input_ids.includes(input.id) &&
+      ctx.loop_id === input.loop_id,
+    "STAGE_C_PROBE_BINDING",
+  );
+}
 export function meteredFetch(
   options: {
     root: string;
@@ -299,19 +375,35 @@ export function meteredFetch(
     evidence: string;
     model: ModelID | StageModel;
     stageFreeze?: string;
+    route?: "opencode-go";
     key: string;
     maxSends: number;
     forbidden?: string[] | (() => string[]);
+    guardAdmission?: <T>(
+      signal: AbortSignal,
+      role: string,
+      deadline: number | undefined,
+      admit: () => Promise<T>,
+    ) => Promise<T>;
+    callID?: (hash: string | undefined) => string | undefined;
+    deadline?: (
+      context: string | undefined,
+      stage?: "quota" | "reservation" | "send",
+    ) => number | undefined;
   },
   transport: typeof fetch = globalThis.fetch,
 ): typeof fetch {
-  const model = descriptor(options.model),
+  const model = descriptor(options.model, options.route),
     base = new URL(model.baseUrl);
-  const endpoint =
-    base.origin +
-    (model.api === "openai-responses" ? "/v1/responses" : "/chat/completions");
+  const endpoint = options.route
+    ? goAPI + "/chat/completions"
+    : base.origin +
+      (model.api === "openai-responses"
+        ? "/v1/responses"
+        : "/chat/completions");
   let sends = 0;
-  return async (input, init) => {
+  const sendOnce: typeof fetch = async (input, init) => {
+    const started = Date.now();
     let phase = "PROVIDER_REQUEST_INVALID",
       bodyHash: string | null = null;
     try {
@@ -347,11 +439,29 @@ export function meteredFetch(
       const payload = JSON.parse(body);
       phase = "PROVIDER_MODEL_PROTOCOL_MISMATCH";
       requireThat(
-        payload.model === options.model && payload.stream === true,
+        payload.model === model.id && payload.stream === true,
         "PROVIDER_MODEL_PROTOCOL_MISMATCH",
       );
+      if (options.route)
+        requireThat(
+          payload.thinking?.type === "enabled" &&
+            payload.reasoning_effort === "low" &&
+            !!request.headers.get("x-opencode-session") &&
+            request.headers.get("user-agent") === "secretary-pi-demo/0.2",
+          "GO_ROLE_SETTINGS_CHANGED",
+        );
       phase = "EPISODE_SEND_LIMIT";
-      requireThat(++sends <= options.maxSends, "EPISODE_SEND_LIMIT");
+      const campaign = loadCampaign(options.root),
+        policy = campaign.physical_policy;
+      const continuing =
+        policy && completionPolicy(policy) && policy.continuation;
+      const requirePinnedLane = () => {
+        if (!continuing) return;
+        requirePinnedIdentity(options.root, options.run);
+      };
+      requirePinnedLane();
+      if (!continuing)
+        requireThat(++sends <= options.maxSends, "EPISODE_SEND_LIMIT");
       const maxOutput =
         payload.max_output_tokens ??
         payload.max_completion_tokens ??
@@ -363,11 +473,10 @@ export function meteredFetch(
           maxOutput <= model.maxTokens,
         "PROVIDER_OUTPUT_CAP_MISSING",
       );
-      const campaign = loadCampaign(options.root),
-        limits = campaign.baseline_limits,
-        policy = campaign.physical_policy;
+      const limits = campaign.baseline_limits;
       requireThat(
-        policy?.freeze_sha256 === options.stageFreeze,
+        policy?.freeze_sha256 === options.stageFreeze &&
+          policy?.providers[options.model]?.route === options.route,
         "STAGE_B_FREEZE_BINDING",
       );
       const expectedTier =
@@ -413,26 +522,98 @@ export function meteredFetch(
             : (Buffer.byteLength(body) * model.cost.input +
                 maxOutput * model.cost.output) /
               1e6;
+      let firstProbe = false,
+        cutoff: number | undefined;
+      if (policy && completionPolicy(policy)) {
+        const active = readJSON(
+          path.join(options.root, "campaign", activeFile(policy)),
+        );
+        if (
+          active.probe_deadline &&
+          role === "main" &&
+          ![...ledger(options.root).entries.values()].some(
+            (e) =>
+              e.attempt.episode === options.episode &&
+              e.attempt.correction_probe_first,
+          )
+        ) {
+          const run = readJSON(
+            path.join(options.root, "runs", options.run + ".json"),
+          );
+          const state = snapshot(path.join(run.active, "core"));
+          bindCorrectionProbe(
+            state.records,
+            active.probe_request,
+            active.probe_sha256,
+            attribution.getStore()?.context_sha256,
+          );
+          firstProbe = true;
+          cutoff = active.probe_deadline;
+        }
+      }
       phase = "CAMPAIGN_RESERVATION_REFUSED";
-      const id = await reserve(
-        options.root,
-        {
-          model: options.model,
-          run: options.run,
-          episode: options.episode ?? options.run,
-          ...(options.lane ? { lane: options.lane } : {}),
-          ...(physical ? { physical } : {}),
-          ...(requestedUsage
-            ? { chat_stream_usage_requested: requestedUsage }
-            : {}),
-          request_sha256: bodyHash,
-          reserved_usd: worst,
-        },
-        options.maxSends,
-      );
+      const commitReservation = (guard?: () => void) =>
+        reserve(
+          options.root,
+          {
+            model: options.model,
+            run: options.run,
+            episode: options.episode ?? options.run,
+            ...(options.lane ? { lane: options.lane } : {}),
+            ...(physical ? { physical } : {}),
+            ...(firstProbe ? { correction_probe_first: true as const } : {}),
+            ...(requestedUsage
+              ? { chat_stream_usage_requested: requestedUsage }
+              : {}),
+            request_sha256: bodyHash!,
+            reserved_usd: worst,
+          },
+          continuing ? undefined : options.maxSends,
+          guard,
+        );
+      const admit = () =>
+        admitGoSend(
+          options.root,
+          options.stageFreeze!,
+          options.key,
+          worst,
+          transport,
+          commitReservation,
+          {
+            signal: request.signal,
+            deadline: (stage) =>
+              options.deadline?.(attribution.getStore()?.context_sha256, stage),
+          },
+        );
+      const goAdmission = options.route
+        ? await (options.guardAdmission
+            ? options.guardAdmission(
+                request.signal,
+                role,
+                options.deadline?.(attribution.getStore()?.context_sha256),
+                admit,
+              )
+            : admit())
+        : null;
+      const id = goAdmission ? goAdmission.result : await commitReservation();
       phase = "SENT_OR_RESERVED";
+      const reservedAt = Date.now();
       writeJSON(path.join(options.evidence, `send-${id}.json`), {
         id,
+        ...(goAdmission
+          ? {
+              go_usage_before: goAdmission.usage,
+              unsettled_tariff_usd: goAdmission.unsettled,
+              local_unreflected_usd: goAdmission.local,
+            }
+          : {}),
+        ...(continuing
+          ? {
+              model_call: options.callID?.(
+                attribution.getStore()?.context_sha256,
+              ),
+            }
+          : {}),
         attribution: attribution.getStore() ?? { role: "component-or-probe" },
         payload,
         at: new Date().toISOString(),
@@ -445,18 +626,82 @@ export function meteredFetch(
             (row) => row.attempt,
           );
           const laneStart = attempts.find((row) => row.lane === options.lane)!;
+          const limits = physicalTimes(policy, options.lane!);
+          const active = completionPolicy(policy)
+            ? readJSON(path.join(options.root, "campaign", activeFile(policy)))
+            : undefined;
           const expires = Math.min(
-            Date.parse(attempts[0].at) + 43200000,
-            Date.parse(laneStart.at) + 3600000,
+            limits.source,
+            active?.deadline ?? Infinity,
+            Date.parse(attempts[0].at) + limits.batch,
+            Date.parse(laneStart.at) + limits.lane,
           );
-          const remaining = expires - Date.now();
+          const remaining =
+            (continuing ? active.deadline : expires) - Date.now();
           requireThat(remaining > 0, "STAGE_B_LANE_TIME");
           signal = AbortSignal.any([signal, AbortSignal.timeout(remaining)]);
         }
-        response = await transport(
-          new Request(request, { redirect: "error", signal }),
+        requireThat(
+          cutoff === undefined || Date.now() < cutoff,
+          "STAGE_C_PROBE_CUTOFF",
         );
+        const outbound = new Request(request, { redirect: "error", signal });
+        if (goAdmission?.finalCheck) {
+          try {
+            goAdmission.finalCheck();
+            requirePinnedLane();
+          } catch (error) {
+            const reason =
+              error instanceof Error &&
+              error.message === "GO_LANE_IDENTITY_PAUSED"
+                ? error.message
+                : "GO_REQUEST_WINDOW_EXHAUSTED";
+            holdGo(
+              options.stageFreeze!,
+              "GO_REQUEST_WINDOW_EXHAUSTED",
+              options.root,
+            );
+            await settle(
+              options.root,
+              id,
+              "RETEST_CONFIRMED_NO_POST",
+              { physical_send: false },
+              0,
+            );
+            if (continuing) {
+              const ctx = attribution.getStore();
+              appendRefusal(options.root, {
+                lane: options.lane,
+                run: options.run,
+                role: ctx?.role,
+                context_sha256: ctx?.context_sha256,
+                model_call: options.callID?.(ctx?.context_sha256),
+                deadline: options.deadline?.(ctx?.context_sha256),
+                started,
+                reason,
+                phase: "AFTER_RESERVATION_BEFORE_POST",
+                request_sha256: bodyHash,
+                reservation_id: id,
+              });
+            }
+            throw Error("RETEST_CONFIRMED_NO_POST");
+          }
+        }
+        response = await transport(outbound);
       } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === "RETEST_CONFIRMED_NO_POST" &&
+          ledger(options.root).entries.get(id)?.outcome ===
+            "RETEST_CONFIRMED_NO_POST"
+        )
+          throw error;
+        if (goAdmission?.targeted)
+          holdGo(
+            options.stageFreeze!,
+            "GO_TARGETED_TRANSPORT_UNCERTAIN",
+            options.root,
+          );
         await settle(
           options.root,
           id,
@@ -467,9 +712,26 @@ export function meteredFetch(
         // Never propagate a provider exception that might contain request headers.
         throw safeTransportError(error);
       }
+      const retryAt =
+        continuing && !response.ok
+          ? retryTime(response.headers.get("retry-after"))
+          : null;
+      if (retryAt)
+        appendJSON(
+          path.join(options.root, "campaign", "provider-backoff.jsonl"),
+          {
+            id,
+            at: new Date().toISOString(),
+            status: response.status,
+            retry_at: retryAt,
+          },
+        );
       appendJSON(path.join(options.evidence, "http.jsonl"), {
         id,
         status: response.status,
+        ...(continuing && response.headers.has("retry-after")
+          ? { retry_at: retryTime(response.headers.get("retry-after")) }
+          : {}),
         at: new Date().toISOString(),
       });
       if (!response.ok || !response.body) {
@@ -480,9 +742,16 @@ export function meteredFetch(
             options.model as StageModel,
             response,
           );
-          outcome = observation.category;
+          outcome =
+            options.route && [403, 429].includes(response.status)
+              ? response.status === 403
+                ? "GO_SUBSCRIPTION_UNAVAILABLE"
+                : "GO_RATE_LIMIT"
+              : observation.category;
           failure = observation;
         }
+        if (options.route && [401, 402, 403, 429].includes(response.status))
+          holdGo(options.stageFreeze!, outcome, options.root);
         await settle(options.root, id, outcome, failure, null);
         // Error bodies can echo input/headers; SDK only needs the category and status.
         return new Response(
@@ -505,6 +774,8 @@ export function meteredFetch(
       }
       const reader = response.body.getReader(),
         decoder = new TextDecoder();
+      const goMeter = options.route ? goResponseMeter() : undefined;
+      const identity = wireIdentity(response.headers, options.key);
       const observedModels: string[] = [];
       const retention = physical?.cache_retention_contract;
       let failureFrameSeen = false;
@@ -538,6 +809,28 @@ export function meteredFetch(
             if (!expectedTier) completed = true;
           } else if (line.startsWith("data: ")) {
             const data = JSON.parse(line.slice(6));
+            identity.observe(data);
+            goMeter?.observe(data);
+            if (
+              goMeter &&
+              (["balance", "byok"].includes(
+                goMeter.receipt.billing_source ?? "",
+              ) ||
+                (goMeter.receipt.cash_debit_usd ?? 0) > 0)
+            )
+              holdGo(
+                options.stageFreeze!,
+                "GO_UNEXPECTED_BILLING_SOURCE",
+                options.root,
+              );
+            if (
+              options.route &&
+              options.lane === "r1-C04-nonexistent--deepseek-flash"
+            )
+              appendJSON(
+                path.join(options.evidence, "go-native-" + id + ".jsonl"),
+                data,
+              );
             const mismatch = expectedTier && tierMismatch(data, expectedTier);
             const snapshot = retention
               ? retentionFrame(data, ++frameIndex)
@@ -628,6 +921,13 @@ export function meteredFetch(
         }
       };
       const commitSettlement = async (outcome: string) => {
+        if (goAdmission?.targeted && goMeter) {
+          const reason = targetedBillingHold(
+            goMeter.receipt,
+            completed && outcome === "RESPONSE_COMPLETE",
+          );
+          if (reason) holdGo(options.stageFreeze!, reason, options.root);
+        }
         if (
           firstEcho &&
           !tierChanged &&
@@ -650,6 +950,29 @@ export function meteredFetch(
         const accountingUsage =
           firstUsageViolation ??
           (firstEcho && !tierChanged ? terminalUsage : usage);
+        const upper =
+          policy &&
+          completed &&
+          !tierChanged &&
+          !invalidLongWriteCount &&
+          outcome === "RESPONSE_COMPLETE"
+            ? measuredEstimate(
+                policy.providers[options.model as StageModel],
+                accountingUsage,
+                options.model as StageModel,
+              )
+            : null;
+        const flashSchedule =
+          policy &&
+          completionPolicy(policy) &&
+          options.model === "deepseek-flash" &&
+          upper !== null
+            ? (options.route ? goTariff : flashBilling)(
+                upper,
+                reservedAt,
+                Date.now(),
+              )
+            : null;
         await settle(
           options.root,
           id,
@@ -673,12 +996,26 @@ export function meteredFetch(
             ...(invalidLongWriteCount
               ? { invalid_long_write_count: true }
               : {}),
+            ...(options.route
+              ? {
+                  route: options.route,
+                  billing_basis: "opencode_go_subscription_allowance",
+                  cash_charge_usd: continuing
+                    ? goMeter!.receipt.cash_debit_usd
+                    : null,
+                  go_meter: goMeter!.receipt,
+                }
+              : {}),
             returned_model: returnedModel,
+            ...(flashSchedule ? { scheduled_cost_usd: flashSchedule } : {}),
             ...(policy
               ? {
                   response_complete:
                     completed && outcome === "RESPONSE_COMPLETE",
                   observed_models: observedModels,
+                  wire_identity: identity.receipt(
+                    completed && outcome === "RESPONSE_COMPLETE",
+                  ),
                   ...(terminalTier
                     ? { returned_service_tier: terminalTier }
                     : {}),
@@ -686,16 +1023,9 @@ export function meteredFetch(
               : {}),
           },
           policy
-            ? completed &&
-              !tierChanged &&
-              !invalidLongWriteCount &&
-              outcome === "RESPONSE_COMPLETE"
-              ? measuredEstimate(
-                  policy.providers[options.model as StageModel],
-                  accountingUsage,
-                  options.model as StageModel,
-                )
-              : null
+            ? flashSchedule
+              ? flashSchedule.exact
+              : upper
             : usageCost(
                 rates
                   ? {
@@ -721,6 +1051,50 @@ export function meteredFetch(
           () => commitSettlement(cancelling ? "CANCELLED_UNCERTAIN" : outcome),
           () => commitSettlement("STREAM_UNCERTAIN"),
         ));
+      // Validate the complete identity trail before exposing any content to Secretary.
+      // A later SSE frame may contradict the first one.
+      if (continuing) {
+        const chunks: Uint8Array<ArrayBuffer>[] = [];
+        try {
+          for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            await observe(chunk.value);
+            chunks.push(new Uint8Array(chunk.value));
+          }
+          await finish("RESPONSE_COMPLETE");
+        } catch (error) {
+          await reader.cancel().catch(() => {});
+          await finish("STREAM_UNCERTAIN");
+          throw safeTransportError(error);
+        }
+        const entry = ledger(options.root).entries.get(id)!;
+        requireThat(
+          entry.outcome === "RESPONSE_COMPLETE" &&
+            (entry.usage as { identity_status?: string })?.identity_status ===
+              "MATCH",
+          "GO_RESPONSE_QUARANTINED",
+        );
+        requirePinnedIdentity(options.root, options.run, () => {
+          const send = readJSON(
+            path.join(options.evidence, "send-" + id + ".json"),
+          );
+          return {
+            lane: options.lane,
+            role: send.attribution.role,
+            model_call: send.model_call,
+            context_sha256: send.attribution.context_sha256,
+            deadline: options.deadline?.(send.attribution.context_sha256),
+            started,
+            reservation_id: id,
+            request_sha256: bodyHash,
+          };
+        });
+        return new Response(new Blob(chunks), {
+          status: response.status,
+          headers: response.headers,
+        });
+      }
       return new Response(
         new ReadableStream<Uint8Array>({
           async pull(controller) {
@@ -753,6 +1127,34 @@ export function meteredFetch(
       );
     } catch (error) {
       if (phase !== "SENT_OR_RESERVED") {
+        const pol =
+          options.stageFreeze && loadCampaign(options.root).physical_policy;
+        if (pol && completionPolicy(pol) && pol.continuation) {
+          const ctx = attribution.getStore(),
+            reason =
+              error instanceof Error &&
+              /^[A-Z][A-Z0-9_]{1,100}$/.test(error.message)
+                ? error.message
+                : phase;
+          appendRefusal(options.root, {
+            lane: options.lane,
+            run: options.run,
+            role: ctx?.role,
+            context_sha256: ctx?.context_sha256,
+            model_call: options.callID?.(ctx?.context_sha256),
+            deadline: options.deadline?.(ctx?.context_sha256),
+            started,
+            reason,
+            phase,
+            ...(error instanceof SenderWindowError
+              ? {
+                  waiting_for: error.waiting_for,
+                  wait_started: error.wait_started,
+                }
+              : {}),
+            request_sha256: bodyHash,
+          });
+        }
         const known = [
           "CAMPAIGN_CLOSED",
           "CAMPAIGN_SOURCE_CHANGED",
@@ -769,7 +1171,7 @@ export function meteredFetch(
           at: new Date().toISOString(),
           phase: "BEFORE_PROVIDER_SEND",
           reason,
-          request_sha256: bodyHash,
+          request_sha256: bodyHash!,
           physical_send: false,
         });
         if (
@@ -793,9 +1195,96 @@ export function meteredFetch(
             },
           );
         }
+        if (
+          pol &&
+          completionPolicy(pol) &&
+          pol.continuation &&
+          error instanceof Error &&
+          /^[A-Z][A-Z_0-9]+$/.test(error.message)
+        )
+          throw error;
         throw Error(reason);
       }
       throw error;
+    }
+  };
+  return async (input, init) => {
+    if (!options.stageFreeze) return sendOnce(input, init);
+    const policy = loadCampaign(options.root).physical_policy;
+    if (!policy || !completionPolicy(policy) || !policy.continuation)
+      return sendOnce(input, init);
+    const request = new Request(input, init),
+      ctx = attribution.getStore();
+    const deadline = options.deadline?.(ctx?.context_sha256);
+    let ordinal = 0;
+    for (;;) {
+      let response: Response | undefined,
+        reason: string,
+        until: number | null = null;
+      try {
+        const backoff = providerRetryAt(options.root) - Date.now();
+        if (backoff > 0) {
+          if (!deadline || Date.now() + backoff + 65000 > deadline) {
+            appendRefusal(options.root, {
+              lane: options.lane,
+              run: options.run,
+              role: ctx?.role,
+              context_sha256: ctx?.context_sha256,
+              model_call: options.callID?.(ctx?.context_sha256),
+              deadline,
+              started: Date.now(),
+              reason: "GO_PROVIDER_RETRY_AFTER",
+              phase: "BEFORE_ACCOUNT_ADMISSION",
+              request_sha256: sha(
+                Buffer.from(await request.clone().arrayBuffer()),
+              ),
+            });
+            throw Error("GO_PROVIDER_RETRY_AFTER");
+          }
+          await delay(backoff, undefined, { signal: request.signal });
+        }
+        response = await sendOnce(request.clone());
+        if (![402, 403, 408, 429, 500, 502, 503, 504].includes(response.status))
+          return response;
+        reason = "HTTP_" + response.status;
+        const after = retryTime(response.headers.get("retry-after"));
+        if (after) until = Date.parse(after);
+      } catch (error) {
+        reason = error instanceof Error ? error.message : "";
+        if (
+          ![
+            "GO_METADATA_UNAVAILABLE",
+            "GO_SUBSCRIPTION_UNAVAILABLE",
+            "GO_REQUEST_WINDOW_EXHAUSTED",
+            "GO_RESERVATION_WINDOW_EXHAUSTED",
+            "RETEST_CONFIRMED_NO_POST",
+            "C12B_SENDER_WINDOW_EXHAUSTED",
+            "network error",
+          ].includes(reason) ||
+          request.signal.aborted
+        )
+          throw error;
+      }
+      const wait = Math.max(
+        250,
+        Math.min(10000, 250 * 2 ** Math.min(ordinal, 6)),
+        (until ?? 0) - Date.now(),
+      );
+      if (!deadline || deadline - Date.now() - wait < 65000) {
+        if (response) return response;
+        throw Error(reason);
+      }
+      if (response) await response.body?.cancel();
+      appendJSON(path.join(options.evidence, "stage-c-model-retries.jsonl"), {
+        at: new Date().toISOString(),
+        ordinal: ++ordinal,
+        model_call: options.callID?.(ctx?.context_sha256),
+        context_sha256: ctx?.context_sha256,
+        reason,
+        retry_at: new Date(Date.now() + wait).toISOString(),
+        response_exposed: false,
+      });
+      await delay(wait, undefined, { signal: request.signal });
     }
   };
 }

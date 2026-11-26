@@ -1,5 +1,16 @@
-import { installStageCFault } from "./stage-c-fault.ts";
-import { loadCampaign } from "./campaign.ts";
+import { continuationWorkload, isRetest } from "./stage-c-targeted-policy.ts";
+import { rehearsalFetch } from "./stage-c-rehearsal.ts";
+import { caseDefinition } from "./stage-c-plan.ts";
+import { elmNote } from "./stage-b-scenarios-protocol.ts";
+import {
+  installStageCFault,
+  recoveryTaskHasPriority,
+} from "./stage-c-fault.ts";
+import { retestWorkload } from "./stage-c-targeted-policy.ts";
+import { SenderWindowError } from "./stage-c-continuation.ts";
+import { recoverySender } from "./stage-c-recovery-sender.ts";
+import { allGoReservationsSettled } from "./stage-c-go-local-usage.ts";
+import { ledger, loadCampaign } from "./campaign.ts";
 import { forbiddenPayload } from "./payload-guard.ts";
 // Owned fixture/live entry. A detached sender owns its durable campaign accounting.
 import fs from "node:fs";
@@ -16,6 +27,7 @@ import {
 import type {
   Execution,
   Operation,
+  ModelCall,
   PushDispatch,
 } from "../../../sut/secretary/src/pi_secretary/src/contracts.ts";
 import { appendJSON, readJSON, requireThat, writeJSON, read } from "./io.ts";
@@ -59,22 +71,209 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
       ),
       "AMBIENT_CONFIGURATION",
     );
+    if (run.config.version === 4) configureProfile(run.config.profile);
+    let offlineSystemFailure = false;
+    let savedWriteControl: (() => void) | undefined;
+    let faultGate: ReturnType<typeof recoverySender> | undefined;
     if (run.config.mode === "live") {
       requireThat(run.live?.key && run.live.facility, "LIVE_PERMIT_REQUIRED");
       configureProfile(run.config.profile);
-      globalThis.fetch = meteredFetch({
-        root: run.live.facility,
-        run: run.id,
-        episode: run.lineage,
-        ...(run.config.version === 2
-          ? { lane: run.config.lane, stageFreeze: run.config.freeze_sha256 }
-          : {}),
-        evidence: run.evidence,
-        model: run.config.model,
-        key: run.live.key,
-        maxSends: run.config.max_sends,
-        forbidden: () => forbiddenPayload(run.live!.facility, run.lineage),
-      });
+      const rehearsalInputs =
+        run.live.rehearsal &&
+        readJSON(path.join(run.live.facility, "inputs/stage-c-preflight.json"));
+      const readMode =
+        rehearsalInputs &&
+        run.config.version === 5 &&
+        run.config.case_id === "C16-combined" &&
+        rehearsalInputs.rehearsal_read;
+      const goMode =
+        run.config.version === 5 &&
+        run.config.case_id === "C16-combined" &&
+        rehearsalInputs?.rehearsal_go;
+      offlineSystemFailure =
+        rehearsalInputs?.rehearsal_go === "SYSTEM_C16" &&
+        run.config.version === 5 &&
+        run.config.case_id === "C16-combined";
+      const continuationFixture =
+        rehearsalInputs?.targeted_supplement?.series ===
+        continuationWorkload.series;
+      const incarnation = path.join(run.evidence, "offline-incarnation.json");
+      if (continuationFixture && !fs.existsSync(incarnation))
+        writeJSON(incarnation, { pid: process.pid });
+      const firstIncarnation =
+        continuationFixture && readJSON(incarnation).pid === process.pid;
+      if (
+        run.config.version === 5 &&
+        run.config.case_id === "C12b" &&
+        run.live.route &&
+        isRetest(
+          readJSON(path.join(run.live.facility, "configs/stage-c-freeze.json"))
+            .targeted_supplement?.series,
+        )
+      ) {
+        const root = run.live.facility,
+          freeze = run.config.freeze_sha256;
+        faultGate = recoverySender(
+          () => allGoReservationsSettled(root, freeze, ledger(root)),
+          () => !!app && recoveryTaskHasPriority(app, run),
+        );
+      }
+      // This peer exercises the same sender gate inside the isolated worker. It never issues a product input or network request.
+      let streamControl: (() => Promise<void>) | undefined;
+      if (
+        faultGate &&
+        rehearsalInputs?.rehearsal_go === "CONTINUATION_CONTROLS"
+      ) {
+        const gate = faultGate;
+        const controlProof = (
+          error: unknown,
+          waiting: string,
+          started: number,
+        ) => {
+          requireThat(
+            error instanceof SenderWindowError && error.waiting_for === waiting,
+            "OFFLINE_SENDER_CONTROL",
+          );
+          appendJSON(path.join(run.evidence, "offline-sender-controls.jsonl"), {
+            waiting_for: waiting,
+            reason: error.message,
+            wait_ms: Date.now() - started,
+            scope: "OFFLINE_CONTROL_PEER",
+            pid: process.pid,
+            at: new Date().toISOString(),
+          });
+        };
+        const proof = path.join(run.evidence, "offline-sender-controls.jsonl");
+        streamControl = async () => {
+          if (fs.existsSync(proof)) return;
+          const started = Date.now();
+          try {
+            await gate.admit(
+              AbortSignal.timeout(5000),
+              "main",
+              started + 65100,
+              async () => {
+                throw Error("OFFLINE_COMPETING_SEND");
+              },
+            );
+          } catch (error) {
+            controlProof(error, "IN_FLIGHT_RESERVATION", started);
+          }
+        };
+        savedWriteControl = () => {
+          const started = Date.now();
+          try {
+            gate.checkWindow("main", started + 60000, started);
+          } catch (error) {
+            controlProof(error, "SAVED_WRITE_EXECUTOR", started);
+          }
+        };
+      }
+      globalThis.fetch = meteredFetch(
+        {
+          root: run.live.facility,
+          run: run.id,
+          episode: run.lineage,
+          ...(run.config.version !== 1
+            ? { lane: run.config.lane, stageFreeze: run.config.freeze_sha256 }
+            : {}),
+          evidence: run.evidence,
+          model: run.config.model,
+          key: run.live.key,
+          route: run.live.route,
+          maxSends: run.config.max_sends,
+          guardAdmission: faultGate?.admit,
+          callID: (hash) =>
+            app?.store
+              .all<ModelCall>("ModelCall")
+              .find((c) => c.state === "IN_FLIGHT" && c.request.sha256 === hash)
+              ?.id,
+          deadline: (hash, stage) => {
+            if (
+              rehearsalInputs?.rehearsal_go === "CONTINUATION_CONTROLS" &&
+              run.config.version === 5 &&
+              run.config.case_id === "C12b" &&
+              stage &&
+              ["reservation", "send"].includes(stage)
+            ) {
+              const marker = path.join(
+                run.evidence,
+                "offline-deadline-" + stage + ".json",
+              );
+              if (!fs.existsSync(marker)) {
+                writeJSON(marker, {
+                  stage,
+                  hash,
+                  at: new Date().toISOString(),
+                });
+                return Date.now() + 100;
+              }
+            }
+            const active = app?.store
+              .all<ModelCall>("ModelCall")
+              .filter(
+                (c) =>
+                  c.state === "IN_FLIGHT" &&
+                  c.started_at &&
+                  c.request.sha256 === hash,
+              );
+            if (rehearsalInputs?.rehearsal_go)
+              appendJSON(
+                path.join(run.evidence, "offline-go-deadlines.jsonl"),
+                {
+                  at: new Date().toISOString(),
+                  context_sha256: hash,
+                  matched: active?.map((c) => ({
+                    id: c.id,
+                    started_at: c.started_at,
+                  })),
+                },
+              );
+            if (
+              goMode === "EXHAUST_C16" &&
+              (!continuationFixture || firstIncarnation) &&
+              active?.length
+            )
+              return Date.now() + 30000;
+            return active?.length
+              ? Math.min(
+                  ...active.map((c) => Date.parse(c.started_at!) + 120000),
+                )
+              : undefined;
+          },
+          forbidden: () => forbiddenPayload(run.live!.facility, run.lineage),
+        },
+        run.live.rehearsal
+          ? rehearsalFetch(
+              readMode
+                ? {
+                    evidence: run.evidence,
+                    probe: caseDefinition("C16-combined").probe,
+                    correction: caseDefinition("C16-combined").setup[1],
+                    mode: readMode,
+                  }
+                : undefined,
+              run.live.route
+                ? {
+                    evidence: run.evidence,
+                    streamControl,
+                    mode:
+                      rehearsalInputs.rehearsal_go === "CONTINUATION_CONTROLS"
+                        ? "CONTROLS"
+                        : goMode === "IDENTITY_C16"
+                          ? "IDENTITY"
+                          : goMode === "INTERRUPT_C16" &&
+                              (!continuationFixture || firstIncarnation)
+                            ? "INTERRUPT"
+                            : run.config.version === 5 &&
+                                run.config.case_id === "C12b"
+                              ? "TRANSIENT"
+                              : "NORMAL",
+                  }
+                : undefined,
+            )
+          : globalThis.fetch,
+      );
     } else
       globalThis.fetch = async (input) => {
         const url = new URL(
@@ -92,6 +291,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
     writeJSON(path.join(run.evidence, "worker-configuration.json"), run.config);
     let calls = 0,
       app: App;
+    let scriptedTaskTurns = 0;
     const stream: StreamFn = (m, c, o) => {
       appendJSON(path.join(run.evidence, "fixture-calls.jsonl"), {
         number: ++calls,
@@ -105,6 +305,141 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         (x) =>
           x.role === "system" && JSON.stringify(x).includes("TASK_EXECUTOR"),
       );
+      if (run.config.version === 4) {
+        const id = run.config.case_id;
+        const tool = (name: string, args: Record<string, any>) =>
+          replyStream(
+            [{ type: "toolCall", id: randomUUID(), name, arguments: args }],
+            m,
+          );
+        const control = run.config.fixture_c12b_response;
+        if (task && id === "C12b" && control) {
+          if (control === "shell")
+            return tool("bash", { command: "printf alpha > continuity.txt" });
+          if (control === "wrong-path")
+            return tool("write", { path: "other.txt", content: "alpha" });
+          if (control === "wrong-bytes")
+            return tool("write", { path: "continuity.txt", content: "wrong" });
+          return tool("submit_result", {
+            outcome: "FAILED",
+            summary: "No write performed",
+            criteria: [],
+            artifacts: [],
+            limitations: ["No artifact"],
+          });
+        }
+        if (task && id !== "C12b") {
+          const n = scriptedTaskTurns++;
+          if (id === "C13-imported_note" && n === 0)
+            return tool("read", { path: "linden.txt" });
+          if (id.startsWith("C10-") || id.startsWith("C11-")) {
+            if (n === 0)
+              return id === "C10-answer" || id === "C10-model-created"
+                ? tool("request_decision", {
+                    question: "Which format should I use?",
+                  })
+                : tool("read", { path: "ready.txt" });
+            if (n === 1)
+              return tool("write", {
+                path: "result.txt",
+                content: "Checklist complete.",
+              });
+          }
+          return fixtureStream(m, c, o);
+        }
+        const last = c.messages.at(-1),
+          text = JSON.stringify(last?.content ?? "");
+        if (
+          !task &&
+          last?.role === "user" &&
+          c.messages.some(
+            (m) =>
+              m.role === "system" &&
+              m.toolsAdded?.some((t) => t.name === "task_propose"),
+          ) &&
+          id === "C10-model-created" &&
+          !app.store.all("TaskPlan").length
+        )
+          return tool("task_propose", {
+            title_candidate: "Checklist",
+            goal: "Ask for the format before writing result.txt",
+            acceptance_criteria: ["One result.txt"],
+          });
+        if (
+          !task &&
+          c.messages.some(
+            (m) =>
+              m.role === "system" &&
+              m.toolsAdded?.some((t) => t.name === "memory_propose_change"),
+          ) &&
+          last?.role === "user" &&
+          (id === "C05-W" || id === "C14-retraction")
+        ) {
+          const row = caseDefinition(id),
+            part = row.setup.findIndex((line) => text.includes(line));
+          if (part >= 0) {
+            const events = app.store.events("input.accepted");
+            const event = events.findLast((e) => {
+              const input = app.store.read<any>(e.payload);
+              return (
+                app.store.bytes(input.payload).toString() === row.setup[part]
+              );
+            });
+            requireThat(event, "STAGE_C_FIXTURE_INPUT_BINDING");
+            const source_event_ids = [event.event_id];
+            const elm = id === "C14-retraction",
+              ref = elm ? "$elm" : "$fern";
+            if (elm && part === 1) {
+              const op = app.store
+                .all<Operation>("Operation")
+                .find(
+                  (op) =>
+                    op.action.action === "world.change" &&
+                    op.state === "SUCCEEDED" &&
+                    op.receipt,
+                );
+              const ids =
+                op?.receipt && app.store.read<any>(op.receipt).result_ids;
+              requireThat(ids?.length === 2, "STAGE_C_FIXTURE_ELM_TARGET");
+              return tool("memory_propose_change", {
+                changes: [
+                  {
+                    intent: "RETRACT",
+                    subject: ids[0],
+                    target_fact_id: ids[1],
+                    predicate: "entity.note",
+                    source_event_ids,
+                  },
+                ],
+              });
+            }
+            return tool("memory_propose_change", {
+              changes: [
+                {
+                  intent: "CREATE_ENTITY",
+                  local_ref: ref,
+                  entity_kind: "PROJECT",
+                  display_name: elm ? "Elm" : "Fern",
+                  source_event_ids,
+                },
+                {
+                  intent: "ASSERT",
+                  subject: ref,
+                  predicate: "entity.note",
+                  topic: "current_context",
+                  keywords: [],
+                  value: elm
+                    ? elmNote
+                    : part
+                      ? "Fern pickup is Saturday. Only redacted copies may be collected."
+                      : "Fern pickup is Thursday.",
+                  source_event_ids,
+                },
+              ],
+            });
+          }
+        }
+      }
       if (!task) {
         const last = c.messages.at(-1);
         if (
@@ -188,11 +523,12 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
             run.config.model,
             run.live!.key,
             run.evidence,
-            run.config.version === 2
+            run.config.version !== 1
               ? loadCampaign(run.live!.facility).physical_policy?.providers[
                   run.config.model
                 ].request_service_tier
               : undefined,
+            run.live!.route,
           )
         : { model: fixtureModel, stream },
       run.core_dsn,
@@ -310,8 +646,38 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
       }
       return finish(id, receipt, outcome);
     }) as typeof app.authorization.finish;
-    if (run.config.version === 3 && run.config.case_id === "C12b")
-      installStageCFault(app, run);
+    if (
+      (run.config.version === 3 ||
+        run.config.version === 4 ||
+        run.config.version === 5) &&
+      run.config.case_id === "C12b"
+    )
+      installStageCFault(app, run, undefined, faultGate, savedWriteControl);
+    if (offlineSystemFailure) {
+      // A deliberately inconsistent summary plan exercises the pinned Secretary validator. No provider response supplies the error.
+      const { runSummary, SUMMARY_POLICY } =
+        await import("../../../sut/secretary/src/pi_secretary/src/summary.ts");
+      let nativeError: Error | undefined;
+      try {
+        await runSummary({
+          plan: {
+            version: SUMMARY_POLICY,
+            system: "offline-control",
+            system_hash: "0".repeat(64),
+          },
+        } as Parameters<typeof runSummary>[0]);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === "SUMMARY_SYSTEM_HASH_MISMATCH"
+        )
+          nativeError = error;
+      }
+      requireThat(nativeError, "OFFLINE_NATIVE_VALIDATOR");
+      (app.host as unknown as { finish: () => void }).finish = () => {
+        throw nativeError;
+      };
+    }
     requireThat(app.world?.ready && app.world.configured, "WORLD_NOT_READY");
     const role = (
       await app.world.pool.query(
@@ -355,7 +721,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         calls: app.store.all("ModelCall"),
         compactions: app.store.all("CompactionJob"),
         extractions: app.store.all("MemoryExtractionJob"),
-        ...(run.config.mode === "live"
+        ...(run.config.mode === "live" || run.config.version === 4
           ? {
               sessions: app.store.all("Session"),
               input_records: app.store.all("Input"),
@@ -368,6 +734,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
               extractions: app.store.all("MemoryExtractionJob"),
               consciousness: app.store.all("Consciousness"),
               authorizations: app.store.all("AuthorizationRequest"),
+              feedback: app.store.all("Feedback"),
               world_commands: app.store.all("WorldCommand"),
             }
           : {}),

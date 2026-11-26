@@ -72,6 +72,16 @@ function args(db: Database) {
     "--no-password",
   ];
 }
+/** Only OS errno and server SQLSTATE identify a transient facility error. */
+export function postgresTransient(error: unknown) {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return typeof code === "string" &&
+    /^(?:EAGAIN|ENOMEM|ENOSPC|ECONNREFUSED|ECONNRESET|ETIMEDOUT|53300|57P03)$/.test(
+      code,
+    )
+    ? "PG_TRANSIENT_" + code
+    : undefined;
+}
 function execute(db: Database, name: string, argv: string[]) {
   try {
     return execFileSync(pgBinary(name), argv, {
@@ -86,7 +96,9 @@ function execute(db: Database, name: string, argv: string[]) {
       String((error as any).stderr ?? "PG command failed") + "\n",
       { mode: 0o600 },
     );
-    throw Error("PG_COMMAND_FAILED_" + name);
+    throw Error(postgresTransient(error) ?? "PG_COMMAND_FAILED_" + name, {
+      cause: error,
+    });
   }
 }
 export function initializeDatabase(db: Database) {
@@ -164,6 +176,10 @@ export async function query(
   try {
     await client.connect();
     return (await client.query(sql, params)).rows;
+  } catch (error) {
+    const reason = postgresTransient(error);
+    if (reason) throw Error(reason, { cause: error });
+    throw error;
   } finally {
     await client.end();
   }

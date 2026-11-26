@@ -1,6 +1,6 @@
 import { requireThat } from "./io.ts";
 import { modelIDs, type ModelID, type Profile } from "./live-model.ts";
-import { stageLane, type StageModel } from "./stage-b-policy.ts";
+import { stageLane, stageModels, type StageModel } from "./stage-b-policy.ts";
 export type LiveConfiguration = {
   version: 1;
   mode: "live";
@@ -26,9 +26,29 @@ export type StageConfiguration = Omit<
   fault_injection?: never;
   fault_path?: never;
 };
+export type CompletionConfiguration = Omit<StageConfiguration, "version"> & {
+  version: 5;
+};
 export function validateLiveConfiguration(
-  c: LiveConfiguration | StageConfiguration,
+  c: LiveConfiguration | StageConfiguration | CompletionConfiguration,
 ) {
+  if (c.version === 5) {
+    requireThat(
+      Object.keys(c).sort().join(",") ===
+        "case_id,freeze_sha256,lane,max_sends,mode,model,profile,seed,track,version" &&
+        c.mode === "live" &&
+        c.track === "issue122" &&
+        stageModels.includes(c.model) &&
+        ["DEP", "RC98304"].includes(c.profile) &&
+        /^[a-f0-9]{64}$/.test(c.freeze_sha256) &&
+        /^r[123]-C[0-9]{2}[a-zA-Z0-9_-]*--[a-z0-9.-]+$/.test(c.lane) &&
+        Number.isSafeInteger(c.seed) &&
+        Number.isSafeInteger(c.max_sends) &&
+        c.max_sends > 0,
+      "STAGE_C_CONFIG_BINDING",
+    );
+    return;
+  }
   if (c.version === 2) {
     const lane = stageLane(c.lane);
     requireThat(

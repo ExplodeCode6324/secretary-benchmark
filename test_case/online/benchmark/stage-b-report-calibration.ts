@@ -27,7 +27,7 @@ export type Assertion = (typeof semanticAssertions)[number];
 type Label = Exclude<Verdict, "NOT_TESTED">;
 
 /** The generators are dev-exposed. Only these instantiated synthetic facts and opaque IDs are private. */
-function generateCalibration() {
+export function generateCalibration() {
   const token = () => randomBytes(5).toString("hex");
   const old = token(),
     current = token(),

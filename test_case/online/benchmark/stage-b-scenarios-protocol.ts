@@ -1,3 +1,4 @@
+import { caseDefinition, trialTimeline } from "./stage-c-plan.ts";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type {
@@ -35,9 +36,22 @@ export type ScenarioObservation = {
   executions: Execution[];
   calls: ModelCall[];
   sessions: { state: string }[];
+  feedback?: {
+    id: string;
+    state: string;
+    kind: string;
+    execution_id: string;
+    task_id: string;
+    result_id: string | null;
+  }[];
   compactions: CompactionJob[];
 };
 export type ScenarioHost = {
+  continuation?: {
+    run: string;
+    load(): { step: number; boundary: number; trail: ScenarioTrail } | null;
+    save(step: number, boundary: number, trail: ScenarioTrail): void;
+  };
   now(): number;
   sleep(ms: number, signal?: AbortSignal): Promise<void>;
   observe(): ScenarioObservation;
@@ -99,6 +113,9 @@ export type ScenarioTrail = {
     release_at?: string;
     terminal?: string;
   };
+  windows?: { start: number; end: number; tasks: string[]; writes: number }[];
+  cancellation?: { request: string; command: string; execution: string };
+  feedback?: { execution: string; task: string; id: string; result: string };
   restart?: RestartEvidence;
 };
 export const emptyTrail = (): ScenarioTrail => ({
@@ -142,6 +159,8 @@ export function validateScenario(id: string, steps: TimelineStep[]) {
   lintTimeline(steps);
 }
 
+export const elmNote = "Juniper at Elm and June at Pine are distinct.";
+type ElmTarget = { subject: string; fact: string };
 function worldNoteMetadata(change: Record<string, unknown>) {
   const note = change.source_note;
   return typeof note === "string"
@@ -149,7 +168,30 @@ function worldNoteMetadata(change: Record<string, unknown>) {
     : { present: false, length: null, sha256: null };
 }
 
-export function exactWorld(batch: any, source: string, corrected: boolean) {
+export function exactWorld(
+  batch: any,
+  source: string,
+  corrected: boolean,
+  elm?: true | ElmTarget,
+) {
+  if (elm && elm !== true) {
+    return (
+      /^[a-f0-9-]{36}$/.test(batch?.batch_id) &&
+      isDeepStrictEqual(batch, {
+        version: 1,
+        batch_id: batch.batch_id,
+        changes: [
+          {
+            intent: "RETRACT",
+            subject: elm.subject,
+            predicate: "entity.note",
+            target_fact_id: elm.fact,
+            source_event_ids: [source],
+          },
+        ],
+      })
+    );
+  }
   const ref = batch?.changes?.[0]?.local_ref;
   if (
     !/^[a-f0-9-]{36}$/.test(batch?.batch_id) ||
@@ -161,12 +203,14 @@ export function exactWorld(batch: any, source: string, corrected: boolean) {
     intent: "CREATE_ENTITY",
     local_ref: ref,
     entity_kind: "PROJECT",
-    display_name: "Fern",
+    display_name: elm ? "Elm" : "Fern",
     source_event_ids: [source],
   };
-  const value = corrected
-    ? "Fern pickup is Saturday. Only redacted copies may be collected."
-    : "Fern pickup is Thursday.";
+  const value = elm
+    ? elmNote
+    : corrected
+      ? "Fern pickup is Saturday. Only redacted copies may be collected."
+      : "Fern pickup is Thursday.";
   if (!Array.isArray(batch.changes) || batch.changes.length !== 2) return false;
   const changes = [];
   for (const change of batch.changes) {
@@ -205,6 +249,7 @@ export function checkedWorld(
   o: ScenarioObservation,
   source: string,
   corrected: boolean,
+  elm?: true | ElmTarget,
 ) {
   const pending = o.authorizations.filter((a) => a.state === "PENDING");
   if (!pending.length) return;
@@ -226,7 +271,7 @@ export function checkedWorld(
   const batch = host.object(op.action.parameters_ref),
     preview = host.object(a.display_ref);
   requireThat(
-    exactWorld(batch, source, corrected) &&
+    exactWorld(batch, source, corrected, elm) &&
       op.action.intent_id === batch.batch_id &&
       op.action.resource === "world/batch/" + batch.batch_id &&
       isDeepStrictEqual(preview, {
@@ -265,6 +310,49 @@ export async function playStageScenario(
   signal?: AbortSignal,
 ) {
   validateScenario(id, steps);
+  return play(id, steps, h, t, signal);
+}
+
+export async function playCurrentScenario(
+  id: string,
+  purpose: "OFFLINE_FIXTURE" | "BASELINE",
+  recipe: { count: number; bytes_each: number } | undefined,
+  host: ScenarioHost,
+  trail: ScenarioTrail,
+  portion: "FULL" | "PAIR_SOURCE" | "PAIR_PROBE" = "FULL",
+  signal?: AbortSignal,
+) {
+  const c = caseDefinition(id);
+  requireThat(
+    !["C06-stale-cold", "C12b"].includes(id),
+    "SCENARIO_SPECIAL_DRIVER_REQUIRED",
+  );
+  const steps = trialTimeline(c, purpose, recipe);
+  lintTimeline(steps);
+  const boundary = steps.findIndex((s) => s.action === "PAIRED_RESTART");
+  requireThat(
+    c.pair ? portion !== "FULL" && boundary >= 0 : portion === "FULL",
+    "SCENARIO_PAIR_ROUTE",
+  );
+  return play(
+    id,
+    portion === "PAIR_SOURCE"
+      ? steps.slice(0, boundary)
+      : portion === "PAIR_PROBE"
+        ? steps.slice(boundary + 1)
+        : steps,
+    host,
+    trail,
+    signal,
+  );
+}
+async function play(
+  id: string,
+  steps: TimelineStep[],
+  h: ScenarioHost,
+  t: ScenarioTrail,
+  signal?: AbortSignal,
+) {
   let lastInput: ScenarioTrail["inputs"][number] | undefined;
   let request: string | undefined,
     condition: string | undefined,
@@ -272,7 +360,16 @@ export async function playStageScenario(
   let decision: DecisionRequest | undefined,
     boundary = 0;
   let task: TaskPlan | undefined, execution: Execution | undefined;
-  let waitLimit = 0;
+  let elmTarget: ElmTarget | undefined;
+  let waitLimit = 0,
+    step = 0,
+    ordinal = 0;
+  const checkpoint = h.continuation?.load();
+  if (checkpoint) {
+    Object.assign(t, checkpoint.trail);
+    lastInput = t.inputs.at(-1);
+    boundary = checkpoint.boundary;
+  }
   const wait = async <T>(
     code: string,
     fn: (o: ScenarioObservation) => T | undefined,
@@ -294,7 +391,17 @@ export async function playStageScenario(
   };
   const command = async (route: string, body: Record<string, unknown>) => {
     checkAbort(signal);
-    const request_id = randomUUID();
+    const request_id = h.continuation
+      ? stableID(
+          [
+            h.continuation.run,
+            step,
+            ordinal++,
+            route,
+            sha(JSON.stringify(body)),
+          ].join(":"),
+        )
+      : randomUUID();
     const r = await h.command(route, { ...body, request_id });
     requireThat(
       r.request_id === request_id &&
@@ -362,7 +469,7 @@ export async function playStageScenario(
           {
             condition_id: condition,
             kind: "RESOURCE_PRESENT",
-            target: "ready.txt",
+            target: id === "C13-imported_note" ? "linden.txt" : "ready.txt",
             required_revision: null,
           },
         ];
@@ -425,6 +532,9 @@ export async function playStageScenario(
   };
   const future = steps.map((s) => visibleInputs([s]));
   for (let ix = 0; ix < steps.length; ix++) {
+    if (checkpoint && ix < checkpoint.step) continue;
+    step = ix;
+    ordinal = 0;
     checkAbort(signal);
     const s = steps[ix],
       next = steps[ix + 1];
@@ -434,7 +544,7 @@ export async function playStageScenario(
       await message(
         s.text!,
         !!s.probe,
-        !(id === "C05-W" && !s.probe) &&
+        !(["C05-W", "C14-retraction"].includes(id) && !s.probe) &&
           !(id === "C10-model-created" && !s.probe),
       );
     else if (s.action === "MASTER_TASK") {
@@ -452,9 +562,22 @@ export async function playStageScenario(
     } else if (s.action === "MASTER_AUTHORIZATION") {
       const corrected = s.payload!.decision === "APPROVE",
         source = lastInput!.source_event!;
+      if (id === "C14-retraction" && t.decisions.length)
+        requireThat(elmTarget, "SCENARIO_RETRACTION_TARGET");
       const { a, op, notes } = await wait(
         "SCENARIO_WORLD_PROPOSAL_MISSING",
-        (o) => checkedWorld(h, o, source, corrected),
+        (o) =>
+          checkedWorld(
+            h,
+            o,
+            source,
+            corrected,
+            id === "C14-retraction"
+              ? t.decisions.length
+                ? elmTarget
+                : true
+              : undefined,
+          ),
       );
       await command("authorizations/" + a.id + "/decision", {
         expected_revision: String(a.revision),
@@ -488,6 +611,20 @@ export async function playStageScenario(
               receipt.batch_id === op.action.intent_id,
             "SCENARIO_WORLD_RECEIPT",
           );
+          if (id === "C14-retraction" && t.decisions.length === 1) {
+            requireThat(
+              receipt.result_ids?.length === 2 &&
+                receipt.result_ids.every(
+                  (v: unknown) =>
+                    typeof v === "string" && /^[a-f0-9-]{36}$/.test(v),
+                ),
+              "SCENARIO_ELM_TARGET",
+            );
+            elmTarget = {
+              subject: receipt.result_ids[0],
+              fact: receipt.result_ids[1],
+            };
+          }
         } else if (
           auth?.state !== "REJECTED" ||
           !current ||
@@ -508,7 +645,24 @@ export async function playStageScenario(
     } else if (s.action === "IDLE_WAIT")
       await h.sleep(s.seconds! * 1000, signal);
     else if (s.action === "OBSERVE") {
-      if (steps[ix - 1].action === "IDLE_WAIT") {
+      if (
+        id === "C10-discussed" ||
+        (id.startsWith("C11-") && ix === steps.length - 1)
+      ) {
+        const start = h.now(),
+          tasks = new Set<string>();
+        while (h.now() < waitLimit) {
+          checkAbort(signal);
+          h.observe().tasks.forEach((task) => tasks.add(task.id));
+          await h.sleep(Math.min(1000, waitLimit - h.now()), signal);
+        }
+        (t.windows ??= []).push({
+          start,
+          end: h.now(),
+          tasks: [...tasks],
+          writes: h.writes().length,
+        });
+      } else if (steps[ix - 1].action === "IDLE_WAIT") {
         const covered = await wait("SCENARIO_MAINTENANCE_BOUNDARY", (o) => {
           const jobs = o.compactions.filter(
             (j) =>
@@ -534,11 +688,43 @@ export async function playStageScenario(
         });
         t.cycles.push(covered);
       } else if (
-        next?.action === "SCRIPTED_FILE" ||
+        (id.startsWith("C11-") && steps[ix - 1]?.action === "MASTER_TASK") ||
+        (next?.action === "SCRIPTED_FILE" &&
+          steps[ix - 1]?.action !== "MASTER_MESSAGE") ||
         next?.action === "MASTER_ANSWER"
       )
         await bindWait();
-      else if (t.task?.release_at) {
+      else if (id.startsWith("C13-") && request) {
+        const result = await wait("SCENARIO_TASK_FEEDBACK_MISSING", (o) => {
+          const plan = o.tasks.find(
+            (p) =>
+              p.proposal_request_id === request &&
+              (!typedTask || p.id === typedTask),
+          );
+          const exec =
+            plan &&
+            o.executions.find(
+              (e) => e.task_id === plan.id && e.state === "SUCCEEDED",
+            );
+          return (
+            exec &&
+            o.feedback?.find(
+              (f) =>
+                f.kind === "RESULT" &&
+                f.execution_id === exec.id &&
+                f.task_id === plan!.id &&
+                f.result_id &&
+                ["DELIVERED", "HANDLED"].includes(f.state),
+            )
+          );
+        });
+        t.feedback = {
+          execution: result.execution_id,
+          task: result.task_id,
+          id: result.id,
+          result: result.result_id!,
+        };
+      } else if (t.task?.release_at) {
         const e = await wait("SCENARIO_TASK_UNSETTLED", (o) =>
           o.executions.find(
             (e) =>
@@ -555,11 +741,36 @@ export async function playStageScenario(
         task && execution && t.task && condition,
         "SCENARIO_TASK_BINDING",
       );
-      await bindWait();
+      if (id === "C11-autonomous-invalidation") {
+        const o = h.observe();
+        const e = o.executions.find(
+          (v) => v.id === execution!.id && v.task_id === task!.id,
+        );
+        requireThat(e, "SCENARIO_TASK_BINDING");
+        execution = e;
+      } else await bindWait();
       checkAbort(signal);
       const at = new Date(h.now()).toISOString();
       h.place(task, execution, s.file!);
       t.task.release_at = at;
+    } else if (s.action === "MASTER_CANCEL") {
+      requireThat(
+        t.task && request && t.task.request === request && t.task.condition,
+        "SCENARIO_CANCEL_BINDING",
+      );
+      const receipt = await command("task-requests/" + request + "/cancel", {});
+      requireThat(
+        receipt.resource_ids.some(
+          (v) => v.type === "TaskPlan" && v.id === t.task!.task,
+        ),
+        "SCENARIO_CANCEL_RECEIPT",
+      );
+      t.cancellation = {
+        request,
+        command: receipt.request_id,
+        execution: t.task.execution,
+      };
+      t.task.release_at = new Date(h.now()).toISOString();
     } else if (s.action === "MASTER_ANSWER") {
       await bindWait();
       requireThat(t.task && decision, "SCENARIO_QUESTION_BINDING");
@@ -572,5 +783,6 @@ export async function playStageScenario(
       t.restart = await h.restart(signal);
     } else throw Error("SCENARIO_ACTION_UNSUPPORTED");
     h.record(t);
+    h.continuation?.save(ix + 1, boundary, t);
   }
 }

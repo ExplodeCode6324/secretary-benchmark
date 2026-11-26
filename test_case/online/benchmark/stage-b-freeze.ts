@@ -77,6 +77,7 @@ function forecastPath(
   factors: Forecast,
   capacity: ForecastCapacity | undefined,
   retention: Retention,
+  sendsByTurn?: { ordinary: number; filler: number; probe: number },
 ) {
   const { turn_trigger, oldest_uncovered_seconds, min_interval_seconds } =
     maintenancePolicy;
@@ -125,7 +126,8 @@ function forecastPath(
       pending >= turn_trigger ? seconds : oldest + oldest_uncovered_seconds,
     );
   }
-  function turn(text: string) {
+  let observedTurnSends = 0;
+  function turn(text: string, kind: "ordinary" | "filler" | "probe") {
     const bytes = Buffer.byteLength(JSON.stringify(text));
     // budget.ts:requestBudget counts serialized UTF-8 plus 32 per message.
     // Shapes, tool messages and generated content are unknown at freeze.
@@ -134,8 +136,10 @@ function forecastPath(
     if (retention === "ECHO_ANCHORED") anchors += userBytes;
     pressure(); // before request: only earlier HANDLED inputs can be covered
     const sends =
+      sendsByTurn?.[kind] ??
       Math.ceil((turns + 1) * factors.ordinary_sends_per_turn) -
-      Math.ceil(turns * factors.ordinary_sends_per_turn);
+        Math.ceil(turns * factors.ordinary_sends_per_turn);
+    observedTurnSends += sends;
     turns++;
     seconds += sends * factors.seconds_per_send;
     resident +=
@@ -149,8 +153,10 @@ function forecastPath(
     pressure();
   }
   for (const [index, step] of steps.entries()) {
-    if (step.filler) for (const text of fillerTexts(step.filler)) turn(text);
-    else if (step.action === "MASTER_MESSAGE") turn(step.text ?? "");
+    if (step.filler)
+      for (const text of fillerTexts(step.filler)) turn(text, "filler");
+    else if (step.action === "MASTER_MESSAGE")
+      turn(step.text ?? "", step.probe ? "probe" : "ordinary");
     else if (step.action === "MASTER_TASK")
       seconds += factors.extra_task_sends * factors.seconds_per_send;
     else if (step.action === "DIRECT_RESTART")
@@ -186,7 +192,9 @@ function forecastPath(
     capacity_risk: capacity ? peak >= usable : null,
     boundary_wait_beyond_idle_seconds: Math.ceil(boundaryWait),
     sends: Math.ceil(
-      turns * factors.ordinary_sends_per_turn +
+      (sendsByTurn
+        ? observedTurnSends
+        : turns * factors.ordinary_sends_per_turn) +
         tasks * factors.extra_task_sends +
         jobs * factors.sends_per_maintenance,
     ),
@@ -199,6 +207,8 @@ export function forecastLane(
   factors: Forecast,
   cap: number,
   capacity?: ForecastCapacity,
+  timeCap = 3600,
+  sendsByTurn?: { ordinary: number; filler: number; probe: number },
 ) {
   requireThat(
     Object.keys(factors).sort().join(",") ===
@@ -240,7 +250,9 @@ export function forecastLane(
   }
   const paths = (
     ["BRIEF_INDEXED", "ECHO_INDEXED", "ECHO_ANCHORED"] as const
-  ).map((retention) => forecastPath(steps, factors, capacity, retention));
+  ).map((retention) =>
+    forecastPath(steps, factors, capacity, retention, sendsByTurn),
+  );
   const interval = (
     key:
       | "sends"
@@ -263,9 +275,9 @@ export function forecastLane(
     context_compactions: interval("context_compactions"),
     forced_band_compactions: interval("forced_band_compactions"),
     send_cap: cap,
-    seconds_cap: 3600,
+    seconds_cap: timeCap,
     send_limit: limit(sends, cap),
-    time_limit: limit(seconds, 3600),
+    time_limit: limit(seconds, timeCap),
   };
   const {
     turns,

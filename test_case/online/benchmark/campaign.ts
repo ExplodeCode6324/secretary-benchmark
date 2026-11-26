@@ -1,3 +1,4 @@
+import { settleGoReservation } from "./stage-c-go-local-usage.ts";
 import {
   echoContract,
   echoScope,
@@ -18,6 +19,9 @@ import {
   physicalViolation,
   returnedIdentity,
   checkAdmission,
+  activeFile,
+  dispatchFile,
+  completionPolicy,
   type PhysicalBound,
   type PhysicalPolicy,
   type StageModel,
@@ -77,6 +81,7 @@ export type Attempt = {
   reserved_usd: number;
   physical?: PhysicalBound;
   chat_stream_usage_requested?: true;
+  correction_probe_first?: true;
   at: string;
   pid: number;
 };
@@ -483,6 +488,15 @@ export async function createCampaign(
   if (baselineLimits) validateBaselineLimits(baselineLimits, ceiling ?? null);
   if (physicalPolicy) {
     validatePhysical(physicalPolicy);
+    if (completionPolicy(physicalPolicy) && physicalPolicy.continuation) {
+      const bytes = read(path.join(root, "configs/stage-c-freeze.json"));
+      requireThat(
+        sha(bytes) === physicalPolicy.freeze_sha256 &&
+          JSON.parse(bytes.toString()).targeted_supplement?.series ===
+            "issue122-r77-continuation-v1",
+        "TARGETED_FREEZE_BINDING",
+      );
+    }
     requireThat(
       ceiling === undefined && baselineLimits === undefined,
       "STAGE_B_MIXED_POLICY",
@@ -562,6 +576,7 @@ export async function reserve(
   root: string,
   details: Omit<Attempt, "id" | "at" | "pid">,
   maxSends?: number,
+  beforeReservation?: () => void,
 ) {
   return locked(directory(root), async () => {
     const campaign = assertCampaignSource(root),
@@ -573,9 +588,7 @@ export async function reserve(
         policy && bound && details.lane && details.episode,
         "STAGE_B_PHYSICAL_REQUIRED",
       );
-      const active = readJSON(
-        path.join(directory(root), "active-stage-b.json"),
-      );
+      const active = readJSON(path.join(directory(root), activeFile(policy)));
       requireThat(
         active.lane === details.lane &&
           active.episode === details.episode &&
@@ -584,6 +597,23 @@ export async function reserve(
           active.state === "OPEN",
         "STAGE_B_LANE_NOT_ACTIVE",
       );
+      if (completionPolicy(policy)) {
+        requireThat(
+          details.run === active.run && active.deadline > Date.now(),
+          "STAGE_C_RUN_OR_DEADLINE",
+        );
+        if (details.correction_probe_first)
+          requireThat(
+            bound.role === "main" &&
+              Date.now() < active.probe_deadline &&
+              ![...current.entries.values()].some(
+                (e) =>
+                  e.attempt.episode === active.episode &&
+                  e.attempt.correction_probe_first,
+              ),
+            "STAGE_C_PROBE_CUTOFF",
+          );
+      }
       const model = details.model as StageModel;
       requireThat(
         JSON.stringify(
@@ -598,72 +628,90 @@ export async function reserve(
         "STAGE_B_PHYSICAL_CHANGED",
       );
       const entries = [...current.entries.values()];
+      const continuing = completionPolicy(policy) && policy.continuation;
       requireThat(
-        !entries.some((entry) => entry.component_violation),
+        continuing || !entries.some((entry) => entry.component_violation),
         "STAGE_B_BOUND_VIOLATION",
       );
       requireThat(
-        !entries.some(
-          (entry) =>
-            entry.outcome === "PROVENANCE_CHANGE" ||
-            (entry.legacy_echo &&
-              !entry.settled &&
-              entry.attempt.lane !== details.lane),
-        ),
+        continuing ||
+          !entries.some(
+            (entry) =>
+              entry.outcome === "PROVENANCE_CHANGE" ||
+              (entry.legacy_echo &&
+                !entry.settled &&
+                entry.attempt.lane !== details.lane),
+          ),
         "STAGE_B_PROVENANCE_CHANGE",
       );
       requireThat(
-        !entries.some(
-          (entry) =>
-            entry.attempt.model === model &&
-            entry.outcome === "VERSION_TRANSITION",
-        ),
+        continuing ||
+          !entries.some(
+            (entry) =>
+              entry.attempt.model === model &&
+              entry.outcome === "VERSION_TRANSITION",
+          ),
         "STAGE_B_VERSION_HOLD",
       );
       requireThat(
-        !entries.some(
-          (entry) =>
-            entry.attempt.model === model &&
-            ["IDENTITY_MISMATCH_FIRST_CONTACT", "IDENTITY_UNKNOWN"].includes(
-              entry.outcome ?? "",
-            ),
-        ),
+        continuing ||
+          !entries.some(
+            (entry) =>
+              entry.attempt.model === model &&
+              ["IDENTITY_MISMATCH_FIRST_CONTACT", "IDENTITY_UNKNOWN"].includes(
+                entry.outcome ?? "",
+              ),
+          ),
         "STAGE_B_IDENTITY_HOLD",
       );
       const dispatch = readJSON(
-        path.join(directory(root), "stage-b-dispatch.json"),
+        path.join(directory(root), dispatchFile(policy)),
       );
       requireThat(
         !dispatch.ended &&
+          (!completionPolicy(policy) || dispatch.current === details.lane) &&
           dispatch.freeze_sha256 === policy.freeze_sha256 &&
           !dispatch.terminals[details.lane] &&
           !dispatch.probes[details.lane],
         "STAGE_B_LANE_NOT_ACTIVE",
       );
       requireThat(
-        !entries.some(
-          (entry) =>
-            model !== "deepseek-flash" &&
-            entry.attempt.model === model &&
-            entry.outcome === "EXHAUSTED_QUOTA",
-        ),
+        continuing ||
+          !entries.some(
+            (entry) =>
+              model !== "deepseek-flash" &&
+              entry.attempt.model === model &&
+              entry.outcome === "EXHAUSTED_QUOTA",
+          ),
         "STAGE_B_ACCOUNT_BLOCKED",
       );
       requireThat(
-        !entries.some(
-          (entry) =>
-            entry.attempt.model === "deepseek-flash" &&
-            ["EXHAUSTED_QUOTA", "AUTH"].includes(entry.outcome ?? "") &&
-            !dispatch.repairs[entry.attempt.id],
-        ),
+        continuing ||
+          !entries.some(
+            (entry) =>
+              entry.attempt.model === "deepseek-flash" &&
+              [
+                "EXHAUSTED_QUOTA",
+                "AUTH",
+                "GO_SUBSCRIPTION_UNAVAILABLE",
+                "GO_RATE_LIMIT",
+              ].includes(entry.outcome ?? "") &&
+              !dispatch.repairs[entry.attempt.id],
+          ),
         "STAGE_B_PRIMARY_BLOCKED",
       );
       requireThat(
-        !entries.some(
-          (entry) =>
-            entry.attempt.lane === details.lane &&
-            ["EXHAUSTED_QUOTA", "AUTH"].includes(entry.outcome ?? ""),
-        ),
+        continuing ||
+          !entries.some(
+            (entry) =>
+              entry.attempt.lane === details.lane &&
+              [
+                "EXHAUSTED_QUOTA",
+                "AUTH",
+                "GO_SUBSCRIPTION_UNAVAILABLE",
+                "GO_RATE_LIMIT",
+              ].includes(entry.outcome ?? ""),
+          ),
         "STAGE_B_LANE_FAILED",
       );
       checkAdmission(
@@ -688,7 +736,14 @@ export async function reserve(
       );
     }
     requireThat(campaign.state === "OPEN", "CAMPAIGN_CLOSED");
-    if (maxSends !== undefined)
+    if (
+      maxSends !== undefined &&
+      !(
+        campaign.physical_policy &&
+        completionPolicy(campaign.physical_policy) &&
+        campaign.physical_policy.continuation
+      )
+    )
       requireThat(
         [...current.entries.values()].filter(
           (v) =>
@@ -707,6 +762,7 @@ export async function reserve(
         current.charged_usd + details.reserved_usd <= campaign.ceiling_usd,
       "CAMPAIGN_BUDGET_EXHAUSTED",
     );
+    beforeReservation?.();
     const attempt: Attempt = {
       ...details,
       id: randomUUID(),
@@ -902,6 +958,18 @@ export async function settle(
           }
         : {}),
     });
+    if (
+      campaign.physical_policy?.providers[item.attempt.model]?.route ===
+      "opencode-go"
+    ) {
+      const meter = (usage as { go_meter?: { list_cost?: number } } | null)
+        ?.go_meter;
+      const cost =
+        typeof meter?.list_cost === "number"
+          ? Math.max(actualUSD ?? 0, meter.list_cost)
+          : actualUSD;
+      settleGoReservation(root, id, cost);
+    }
   });
 }
 export async function closeCampaign(root: string): Promise<ClosedCampaign> {

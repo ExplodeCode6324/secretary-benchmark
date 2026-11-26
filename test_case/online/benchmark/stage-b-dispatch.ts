@@ -158,6 +158,8 @@ export function firstLaneFailure(records: Entry[], lane: string) {
       return result("INCOMPLETE", "INCOMPLETE_QUOTA");
     if (
       record.outcome === "AUTH" ||
+      record.outcome === "GO_SUBSCRIPTION_UNAVAILABLE" ||
+      record.outcome === "GO_RATE_LIMIT" ||
       record.outcome === "IDENTITY_UNKNOWN" ||
       record.outcome === "IDENTITY_MISMATCH_FIRST_CONTACT"
     )

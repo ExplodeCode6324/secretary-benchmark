@@ -1,7 +1,11 @@
 // Read-only preflight: never open Store or run recovery on an unvalidated checkpoint.
+import { verifyPendingWorld } from "./stage-c-pending-world.ts";
 import fs from "node:fs";
 import path from "node:path";
-import { shape, type Stored } from "../../../sut/secretary/src/pi_secretary/src/store.ts";
+import {
+  shape,
+  type Stored,
+} from "../../../sut/secretary/src/pi_secretary/src/store.ts";
 import type { Operation } from "../../../sut/secretary/src/pi_secretary/src/contracts.ts";
 import { readonlyShell } from "../../../sut/secretary/src/pi_secretary/src/shell-policy.ts";
 
@@ -106,12 +110,14 @@ export function restorePreflight(
   logicalCore: string,
   sink: any[] = [],
   live = false,
+  directC16Domain?: string,
 ) {
   noLinks(logicalCore);
   const result = snapshot(core),
     work = path.join(logicalCore, "workspaces");
   const proof = live
     ? {
+        directC16Domain,
         history: result.operationHistory,
         transactions: result.transactions,
         value: (ref: any) =>
@@ -213,6 +219,7 @@ export function validateRestoredRecords(
 }
 
 export type RecoveryProof = {
+  directC16Domain?: string;
   history: Map<string, Operation[]>;
   transactions: { records: Stored[]; events: any[] }[];
   value: (ref: any) => any;
@@ -253,6 +260,12 @@ function validateLiveOperation(
   work: string,
   proof: RecoveryProof,
 ) {
+  if (
+    proof.directC16Domain &&
+    r.action.action === "world.change" &&
+    r.state === "WAIT_AUTH"
+  )
+    return verifyPendingWorld(r, proof, proof.directC16Domain);
   const kind = recoveryClass(
     r.action.action,
     r.state,

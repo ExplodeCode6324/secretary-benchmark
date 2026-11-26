@@ -1,3 +1,12 @@
+import { nativeWriteRecipe, isC12bFixtureResponse } from "./stage-c-fault.ts";
+import { loadCombinedResults } from "./stage-c-combine.ts";
+import {
+  prepareCompletionCalibration,
+  completionJudge,
+  completedBatchReport,
+} from "./stage-c-grading.ts";
+import { completionCommand } from "./stage-c-dispatch.ts";
+import { freezeBatch } from "./stage-c-freeze.ts";
 import {
   buildAssessment,
   planFreshAssessment,
@@ -12,6 +21,7 @@ import {
   replayAssessment,
 } from "./assessment-report.ts";
 import { writeJSON } from "./io.ts";
+import { prepareTrial } from "./stage-c-trial.ts";
 import fs from "node:fs";
 import { sha } from "./io.ts";
 import {
@@ -104,7 +114,18 @@ async function main() {
         "--profiles",
         "--source",
         "--provenance",
-      ].includes(args[i]) &&
+      ]
+        .concat(
+          command === "baseline-stage-c-trial"
+            ? ["--case", "--recipe", "--control"]
+            : [],
+        )
+        .concat(
+          command === "baseline-stage-c-controls"
+            ? ["--reader", "--rubric"]
+            : [],
+        )
+        .includes(args[i]) &&
         !!args[i + 1] &&
         !options[args[i]],
       "INVALID_ARGUMENTS",
@@ -137,6 +158,142 @@ async function main() {
     );
   deploymentGuard(repository, root);
   if (command.startsWith("baseline-stage-c-")) {
+    if (command === "baseline-stage-c-combine") {
+      requireThat(
+        Object.keys(options).join(",") === "--root",
+        "STAGE_C_AGGREGATE_ARGUMENTS",
+      );
+      console.log(JSON.stringify(loadCombinedResults(root)));
+      return;
+    }
+    if (command === "baseline-stage-c-controls") {
+      requireThat(
+        ["--root", "--reader,--root","--reader,--root,--rubric"].includes(
+          Object.keys(options).sort().join(","),
+        ) && root !== path.join(repository, ".local/benchmark"),
+        "STAGE_C_CONTROLS_ARGUMENTS",
+      );
+      console.log(
+        JSON.stringify(
+          await prepareCompletionCalibration(root, options["--reader"],options["--rubric"]),
+        ),
+      );
+      return;
+    }
+    if (command === "baseline-stage-c-results") {
+      requireThat(
+        Object.keys(options).sort().join(",") === "--root,--sha256",
+        "STAGE_C_REPORT_ARGUMENTS",
+      );
+      console.log(
+        JSON.stringify(completedBatchReport(root, options["--sha256"])),
+      );
+      return;
+    }
+    if (
+      command === "baseline-stage-c-judge-begin" ||
+      command === "baseline-stage-c-judge-finish"
+    ) {
+      const begin = command.endsWith("-begin");
+      requireThat(
+        Object.keys(options).sort().join(",") ===
+          (begin
+            ? "--approval,--lane,--root,--sha256"
+            : "--approval,--lane,--root,--sha256,--verdict"),
+        "STAGE_C_JUDGE_ARGUMENTS",
+      );
+      console.log(
+        JSON.stringify(
+          await completionJudge(
+            root,
+            begin ? "begin" : "finish",
+            options["--sha256"],
+            options["--approval"],
+            options["--lane"],
+            begin ? undefined : readJSON(options["--verdict"]),
+          ),
+        ),
+      );
+      return;
+    }
+    if (command === "baseline-stage-c-freeze") {
+      requireThat(
+        Object.keys(options).sort().join(",") ===
+          "--batch,--provenance,--root" &&
+          root !== path.join(repository, ".local/benchmark"),
+        "STAGE_C_FREEZE_ARGUMENTS",
+      );
+      console.log(
+        JSON.stringify(
+          freezeBatch(
+            root,
+            Number(options["--batch"]),
+            options["--provenance"],
+          ),
+        ),
+      );
+      return;
+    }
+    if (
+      [
+        "baseline-stage-c-start",
+        "baseline-stage-c-dispatch",
+        "baseline-stage-c-first-contact",
+        "baseline-stage-c-stop",
+      ].includes(command)
+    ) {
+      requireThat(
+        Object.keys(options).sort().join(",") ===
+          "--approval,--root,--sha256" &&
+          root !== path.join(repository, ".local/benchmark"),
+        "STAGE_C_OFFLINE_ONLY",
+      );
+      const mode = command.slice("baseline-stage-c-".length) as
+        "start" | "dispatch" | "stop" | "first-contact";
+      console.log(
+        JSON.stringify(
+          await completionCommand(
+            root,
+            mode,
+            options["--approval"],
+            options["--sha256"],
+          ),
+        ),
+      );
+      return;
+    }
+    if (command === "baseline-stage-c-trial") {
+      const recipe = options["--recipe"];
+      const control = options["--control"];
+      const expectedKeys = [
+        "--case",
+        "--root",
+        ...(recipe ? ["--recipe"] : []),
+        ...(control ? ["--control"] : []),
+      ].sort();
+      requireThat(
+        Object.keys(options).sort().join(",") === expectedKeys.join(",") &&
+          options["--case"] &&
+          options["--root"] &&
+          (!recipe ||
+            (options["--case"] === "C12b" && recipe === nativeWriteRecipe)) &&
+          (!control ||
+            (recipe === nativeWriteRecipe && isC12bFixtureResponse(control))) &&
+          root !== path.join(repository, ".local/benchmark"),
+        "STAGE_C_OFFLINE_ONLY",
+      );
+      console.log(
+        JSON.stringify(
+          await prepareTrial(
+            root,
+            options["--case"],
+            recipe ? nativeWriteRecipe : undefined,
+            isC12bFixtureResponse(control) ? control : undefined,
+          ),
+        ),
+      );
+      return;
+    }
     if (command === "baseline-stage-c-plan") {
       requireThat(Object.keys(options).length === 0, "STAGE_C_PLAN_NO_OPTIONS");
       console.log(JSON.stringify(prospectiveMatrix()));

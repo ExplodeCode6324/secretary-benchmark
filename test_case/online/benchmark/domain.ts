@@ -1,6 +1,9 @@
+import { appendJSON } from "./io.ts";
+import { completionPolicy, activeFile } from "./stage-b-policy.ts";
 import { initializeGuard, forbiddenPayload } from "./payload-guard.ts";
 import { fingerprint } from "./source.ts";
 import { captureProcessWitness } from "./process-witness.ts";
+import { caseDefinition } from "./stage-c-plan.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -50,13 +53,28 @@ import {
   validateLiveConfiguration,
   type LiveConfiguration,
   type StageConfiguration,
+  type CompletionConfiguration,
 } from "./memory-config.ts";
+import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
+import { rehearsalKey } from "./stage-c-rehearsal.ts";
+import { goCredential } from "./stage-c-go-provider.ts";
 import { credential } from "./live-model.ts";
 import {
   assertCampaignClosed,
   assertCampaignSource,
   closeCampaign,
 } from "./campaign.ts";
+
+export class DomainPreparationError extends Error {
+  constructor(
+    readonly runId: string,
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : "DOMAIN_CREATE_FAILED", {
+      cause,
+    });
+  }
+}
 
 export type Run = {
   version: 1;
@@ -93,9 +111,25 @@ export type Run = {
     checkpointHash: string;
   };
 };
+import {
+  isC12bFixtureResponse,
+  type C12bFixtureResponse,
+} from "./stage-c-fault.ts";
+
 export type Configuration =
+  | {
+      version: 4;
+      fixture_c12b_response?: C12bFixtureResponse;
+      mode: "fixture";
+      track: "issue122";
+      case_id: string;
+      seed: number;
+      profile: "DEP" | "RC98304";
+      fault_injection?: never;
+    }
   | LiveConfiguration
   | StageConfiguration
+  | CompletionConfiguration
   | {
       version: 3;
       mode: "fixture";
@@ -129,6 +163,23 @@ export const configuration: Extract<
 };
 export function validateConfiguration(config: Configuration) {
   if (config.mode === "live") return validateLiveConfiguration(config);
+  if (config.version === 4) {
+    const c = caseDefinition(config.case_id);
+    requireThat(
+      (Object.keys(config).sort().join(",") ===
+        "case_id,mode,profile,seed,track,version" ||
+        (Object.keys(config).sort().join(",") ===
+          "case_id,fixture_c12b_response,mode,profile,seed,track,version" &&
+          c.id === "C12b" &&
+          isC12bFixtureResponse(config.fixture_c12b_response))) &&
+        config.track === "issue122" &&
+        config.mode === "fixture" &&
+        Number.isSafeInteger(config.seed) &&
+        config.profile === (c.id === "C16-combined" ? "RC98304" : "DEP"),
+      "STAGE_C_FIXTURE_CONFIG",
+    );
+    return;
+  }
   if (config.version === 3) {
     requireThat(
       Object.keys(config).sort().join(",") ===
@@ -167,7 +218,15 @@ export function validateConfiguration(config: Configuration) {
 export type WorkerPermit = Pick<
   Run,
   "id" | "lineage" | "nonce" | "active" | "evidence" | "config"
-> & { core_dsn: string; live?: { key: string; facility: string } };
+> & {
+  core_dsn: string;
+  live?: {
+    key: string;
+    facility: string;
+    rehearsal?: boolean;
+    route?: "opencode-go";
+  };
+};
 export function workerPermit(run: Run): WorkerPermit {
   return {
     id: run.id,
@@ -214,12 +273,13 @@ export class Domains {
     });
   }
   /** Recovery close is available only under Domains.use's controller lease. */
-  async closeStoppedCampaign() {
+  async closeStoppedCampaign(quarantined: ReadonlySet<string> = new Set()) {
     const directory = path.join(this.root, "runs");
     for (const file of fs.existsSync(directory)
       ? fs.readdirSync(directory)
       : []) {
       requireThat(/^[a-f0-9-]{36}\.json$/.test(file), "UNKNOWN_RUN_RECORD");
+      if (quarantined.has(file.slice(0, -5))) continue;
       const run = this.raw(file.slice(0, -5));
       requireThat(
         ["STOPPED", "RETIRED", "CLEANED"].includes(run.state),
@@ -345,9 +405,16 @@ export class Domains {
       database: await newDatabase(path.join(this.root, "pg", id, "data")),
     };
     this.save(run);
-    mkdir(run.evidence);
-    mkdir(path.dirname(run.database.directory));
-    writeJSON(path.join(run.evidence, "source.json"), run.frozen);
+    try {
+      mkdir(run.evidence);
+      mkdir(path.dirname(run.database.directory));
+      writeJSON(path.join(run.evidence, "source.json"), run.frozen);
+    } catch (error) {
+      run.state = "INCOMPLETE";
+      run.failure = String(error);
+      this.save(run);
+      throw new DomainPreparationError(run.id, error);
+    }
     return run;
   }
   private mark(run: Run, dir = run.active) {
@@ -368,13 +435,17 @@ export class Domains {
     this.save(run);
     await verifyDatabase(run.database);
   }
-  async create(config: Configuration = configuration) {
+  async create(
+    config: Configuration = configuration,
+    beforePrepare?: () => void,
+  ) {
     const run = await this.allocate(config);
     try {
       requireThat(!fs.existsSync(run.active), "SLOT_EXISTS");
       this.mark(run);
       if (config.mode === "live") initializeGuard(this.root, run.lineage);
       this.save(run);
+      beforePrepare?.();
       await this.preparePG(run);
       run.state = "STOPPED";
       this.save(run);
@@ -389,21 +460,45 @@ export class Domains {
             error: String(error),
           });
         });
-      throw e;
+      throw new DomainPreparationError(run.id, e);
     }
   }
-  async start(id: string) {
+  async start(id: string, directC16Domain?: string) {
     const run = this.load(id);
+    let rehearsal = false;
+    let route: "opencode-go" | undefined;
     if (run.config.mode === "live") {
       const campaign = assertCampaignSource(this.root);
-      if (run.config.version === 2) {
+      if (run.config.version === 2 || run.config.version === 5) {
         requireThat(
           campaign.physical_policy?.freeze_sha256 === run.config.freeze_sha256,
           "STAGE_B_FREEZE_BINDING",
         );
-        const active = readJSON(
-          path.join(this.root, "campaign", "active-stage-b.json"),
+        const policy = campaign.physical_policy!;
+        requireThat(
+          completionPolicy(policy) === (run.config.version === 5),
+          "STAGE_C_POLICY_BINDING",
         );
+        const active = readJSON(
+          path.join(this.root, "campaign", activeFile(policy)),
+        );
+        if (completionPolicy(policy)) {
+          rehearsal = policy.rehearsal === true;
+          route = policy.providers[run.config.model].route;
+          const config = run.config,
+            row = policy.lanes.find((l) => l.lane === config.lane);
+          requireThat(
+            row &&
+              active.run === run.id &&
+              active.deadline > Date.now() &&
+              row.scenario === config.case_id &&
+              row.seed === config.seed &&
+              row.model === config.model &&
+              row.cap === config.max_sends &&
+              row.profile === config.profile,
+            "STAGE_C_CONFIG_DRIFT",
+          );
+        }
         requireThat(
           active.state === "OPEN" &&
             active.episode === run.lineage &&
@@ -414,10 +509,18 @@ export class Domains {
         );
       } else requireThat(!campaign.physical_policy, "STAGE_B_LEGACY_CONFIG");
     }
+    if (isGoRehearsal(this.root))
+      requireThat(rehearsal && route === "opencode-go", "GO_REHEARSAL_ONLY");
     const live =
       run.config.mode === "live"
         ? {
-            key: credential(run.config.model, run.config.version === 2),
+            rehearsal,
+            route,
+            key: rehearsal
+              ? rehearsalKey
+              : route
+                ? goCredential()
+                : credential(run.config.model, run.config.version !== 1),
             facility: this.root,
           }
         : undefined;
@@ -431,12 +534,24 @@ export class Domains {
       JSON.stringify(run.frozen) === JSON.stringify(fingerprint()),
       "FROZEN_SOURCE_CHANGED",
     );
+    if (directC16Domain)
+      requireThat(
+        run.config.version === 5 &&
+          run.config.case_id === "C16-combined" &&
+          !run.parent &&
+          !run.restoredFrom &&
+          run.endpoint?.data_domain_id === directC16Domain &&
+          run.process &&
+          processStatus(run.process) === "STOPPED",
+        "C16_DIRECT_RESTART_IDENTITY",
+      );
     if (fs.existsSync(path.join(run.active, "core/journal.jsonl")))
       restorePreflight(
         path.join(run.active, "core"),
         path.join(run.active, "core"),
         this.sink(run),
-        run.config.mode === "live",
+        run.config.mode === "live" || run.config.version === 4,
+        directC16Domain,
       );
     if (!pgRunning(run.database)) startDatabase(run.database);
     await verifyDatabase(run.database);
@@ -567,7 +682,7 @@ export class Domains {
       path.join(run.active, "core"),
       path.join(run.active, "core"),
       this.sink(run),
-      run.config.mode === "live",
+      run.config.mode === "live" || run.config.version === 4,
     );
     const cp = randomUUID(),
       dir = path.join(this.root, "checkpoints", cp);
@@ -634,7 +749,7 @@ export class Domains {
       path.join(cpDir, "state/core"),
       path.join(old.active, "core"),
       cp.sink,
-      old.config.mode === "live",
+      old.config.mode === "live" || old.config.version === 4,
     );
     const run = await this.allocate(old.config, old.lineage);
     run.parent = id;
@@ -738,7 +853,7 @@ export class Domains {
       path.join(staged, "core"),
       path.join(run.active, "core"),
       this.sink(run),
-      run.config.mode === "live",
+      run.config.mode === "live" || run.config.version === 4,
     );
     if (!pgRunning(run.database)) startDatabase(run.database);
     await verifyDatabase(run.database);
@@ -791,9 +906,33 @@ export class Domains {
     this.load(id);
     return run;
   }
-  async seal(id: string) {
+  async seal(
+    id: string,
+    includeDatabase = false,
+    recordControllerStop = false,
+  ) {
+    const started = Date.now();
     const run = await this.stop(id);
+    if (recordControllerStop && run.endpoint && run.process) {
+      appendJSON(
+        path.join(this.root, "campaign", "stage-c-controller-stops.jsonl"),
+        {
+          run: run.id,
+          domain: run.endpoint.data_domain_id,
+          pid: run.process.pid,
+          started,
+          ended: Date.now(),
+        },
+      );
+    }
     await stopDatabase(run.database);
+    if (includeDatabase) {
+      writeJSON(path.join(run.evidence, "database-checkpoint.json"), {
+        id,
+        system_id: run.database.systemID,
+        sha256: sha(JSON.stringify(inventory(run.database.directory))),
+      });
+    }
     writeJSON(
       path.join(run.evidence, "domain-files.json"),
       inventory(run.active),
@@ -804,6 +943,43 @@ export class Domains {
       files: inventory(run.evidence, new Set(["seal.json"])),
     });
     return run;
+  }
+  continuationCheckpoint(id: string) {
+    const run = this.load(id);
+    requireThat(
+      run.state === "STOPPED" &&
+        (!run.process || processStatus(run.process) === "STOPPED"),
+      "CONTINUATION_WORKER_NOT_STOPPED",
+    );
+    requireThat(
+      run.database.systemID &&
+        controlID(run.database) === run.database.systemID &&
+        !pgRunning(run.database),
+      "CONTINUATION_PG_OWNERSHIP_OR_STATE",
+    );
+    const sealFile = path.join(run.evidence, "seal.json"),
+      seal = readJSON(sealFile);
+    requireThat(
+      seal.id === id &&
+        seal.nonce === run.nonce &&
+        JSON.stringify(seal.files) ===
+          JSON.stringify(inventory(run.evidence, new Set(["seal.json"]))) &&
+        JSON.stringify(
+          readJSON(path.join(run.evidence, "domain-files.json")),
+        ) === JSON.stringify(inventory(run.active)),
+      "CONTINUATION_UNVERIFIED_SEAL",
+    );
+    const database = readJSON(
+      path.join(run.evidence, "database-checkpoint.json"),
+    );
+    requireThat(
+      database.id === id &&
+        database.system_id === run.database.systemID &&
+        database.sha256 ===
+          sha(JSON.stringify(inventory(run.database.directory))),
+      "CONTINUATION_DATABASE_CHANGED",
+    );
+    return sha(read(sealFile));
   }
   async clean(id: string) {
     assertCampaignClosed(this.root);

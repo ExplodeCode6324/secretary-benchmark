@@ -1,0 +1,215 @@
+{
+  "schema": "issue122-supplement-result-v1",
+  "historical_baseline_sha256": "2c900be744be13ae1646242b9243c6f908e82a63204d2ec9b30bacb0062017a3",
+  "original_observations": 99,
+  "workload_attempts": 97,
+  "workload_accounted_usd_upper_or_measured": 0.615502344,
+  "workload_returned_models": [
+    "deepseek-v4.1-flash"
+  ],
+  "workloads": [
+    {
+      "case": "C16-combined",
+      "repeat": 1,
+      "reader_accepted": false,
+      "lane": "r1-C16-combined--deepseek-flash",
+      "workload_route": "opencode-go",
+      "status": "INCOMPLETE",
+      "freeze_sha256": "fa647e16b20f30f7f66ffb93ec62a7044f2764ccd74297f29931cc560b7cf60a",
+      "dispatch_sha256": "138277f746ce79133e52c4a71d9156d53e4ce171bb5f47fea9d93e4e8d8f18ea",
+      "trial_sha256": "541132cfde1fbd387a484965a9a2e4df95c6159edd2bae7b252dbb99aa88a1ec",
+      "workload_attempts": 97,
+      "terminal_reason": "SCENARIO_PRODUCT_BLOCKED",
+      "assertions": {
+        "natural_access": "NOT_TESTED",
+        "maintenance_current": "NOT_TESTED",
+        "use_current": "NOT_TESTED",
+        "authority_chain": "NOT_TESTED",
+        "item_lineage": "NOT_TESTED"
+      },
+      "gate": "OPEN",
+      "verdict": "UNRESOLVED",
+      "gaps": [
+        "NO_PHYSICAL_OBSERVATION"
+      ],
+      "mechanical": null,
+      "pending_proposals": null,
+      "interruption": {
+        "observed_sha256": "cfdd1a05e30dbc3d82182c924ed06a89d508c5b2ed5ce6d8b1e46b32d82a1819",
+        "session_state": "RECOVERY_BLOCKED",
+        "session_revision": 348,
+        "session_updated_at": "2026-11-25T18:43:08.440Z",
+        "request_ordinal": 97,
+        "request_reserved_at": "2026-11-25T18:43:01.911Z",
+        "request_settled_at": "2026-11-25T18:43:03.180Z",
+        "transport_cause": "UNKNOWN"
+      }
+    },
+    {
+      "case": "C12b",
+      "repeat": 1,
+      "reader_accepted": false,
+      "lane": "r1-C12b--deepseek-flash",
+      "workload_route": "opencode-go",
+      "status": "UNRUN",
+      "freeze_sha256": "fa647e16b20f30f7f66ffb93ec62a7044f2764ccd74297f29931cc560b7cf60a",
+      "dispatch_sha256": "138277f746ce79133e52c4a71d9156d53e4ce171bb5f47fea9d93e4e8d8f18ea",
+      "trial_sha256": null,
+      "workload_attempts": 0,
+      "terminal_reason": "TARGETED_ACCOUNT_NOT_AVAILABLE",
+      "assertions": {
+        "effects": "NOT_TESTED",
+        "obligation": "NOT_TESTED"
+      },
+      "gate": "OPEN",
+      "verdict": "UNRESOLVED",
+      "gaps": [
+        "NO_SEALED_TRIAL"
+      ],
+      "mechanical": null,
+      "pending_proposals": null
+    }
+  ],
+  "archived_reader_rows": [
+    {
+      "case": "C06-resident-B",
+      "repeat": 2,
+      "reader_accepted": false,
+      "route": "c06-98",
+      "source_archive_sha256": "bbda900a503439b356dc215a896e87e8ad61be04419a4fd0075195da92e0454e",
+      "source_freeze_sha256": "0864d8b8df9222f8f275ebd66dd98dac9f02c678d508d83944b4fcef2b928145",
+      "workload_route": "opencode-go",
+      "assertions": {
+        "natural_access": "NOT_TESTED"
+      }
+    },
+    {
+      "case": "C06-resident-B",
+      "repeat": 3,
+      "reader_accepted": false,
+      "route": "c06-99",
+      "source_archive_sha256": "bbda900a503439b356dc215a896e87e8ad61be04419a4fd0075195da92e0454e",
+      "source_freeze_sha256": "0864d8b8df9222f8f275ebd66dd98dac9f02c678d508d83944b4fcef2b928145",
+      "workload_route": "opencode-go",
+      "assertions": {
+        "natural_access": "NOT_TESTED"
+      }
+    }
+  ],
+  "c16": {
+    "historical_adjudicable": 2,
+    "historical_denominator": 3,
+    "positions": [
+      {
+        "repeat": 1,
+        "route": "opencode-go",
+        "gate": "OPEN",
+        "verdict": "UNRESOLVED"
+      },
+      {
+        "repeat": 2,
+        "route": "deepseek-official",
+        "gate": "CLOSED",
+        "verdict": "FAIL"
+      },
+      {
+        "repeat": 3,
+        "route": "deepseek-official",
+        "gate": "CLOSED",
+        "verdict": "FAIL"
+      }
+    ],
+    "adjudicable": 2
+  },
+  "c12b_complete_live_witness": false,
+  "workload_freeze_sha256": "fa647e16b20f30f7f66ffb93ec62a7044f2764ccd74297f29931cc560b7cf60a",
+  "dispatch_sha256": "138277f746ce79133e52c4a71d9156d53e4ce171bb5f47fea9d93e4e8d8f18ea",
+  "workload_attempts_sha256": "a3cd90a301f2e9548514b9a0e1d46d1e6db7e5654dc2386393c679552b17f94e",
+  "workload_provider": "DeepSeek V4.1 Flash 1017",
+  "workload_requested_model": "deepseek-v4.1-flash",
+  "reader": "Hermes/opencode-go/deepseek-v4.1-flash/max",
+  "reader_rubric_sha256": "d3141e2a15afeda21e15c324f8f0eab5557e9162e079de2ff2b0026a61914169",
+  "reader_operator_release_sha256": "65a3843895940153f1f219807018861fa2a68f1a629b9c58a7bfad30452c2bc0",
+  "series_sha256": null,
+  "reader_final_sha256": null,
+  "reader_activation_blocked_sha256": "e22ef97d521c10ca2289ccdc5b66e39de61e9cdaf3bd3afbe607e303c7e4770e",
+  "reader_activation": "STOPPED_BEFORE_READER_ACTIVATION",
+  "reader_prepare_failure": "prepare_failed_c16-repeat1:TARGETED_PHYSICAL_RUN",
+  "workload_scoped_hold_reason": "GO_TARGETED_TRANSPORT_UNCERTAIN",
+  "workload_scoped_hold_sha256": "488298374cb6c6a69351c6559bb1bcd36063bd204514a800d5a2f3fbaa9df1fc",
+  "workload_billing": {
+    "confirmed_responses": 96,
+    "confirmed_list_usd": 0.14001463,
+    "confirmed_cash_usd": 0,
+    "uncertain_requests": 1,
+    "uncertain_reserved_usd": 0.4754877,
+    "uncertain_actual_usd": null
+  },
+  "reader_billing": {
+    "allowance_equivalent_usd": 0,
+    "cash_charge_usd": 0,
+    "confirmed_provider_sends": 0,
+    "launches": 0,
+    "metadata_gets": 0,
+    "new_unresolved_reader_reservation_usd": 0,
+    "possible_provider_sends": 0,
+    "reservations": 0
+  },
+  "readers": [
+    {
+      "route": "calibration",
+      "status": "NOT_TESTED",
+      "reason": "STOPPED_BEFORE_ACTIVATION",
+      "native_dispatches": 0,
+      "confirmed_provider_sends": 0,
+      "possible_provider_sends": 0,
+      "official_sha256": null,
+      "supplemental_sha256": null,
+      "accepted": false
+    },
+    {
+      "route": "c16-repeat1",
+      "status": "NOT_TESTED",
+      "reason": "STOPPED_BEFORE_ACTIVATION",
+      "native_dispatches": 0,
+      "confirmed_provider_sends": 0,
+      "possible_provider_sends": 0,
+      "official_sha256": null,
+      "supplemental_sha256": null,
+      "accepted": false
+    },
+    {
+      "route": "c12b",
+      "status": "NOT_TESTED",
+      "reason": "STOPPED_BEFORE_ACTIVATION",
+      "native_dispatches": 0,
+      "confirmed_provider_sends": 0,
+      "possible_provider_sends": 0,
+      "official_sha256": null,
+      "supplemental_sha256": null,
+      "accepted": false
+    },
+    {
+      "route": "c06-98",
+      "status": "NOT_TESTED",
+      "reason": "STOPPED_BEFORE_ACTIVATION",
+      "native_dispatches": 0,
+      "confirmed_provider_sends": 0,
+      "possible_provider_sends": 0,
+      "official_sha256": null,
+      "supplemental_sha256": null,
+      "accepted": false
+    },
+    {
+      "route": "c06-99",
+      "status": "NOT_TESTED",
+      "reason": "STOPPED_BEFORE_ACTIVATION",
+      "native_dispatches": 0,
+      "confirmed_provider_sends": 0,
+      "possible_provider_sends": 0,
+      "official_sha256": null,
+      "supplemental_sha256": null,
+      "accepted": false
+    }
+  ]
+}

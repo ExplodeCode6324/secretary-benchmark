@@ -126,11 +126,13 @@ export function b0Matrix(rows: Capacity[]) {
 export async function captureBodies(
   context: Parameters<StreamFn>[1],
   observe?: (model: string, bytes: Buffer) => void,
+  models: readonly (typeof baselineModels)[number][] = baselineModels,
+  role: "main" | "task" = "main",
 ) {
   const original = globalThis.fetch;
   const samples = [];
   try {
-    for (const id of baselineModels) {
+    for (const id of models) {
       const model = descriptor(id);
       const captured: {
         bytes: number;
@@ -168,7 +170,7 @@ export async function captureBodies(
           headers: { "content-type": "application/json" },
         });
       };
-      const stream = roleModel(model, "offline-synthetic-key").stream;
+      const stream = roleModel(model, "offline-synthetic-key", role).stream;
       const result = await (
         await stream(model, context, { signal: AbortSignal.timeout(10000) })
       ).result();

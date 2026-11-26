@@ -1,0 +1,205 @@
+{
+  "capacities": [
+    {
+      "model": "deepseek-flash",
+      "profile": "DEP",
+      "budget": {
+        "count_method": "utf8_bytes_upper_estimate_v1",
+        "policy_id": "04cdfb2cc7c23d226ef0579181bb3ec56a6b30a773e2d5734589f91d8274b6c4",
+        "estimated_tokens": 19339,
+        "effective_context_window": 1000000,
+        "usable_input_tokens": 941808,
+        "requested_output_tokens": 4096,
+        "effective_output_tokens": 4096,
+        "tool_reserve_tokens": 4096,
+        "safety_margin_tokens": 50000,
+        "occupancy": 0.020533909246895334,
+        "deployment_limit_verified": false
+      },
+      "task_budget": {
+        "count_method": "utf8_bytes_upper_estimate_v1",
+        "policy_id": "04cdfb2cc7c23d226ef0579181bb3ec56a6b30a773e2d5734589f91d8274b6c4",
+        "estimated_tokens": 13546,
+        "effective_context_window": 1000000,
+        "usable_input_tokens": 941808,
+        "requested_output_tokens": 4096,
+        "effective_output_tokens": 4096,
+        "tool_reserve_tokens": 4096,
+        "safety_margin_tokens": 50000,
+        "occupancy": 0.014382974024429607,
+        "deployment_limit_verified": false
+      },
+      "effective_policy": {
+        "policy": "request-utf8-v1",
+        "contextLimit": null,
+        "inputLimit": null,
+        "outputLimit": null,
+        "outputTokens": 4096,
+        "summaryOutputTokens": 16384,
+        "summaryRetryTokens": 32768,
+        "toolReserve": 4096,
+        "safetyTokens": null,
+        "safetyRatio": 0.05,
+        "target": 0.3,
+        "normal": 0.6,
+        "forced": 0.8
+      },
+      "main_system_bytes": 3695,
+      "tool_schema_bytes": 9435,
+      "initial_messages_bytes": 13220,
+      "window": {
+        "count": 12,
+        "ratio": 0.15
+      },
+      "recent_input_byte_allowance": 141271.19999999998,
+      "summary": {
+        "status": "PLANNABLE",
+        "outputs": [16384, 32768],
+        "segment_count": 4,
+        "prior_input_bytes": 23464,
+        "metadata_bytes": 6624
+      },
+      "system_sha256": "00f7d46b52bd024a1f893ca493d190cd41d29a926e46b2da0128e6cb99d0471a",
+      "tools_sha256": "a1c3cf667170f117c9a23f36222c6f17ce1b83d153c3e9e10f6f64177f2ef84a",
+      "limitation": "Initial resident base; 24 x 2048-byte synthetic sources, two full CAS provenance refs and empty commitments. Actual episode state and crop must be measured live."
+    },
+    {
+      "model": "deepseek-flash",
+      "profile": "RC98304_CANDIDATE",
+      "budget": {
+        "count_method": "utf8_bytes_upper_estimate_v1",
+        "policy_id": "eb290d8eca599e8e558d978e78d1b77005151e3deaa36c1e250bb6946f2408c0",
+        "estimated_tokens": 19339,
+        "effective_context_window": 98304,
+        "usable_input_tokens": 85196,
+        "requested_output_tokens": 4096,
+        "effective_output_tokens": 4096,
+        "tool_reserve_tokens": 4096,
+        "safety_margin_tokens": 4916,
+        "occupancy": 0.2269942250809897,
+        "deployment_limit_verified": true
+      },
+      "task_budget": {
+        "count_method": "utf8_bytes_upper_estimate_v1",
+        "policy_id": "eb290d8eca599e8e558d978e78d1b77005151e3deaa36c1e250bb6946f2408c0",
+        "estimated_tokens": 13546,
+        "effective_context_window": 98304,
+        "usable_input_tokens": 85196,
+        "requested_output_tokens": 4096,
+        "effective_output_tokens": 4096,
+        "tool_reserve_tokens": 4096,
+        "safety_margin_tokens": 4916,
+        "occupancy": 0.15899807502699656,
+        "deployment_limit_verified": true
+      },
+      "effective_policy": {
+        "policy": "request-utf8-v1",
+        "contextLimit": 98304,
+        "inputLimit": null,
+        "outputLimit": null,
+        "outputTokens": 4096,
+        "summaryOutputTokens": 16384,
+        "summaryRetryTokens": 32768,
+        "toolReserve": 4096,
+        "safetyTokens": null,
+        "safetyRatio": 0.05,
+        "target": 0.3,
+        "normal": 0.6,
+        "forced": 0.8
+      },
+      "main_system_bytes": 3695,
+      "tool_schema_bytes": 9435,
+      "initial_messages_bytes": 13220,
+      "window": {
+        "count": 2,
+        "ratio": 0.05
+      },
+      "recent_input_byte_allowance": 4259.8,
+      "summary": {
+        "status": "PLANNABLE",
+        "outputs": [16384, 32768],
+        "segment_count": 4,
+        "prior_input_bytes": 23464,
+        "metadata_bytes": 6624
+      },
+      "system_sha256": "00f7d46b52bd024a1f893ca493d190cd41d29a926e46b2da0128e6cb99d0471a",
+      "tools_sha256": "a1c3cf667170f117c9a23f36222c6f17ce1b83d153c3e9e10f6f64177f2ef84a",
+      "limitation": "Initial resident base; 24 x 2048-byte synthetic sources, two full CAS provenance refs and empty commitments. Actual episode state and crop must be measured live."
+    }
+  ],
+  "forecast": {
+    "deepseek-flash": {
+      "ordinary_sends_per_turn": 1.5,
+      "extra_task_sends": 6,
+      "sends_per_maintenance": 5,
+      "seconds_per_send": 20,
+      "restart_seconds": 15,
+      "observation_seconds": 3,
+      "expected_input_tokens": 12000,
+      "expected_output_tokens": 256
+    }
+  },
+  "models": ["deepseek-flash"],
+  "samples": {
+    "C04-resident": {
+      "deepseek-flash": [
+        {
+          "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+          "bytes": 15000,
+          "output_cap": 2048
+        }
+      ]
+    },
+    "C02-incidental": {
+      "deepseek-flash": [
+        {
+          "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+          "bytes": 15000,
+          "output_cap": 2048
+        }
+      ]
+    },
+    "C16-combined": {
+      "deepseek-flash": [
+        {
+          "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+          "bytes": 15000,
+          "output_cap": 2048
+        }
+      ]
+    },
+    "C04-irrelevant": {
+      "deepseek-flash": [
+        {
+          "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+          "bytes": 15000,
+          "output_cap": 2048
+        }
+      ]
+    }
+  },
+  "evidence_class": "OFFLINE_SSE",
+  "measured_tokens": {
+    "deepseek-flash": {
+      "tokens_per_byte": 0.25,
+      "mean_output_tokens": 20,
+      "median_seconds": 0.02,
+      "longest_seconds": 0.1,
+      "workload_responses": 1,
+      "ledger_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+    }
+  },
+  "reader_timing": {
+    "manifest_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "calibration": {
+      "n": 1,
+      "median_seconds": 1,
+      "max_seconds": 1
+    },
+    "batch": {
+      "n": 2,
+      "median_seconds": 1,
+      "max_seconds": 2
+    }
+  }
+}

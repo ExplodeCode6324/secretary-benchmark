@@ -10,7 +10,7 @@ import { snapshot } from "./snapshot.ts";
 import type { ScenarioTrail } from "./stage-b-scenarios-protocol.ts";
 
 type Ref = { path: string; sha256: string; bytes: number };
-export function cas(core: string, r: Ref) {
+export function casBytes(core: string, r: Ref) {
   requireThat(
     r && /^[a-f0-9]{64}$/.test(r.sha256) && r.path === "objects/" + r.sha256,
     "SCENARIO_CAS_REFERENCE",
@@ -20,7 +20,10 @@ export function cas(core: string, r: Ref) {
     data.length === r.bytes && sha(data) === r.sha256,
     "SCENARIO_CAS_CHANGED",
   );
-  return JSON.parse(data.toString());
+  return data;
+}
+export function cas(core: string, r: Ref) {
+  return JSON.parse(casBytes(core, r).toString());
 }
 export function lines(file: string): any[] {
   return fs.existsSync(file)
@@ -45,6 +48,29 @@ function resultText(message: any): string {
     .join("\n");
 }
 /** Direct byte observations only. Four-surface paraphrase review always remains a separate judgment. */
+export function rawSourceOnWire(payload: any, source: string) {
+  const messages = payload.messages ?? payload.input;
+  return (
+    Array.isArray(messages) &&
+    messages.some((m) => {
+      if (m.role !== "user") return false;
+      const text =
+        typeof m.content === "string"
+          ? m.content
+          : Array.isArray(m.content)
+            ? m.content
+                .filter((v: any) => ["text", "input_text"].includes(v.type))
+                .map((v: any) => v.text)
+                .join("")
+            : "";
+      return (
+        !text.startsWith(
+          "Working memory (source history remains queryable):",
+        ) && text.includes(source)
+      );
+    })
+  );
+}
 export function wireVisibility(payload: any) {
   const messages = payload.input ?? payload.messages;
   const markers = ["LIME-427", "Saturday", "redacted", "Thursday"];
@@ -302,7 +328,7 @@ export function inspectStageEvidence(
     )
       requirements.push("WORLD_BOUNDARY_MISSING");
   }
-  if (id === "C08-inference" || id === "C16-combined") {
+  if (["C08-inference", "C09-finished", "C16-combined"].includes(id)) {
     const samples = t.cycles.flatMap((cycle) => {
       const f = frames.find((f) =>
         f.records.some(
@@ -335,7 +361,17 @@ export function inspectStageEvidence(
           }),
           source_sha256: job.candidate_ref.sha256,
         });
-      return [memorySample(c, job, id === "C08-inference" ? "Orchid" : "Fern")];
+      return [
+        memorySample(
+          c,
+          job,
+          id === "C08-inference"
+            ? "Orchid"
+            : id === "C09-finished"
+              ? "Maple"
+              : "Fern",
+        ),
+      ];
     });
     const attempts = records
       .filter(
@@ -486,10 +522,43 @@ export function inspectStageEvidence(
       (v) => v.c.loop_id === before?.loop && v.c.input_ids.includes(before?.id),
     );
     const preSend = pre && captures(pre)[0];
+    function sourceVisibility(send: Send, ctx: typeof pre) {
+      const v = wireVisibility(send.payload);
+      const modelCall = ctx && latest("ModelCall", ctx.c.call_id);
+      if (!v.measured || v.opaque || !source || !modelCall)
+        return { ...v, original_projection_exit: "UNKNOWN" };
+      const normalized = object(modelCall.request);
+      const sourceCall = contexts.find((row) =>
+        row.c.input_ids.includes(source.id),
+      );
+      const origin = sourceCall && latest("ModelCall", sourceCall.c.call_id);
+      const original =
+        origin &&
+        object(origin.request).messages.find(
+          (m: any) => m.secretary_input?.input_id === source.id,
+        );
+      const originalText = original?.content;
+      if (
+        typeof originalText !== "string" ||
+        sha(originalText) !== source.text_sha256
+      )
+        return { ...v, original_projection_exit: "UNKNOWN" };
+      const raw = normalized.messages.filter((m: any) => m.role === "user");
+      const projected = raw.some(
+        (m: any) => m.secretary_input?.input_id === source.id,
+      );
+      const onWire = rawSourceOnWire(send.payload, originalText);
+      return {
+        ...v,
+        original_projection_exit:
+          projected || onWire ? "STILL_PRESENT" : "SOURCE_EXIT",
+        original_sha256: sha(originalText),
+      };
+    }
     cold = {
       pre_restart_send: preSend?.id,
-      pre_restart: preSend ? wireVisibility(preSend.payload) : null,
-      probe: initial ? wireVisibility(initial.payload) : null,
+      pre_restart: preSend ? sourceVisibility(preSend, pre) : null,
+      probe: initial ? sourceVisibility(initial, probeRequests[0]) : null,
       source_input: source?.id,
       source_event: source?.source_event,
       reads,
@@ -499,7 +568,7 @@ export function inspectStageEvidence(
     if (!preSend || !initial || !cold.restart_observed)
       requirements.push("COLD_OBSERVATION_MISSING");
   }
-  if (id.startsWith("C10-")) {
+  if (["C10-condition", "C10-answer", "C10-model-created"].includes(id)) {
     const bound = t.task,
       e = bound && latest("Execution", bound.execution);
     const ops = new Map(
@@ -615,7 +684,12 @@ export function inspectStageEvidence(
   return { requirements, outcome, world, maintenance, cold, task, excerpts };
 }
 
-export function auditStageRun(root: string, run: Run, t: ScenarioTrail) {
+export function auditStageRun(
+  root: string,
+  run: Run,
+  t: ScenarioTrail,
+  scenario?: string,
+) {
   const core = path.join(run.active, "core"),
     state = snapshot(core),
     object = (r: Ref) => cas(core, r);
@@ -624,7 +698,10 @@ export function auditStageRun(root: string, run: Run, t: ScenarioTrail) {
     .readdirSync(run.evidence)
     .filter((f) => /^send-[a-f0-9-]+\.json$/.test(f))
     .map((f) => readJSON<Send>(path.join(run.evidence, f)));
-  requireThat(run.config.version === 2, "SCENARIO_AUDIT_CONFIG");
+  requireThat(
+    run.config.version === 2 || run.config.version === 5,
+    "SCENARIO_AUDIT_CONFIG",
+  );
   const { entries } = ledger(root);
   for (const send of sends) {
     const a = entries.get(send.id)?.attempt;
@@ -638,7 +715,7 @@ export function auditStageRun(root: string, run: Run, t: ScenarioTrail) {
   }
   const session = readJSON(path.join(run.evidence, "observed.json")).session_id;
   const proof = inspectStageEvidence(
-    run.config.case_id,
+    scenario ?? run.config.case_id,
     t,
     state.transactions,
     object,

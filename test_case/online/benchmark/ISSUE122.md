@@ -32,15 +32,92 @@ The offline manifest is an implementation draft, not an approved live freeze. B0
 
 中文：本阶段只完成离线准备与证据合同。新增 live 矩阵未运行，模型 ID/价格/计费上界与 RC 路线尚待冻结审批。历史 C12a 保留同一操作对账及一次写入结论，但缺少独立旧进程退出回执，按 S4 必补 C12b。Fixture 只证明工具和隔离协议，不证明模型记忆表现。所有首次失败、历史标签及缺口保留。
 
-
 R3 corrections: fully covered and revision-identical paired starts; correct RC recent-input policy; route-specific, answer-free SUT timelines and deterministic filler; STALE/partial/in-flight guards and durable output-bound violations. Pair snapshots now come from the stopped checkpoint, B blocks frozen A inputs, and cleanup cannot replace the first failure. Dev controls also cover a correct guess without retrieval and separate maintenance/use judgments. Freeze generated control packet/key exactly once; randomness does not create held-out status. Before Stage B, derive cold surfaces/read-use from the same captured request and lineage rather than trusting manually supplied flags. Wall-time dispatch limits remain conservative; offline/review time before first send is excluded, and C16 scheduling/cap risk must be explicit in the live freeze.
 
 The archive ownership checker recognizes only versioned pair receipts bound to registered runs, lineage and checkpoint. Unknown pair identities still refuse archival. This fixes the original `ARCHIVE_UNKNOWN_TOP_LEVEL` refusal for the newly introduced `pairs/` directory; the initial failed attempts remain in private receipts.
 
-## Stage C offline preparation
+## Historical Stage C offline preparation
 
 Run `npm run benchmark -- baseline-stage-c-prepare --root <fresh-owned-facility>` from the standalone benchmark checkout. It creates five isolated scripted fixture domains, records the C12b interrupted write and direct restart, captures C06 and control request bodies through the actual serializers with network disabled, and seals the runs. Export using `baseline-stage-c-report --root <same-facility>`. The report distinguishes fixture effects from ungraded memory semantics. The reader packet and its private key are separate. The entry accepts no provider credentials, approval or live lane.
 
 `baseline-stage-c-plan` prints the prospective single-profile inventory. The dedicated resident-B control adds nine source lineages to the original 261. The unrelated and nonexistent-event controls reuse their independent C04 rows. Costs, live row caps, provider versions and the final freeze remain pending. Three C16 lanes remain deferred.
 
 The prospective rows retain parent-template input, timeline and oracle hashes. Rows with measured fixtures separately identify the actual scripted inputs and a single serialized body per model. The resident-B control uses the natural-access assertion with its own corrected-day and redaction oracle. A future freeze must bind these assertions, the calibrated reader, provider identity and fresh price evidence, and per-lane request, retry, token and time limits. The 1.5-second post-verification window applies only to the scripted C12b fixture.
+
+## Completion baseline
+
+The default cohort fixes DeepSeek Flash across 33 observations per repeat, with a fresh source lineage for each independent scenario. C02 and C05 have one source and two probe branches each. Three repeats produce 99 observations on 93 lineages. C16 runs early on RC98304. The other rows use DEP. The archived three-model matrices and their original first failures remain available using the historical report reader.
+
+Use `npm run benchmark -- baseline-stage-c-plan` for the inventory. To exercise one source through a native Secretary worker without a provider, use `baseline-stage-c-trial --root <fresh-facility> --case <source-case>` through the same npm entry point. Start pairs at branch A. The fixture uses shorter filler recipes. Its serializer captures, host process receipts and read-only original-event diagnostic are program evidence.
+
+The completion freeze binds the runner and both product gitlinks, case recipes, native samples, provider source, per-role settings and blinded grading controls. A separate approval binds each batch to its SHA-256. The run and scoring commands require that approval. A closed C16 repeat needs advancing ordinary maintenance, original raw-context exit in metered requests before and after the same-domain restart, a conclusive source-bound direct lookup and a complete, final probe chain. The blind reader must audit the surfaces, classify visibility as RESIDENT or COLD, and return determinate maintenance and use grades. Every structural requirement in `c16Disposition` must also hold. A measured FAIL can close a repeat. The three repeats have separate dispositions.
+
+The pricing projection uses peak rates for reservations. A physical send with metered components entirely outside a potential peak interval uses the published off-peak rate. A weekday peak interval with unknown holiday treatment retains a bounded estimate. Comparison across future architectures requires matched external recipes and model identity evidence as described in the Core plan.
+
+### Recorded completion baseline, 25 November 2026
+
+The effective comparison covers 93 source lineages and 99 observations. Seventy observations completed the workload and 59 received an accepted independent assessment. Three C16 recovery runs reached the final probe. The first maintenance judgment remains unresolved. The second and third measured a maintenance failure. All three final-use judgments passed. The frozen C16 merge gate remains open. C12a lacked a contemporaneous process-exit witness. This triggered the C12b live evidence requirement. Its two supervisor timeouts and one missing fault prerequisite leave that requirement open. [Acceptance rule](https://github.com/ExplodeCode6324/Secretary/issues/122#issuecomment-6955141574) · [C12b trigger](https://github.com/ExplodeCode6324/Secretary/issues/122#issuecomment-6957373075)
+
+For a future architecture comparison, match the recipe hash, repeat, profile, model release, role settings and both provider routes. Use `comparison_rows_effective` for the denominator and `effective_assertions` for outcomes. The original matrix, first failures, C16 recovery series, zero-send transfers and two official quota incidents remain available separately. Five Go facilities and seven earlier archives are bound by digest. [Measured evidence](../../../evidence/issue122-completion.json) · [Core acceptance plan](https://github.com/ExplodeCode6324/Secretary/pull/136)
+
+The row's `published_version` retains the provider spelling. Match the release using `model_release_normalized` and keep the route and identity scope in the comparison. Use only `effective_assertions` for aggregation. The historical `assertions` field includes provisional values on 11 unassessed rows.
+
+`reason` records the runner's terminal category. For `SCENARIO_PRODUCT_BLOCKED`, consult `interruption_cause` and `workload_settlement_outcomes` before attributing a product failure. The original 402 observations record quota exhaustion. Partition 5 stopped at a metadata hold during C07-cancelled repeat 1. Partition 6's uncertain settlement belongs to C10-answer repeat 1. C10-model-created repeat 2 had one complete response and its interruption cause remains undetermined. Partition 7's 11 unsent parents record `FETCH_FAILED`. Reader slot 97 observed an HTTP response. Its physical send count is at least one and its exact count is unknown.
+
+### Reproduce the published export
+
+Run `python3 scripts/export-issue122.py` from the repository root to reconstruct the effective comparisons, slot dispositions and family counts from the public source rows and receipts. The CI regression also checks that changing an effective assertion fails verification.
+
+For full byte-for-byte regeneration, supply the retained private completion receipt directory with `python3 scripts/export-issue122.py --archive-inputs <receipt-directory>`. It contains the combined report under the partition 7 residual directory, batch and facility receipts, transfer and parent bindings, meter and witness extracts, effective settings and rubric-equivalence receipts. The exporter checks the frozen output digest and compares the result with the published JSON. Add `--output <new-file>` to write the regenerated bytes.
+
+### November 26 targeted supplement
+
+Master approved freeze `fa647e16b20f30f7f66ffb93ec62a7044f2764ccd74297f29931cc560b7cf60a` at runner `74a8c1e50838bbbab21ab7f56bdde38d8f1fc016`, including a permanent workload stop on uncertain transmission. Both lanes were frozen on Go DeepSeek V4.1 Flash 1017. Only C16 sent requests. The first 96 requests returned complete responses. C16's 97th request settled as `NETWORK_UNCERTAIN`, with no HTTP receipt. The account recorded `GO_TARGETED_TRANSPORT_UNCERTAIN`. The trial recorded 64 inputs and two maintenance cycles but sealed zero physical observations. On November 25 UTC, request 97 was reserved at 18:43:01.911 and settled uncertain at 18:43:03.180. The sealed session changed from RUNNING (revision 347) to RECOVERY_BLOCKED (revision 348, updated 18:43:08.440 and committed at 18:43:08.455 in journal transaction 1363). This was the first blocked state in the 348 session revisions. The underlying transport cause is unknown. An authenticated quota GET after closure returned HTTP 200.
+
+| Position | Measured outcome |
+|---|---|
+| C16 repeat 1, Go | INCOMPLETE, UNRESOLVED. The prospective rule fixes this result at position 1. |
+| C16 repeats 2 and 3, official | Both earlier maintenance failures remain adjudicable. The combined series has 2/3 adjudicable repeats. |
+| C12b repeat 1, Go | UNRUN following the hold, zero sends. The required live write, process exit, UNKNOWN and same-operation recovery witness remains open. |
+| C06 resident-B repeats 2 and 3 | Archived candidates 98 and 99 remain unassessed. Old reader slot 97 retains its separate US$0.2162688-equivalent reservation. |
+
+The sealed Hermes operator stopped during local preparation with `TARGETED_PHYSICAL_RUN`. The reader binder independently requires the workload hold to be absent. Calibration and four candidate slots had zero reservations, launches and possible sends. No formal reader series or dual grades were created. There were no new score results to add to the historical two-receipt comparisons.
+
+The 96 confirmed responses reported Go list cost of US$0.14001463 equivalent and zero cash. The uncertain workload request carries its separate full US$0.4754877-equivalent bound. Its actual debit and cash are unknown. Summing the larger confirmed amounts per request and the uncertain reservation gives US$0.615502344 accounted against the US$5 workload limit. Reader spend was zero.
+
+The stopped workload archive contained 4,462 files (SHA-256 `54b082d2a0604d48fb0d042e1584496be21107db1f39936c34dda1a27a3d88f7`). The independent reader archive contained 24 payloads and a manifest (SHA-256 `c0626df88464da4dada5d66e5f8a0efd7abde0986aa41c70002adca035b846d3`). Both were read back from NAS. The public result binds the workload freeze, dispatch, attempts, trial and independent pre-activation disposition. [Supplement](../../../evidence/issue122-targeted-supplement.json) · [Independent operator disposition](../../../evidence/issue122-reader-activation-blocked.json)
+
+Run `python3 scripts/export-issue122-coverage.py --output coverage.json` to rebuild both the historical and effective assertion tables. Both tables cover 189 assertion positions across 33 branches. The 99 historical observations remain intact.
+
+| Table | PASS | FAIL | UNRESOLVED | NOT_TESTED |
+|---|---:|---:|---:|---:|
+| Historical | 96 | 12 | 2 | 79 |
+| Effective under the frozen position rule | 93 | 12 | 1 | 83 |
+
+At C16 repeat 1 the historical official result had PASS for `natural_access`, `use_current` and `authority_chain`, and UNRESOLVED for `maintenance_current`. All four are NOT_TESTED in the unassessed Go position. Its fifth assertion, `item_lineage`, was already NOT_TESTED. The other replacements leave the counts unchanged.
+
+A copied evidence bundle with the published supplement produces the same two tables. A baseline-only copy produces the historical table. The CLI summary and output file identify the included tables in `tables`. The two open live gates prevent merge readiness. To replay the pre-activation result from private verified archive members, run `node --import tsx test_case/online/benchmark/targeted-result.ts --activation-blocked ABSOLUTE_WORKLOAD_DIRECTORY evidence/issue122-reader-activation-blocked.json`.
+
+### R79 independent C12b and C16 repeat 1 (2026-11-26)
+
+The frozen workload ran on benchmark `a15268d`, Secretary `873b66f4` and the Go catalogue entry DeepSeek V4.1 Flash 1017 (`deepseek-v4.1-flash`). The freeze digest is `4f24dd26c0c3621dd0c87e0104ddfac028d2f209fe69cc41737ea4f709f61d32`. The normal coverage export now produces three tables. The third table replaces only seven repeat-1 assertion positions. All 189 positions and the 99 original observations retain their provenance. [Measured retest](../../../evidence/issue122-targeted-retest.json)
+
+| Position | Live evidence | Disposition |
+|---|---|---|
+| C12b repeat 1 | Eight HTTP responses. Exactly one write and a witnessed old-process exit. After a direct same-domain restart the operation reached UNKNOWN, verification was accepted, and reconciliation found the expected content. Both grading checks accepted the original blind response. | PASS for effects and obligation. Required live witness obtained. |
+| C16 repeat 1 | Seventy HTTP responses, 50 inputs and one maintenance cycle recorded. Secretary entered CAPACITY_BLOCKED with a conservative input estimate of 85,270 tokens against 85,196 usable. The trial ended before the final observation. | UNRESOLVED. The five assertion positions are NOT_TESTED. Repeats 2 and 3 retain their measured maintenance FAILs. The 3/3 adjudicability gate remains open at 2/3. |
+
+R79 coverage is **95 PASS, 12 FAIL, 1 UNRESOLVED and 81 NOT_TESTED**. The R71 table above remains available as `effective_assertion_coverage`. C06 reader candidates 98 and 99 remain unassessed and are optional for this gate. The C16 capacity stop occurred within Secretary. The single UNRESOLVED assertion is historical C04-nonexistent repeat 2 (natural_access). Operator readback of the archived workload verified the C12b old-process exit and operation identity, and found zero preparation quarantines or seal/checkpoint gaps. The transport recorded zero retries. Resumption still depends on proving an intact checkpoint. A crash during physical database preparation after cluster initialization was outside the rehearsed cases.
+
+The C16 partial evidence is in the workload archive under `facility/evidence/07b0f49a-e543-4842-99cf-5ef25821ca19/`. The following member hashes allow independent verification.
+
+| Archive member | Observation | SHA-256 |
+|---|---|---|
+| `stage-c-trial.json` | 50 inputs, one maintenance cycle, planned restart unreached, SCENARIO_PRODUCT_BLOCKED | `0c7caf8cf003f36b804936289fdd33a924359fbdd966d440adba66a770e9cf43` |
+| `observed.json` | Secretary recovery reported CAPACITY_BLOCKED with estimated input 85,270, usable 85,196 and output reserve 4,096 | `103578e11f2fa7b2706d3da9dc94ade1de77008cf7be010609e0ddd874d23c19` |
+
+The workload forecast was 265 requests and US$1.26174210 list-equivalent. Actuals were 78 HTTP responses, 902,917 input and 41,939 output tokens, US$0.15657433 list-equivalent and US$0 reported cash. The reader forecast was US$0.28508160 equivalent. Calibration and the C12b candidate used two calls, 10,803 input and 47,413 output tokens, US$0.03006825 equivalent and US$0 reported cash. Calibration matched 28 controls and supplied the basis for the C12b grade. All 80 requests have usage receipts. Historical uncertain request 97 remains separately recorded.
+
+The verified NAS workload archive covers 5,538 files, SHA-256 `f514438af3fe3d4ca6966e65d8f7945c0b34ea2c58f03716d1c20413eea680e7`. The reader archive has 82 verified members, SHA-256 `6f2c9262ee2639f9f88e732c96cf01d8b0c3c0a1d822a16ee3b4e24cbb64d74b`. The latest and only reader publication is `240359819c5ee3db5886c0253547220b26480912230157dd1a5142f9191bcd6a`. Independent replay from both archives verified that publication with zero provider calls.
+
+中文：C12b 已取得真实恢复见证，副作用和义务两项均通过。C16 第一次重复在第 50 个输入后触发 Secretary 容量阻塞，缺少最终观测，按预先裁定保留未决。第 2、3 次维护断言的原始失败继续计入。原批次剩余合并阻塞为 C16 仍只有 2/3 次可裁定。后续自动化及原生对照实验在 #122 单列。

@@ -1,0 +1,325 @@
+{
+  "workload_usage": {
+    "forecast": [
+      {
+        "lane": "r1-C12b--deepseek-flash",
+        "expected_sends": 9,
+        "range_sends": {
+          "min": 9,
+          "max": 9
+        },
+        "input_tokens": 27999,
+        "output_tokens": 2916,
+        "seconds": 195,
+        "peak_rate_equivalent_usd": 0.0118989
+      },
+      {
+        "lane": "r1-C16-combined--deepseek-flash",
+        "expected_sends": 256,
+        "range_sends": {
+          "min": 256,
+          "max": 376
+        },
+        "input_tokens": 3834368,
+        "output_tokens": 82944,
+        "seconds": 5276,
+        "peak_rate_equivalent_usd": 1.2498432
+      }
+    ],
+    "actual": {
+      "model_transport_retries": 0,
+      "reservations": 78,
+      "measured_send_span_seconds": 844.881,
+      "subscription_allowance": {
+        "known_receipts": [
+          0.00031392,
+          0.00040104,
+          0.00037785,
+          0.0010746,
+          0.00074124,
+          0.00072711,
+          0.00056366,
+          0.0001845,
+          0.00052353,
+          0.00039598,
+          0.00043405,
+          0.00043837,
+          0.00046852,
+          0.0005065,
+          0.00060156,
+          0.00063972,
+          0.00107505,
+          0.00083025,
+          0.00129384,
+          0.00087696,
+          0.00091296,
+          0.00095139,
+          0.00098955,
+          0.0013212,
+          0.00123417,
+          0.0008541,
+          0.00087552,
+          0.00091278,
+          0.00089449,
+          0.0009891,
+          0.00102897,
+          0.00106821,
+          0.00110601,
+          0.00163098,
+          0.00109593,
+          0.00086688,
+          0.0021411,
+          0.00082249,
+          0.00091701,
+          0.00089935,
+          0.00099432,
+          0.00097594,
+          0.00107127,
+          0.00105307,
+          0.00146862,
+          0.00132371,
+          0.00079441,
+          0.00127494,
+          0.00134505,
+          0.0013273,
+          0.00132878,
+          0.00133776,
+          0.00126925,
+          0.00198126,
+          0.00134748,
+          0.00146583,
+          0.00122778,
+          0.00139059,
+          0.00141246,
+          0.00155959,
+          0.0013498,
+          0.00172233,
+          0.00145413,
+          0.00210627,
+          0.0015975,
+          0.00175534,
+          0.0017674,
+          0.00186219,
+          0.00184453,
+          0.00188251,
+          0.00197766,
+          0.002016,
+          0.0020547,
+          0.00209295,
+          0.0020752,
+          0.00211372,
+          0.00215188,
+          0.00219058
+        ],
+        "unknown_requests": 0
+      },
+      "possible_provider_sends": 78,
+      "confirmed_http_responses": 78,
+      "refused_before_post": 0,
+      "unknown_delivery": 0,
+      "input_tokens": {
+        "known": 902917,
+        "unknown_requests": 0
+      },
+      "output_tokens": {
+        "known": 41939,
+        "unknown_requests": 0
+      },
+      "list_usd": {
+        "known": 0.15657433,
+        "unknown_requests": 0
+      },
+      "cash_usd": {
+        "known": 0,
+        "unknown_requests": 0
+      }
+    },
+    "list_difference_from_peak_estimate_usd": -1.10516777
+  },
+  "historical_baseline_sha256": "2c900be744be13ae1646242b9243c6f908e82a63204d2ec9b30bacb0062017a3",
+  "original_observations": 99,
+  "workload_attempts": 78,
+  "workload_accounted_usd_upper_or_measured": 0.156574334,
+  "workload_returned_models": [
+    "deepseek-v4.1-flash"
+  ],
+  "workloads": [
+    {
+      "case": "C16-combined",
+      "repeat": 1,
+      "reader_accepted": false,
+      "lane": "r1-C16-combined--deepseek-flash",
+      "workload_route": "opencode-go",
+      "status": "INCOMPLETE",
+      "freeze_sha256": "4f24dd26c0c3621dd0c87e0104ddfac028d2f209fe69cc41737ea4f709f61d32",
+      "dispatch_sha256": "3cd3294837cc4e06925206e2d221c531298532fcbd07700e381fca7242f787d2",
+      "trial_sha256": "0c7caf8cf003f36b804936289fdd33a924359fbdd966d440adba66a770e9cf43",
+      "workload_attempts": 70,
+      "selected_attempts": 70,
+      "identity_changes": [],
+      "previous_trajectories": [],
+      "interruption": null,
+      "workload_confirmed_unsent_reservations": 0,
+      "terminal_reason": "SCENARIO_PRODUCT_BLOCKED",
+      "assertions": {
+        "natural_access": "NOT_TESTED",
+        "maintenance_current": "NOT_TESTED",
+        "use_current": "NOT_TESTED",
+        "authority_chain": "NOT_TESTED",
+        "item_lineage": "NOT_TESTED"
+      },
+      "gate": "OPEN",
+      "verdict": "UNRESOLVED",
+      "gaps": [
+        "NO_PHYSICAL_OBSERVATION"
+      ],
+      "mechanical": null,
+      "pending_proposals": null
+    },
+    {
+      "case": "C12b",
+      "repeat": 1,
+      "reader_accepted": true,
+      "lane": "r1-C12b--deepseek-flash",
+      "workload_route": "opencode-go",
+      "status": "COMPLETED",
+      "freeze_sha256": "4f24dd26c0c3621dd0c87e0104ddfac028d2f209fe69cc41737ea4f709f61d32",
+      "dispatch_sha256": "3cd3294837cc4e06925206e2d221c531298532fcbd07700e381fca7242f787d2",
+      "trial_sha256": "d042e1cc698df8746b9da4c9153e4268593254c8fdfc11a83c47030ed658a159",
+      "workload_attempts": 8,
+      "selected_attempts": 8,
+      "identity_changes": [],
+      "previous_trajectories": [],
+      "interruption": null,
+      "workload_confirmed_unsent_reservations": 0,
+      "terminal_reason": null,
+      "assertions": {
+        "effects": "PASS",
+        "obligation": "PASS"
+      },
+      "gate": "CLOSED",
+      "verdict": "PASS",
+      "gaps": [],
+      "mechanical": {
+        "recorded_attempts": 1,
+        "observed_writes": 1,
+        "direct_same_domain_restart": true,
+        "unknown_observed": true,
+        "verify_accepted": true,
+        "reconciled": true,
+        "final_content_matches": true,
+        "effects": "PASS"
+      },
+      "pending_proposals": null
+    }
+  ],
+  "archived_reader_rows": [],
+  "c16": {
+    "historical_adjudicable": 2,
+    "historical_denominator": 3,
+    "positions": [
+      {
+        "repeat": 1,
+        "route": "opencode-go",
+        "gate": "OPEN",
+        "verdict": "UNRESOLVED"
+      },
+      {
+        "repeat": 2,
+        "route": "deepseek-official",
+        "gate": "CLOSED",
+        "verdict": "FAIL"
+      },
+      {
+        "repeat": 3,
+        "route": "deepseek-official",
+        "gate": "CLOSED",
+        "verdict": "FAIL"
+      }
+    ],
+    "adjudicable": 2
+  },
+  "c12b_complete_live_witness": true,
+  "schema": "issue122-retest-result-v1",
+  "parent_supplement_sha256": "fa9333ee77eeb904b6ef778b774cd74ccd6dbebabc2cdf71ffa9bd029088798c",
+  "series_sha256": "faae1c6c43202690903751c3b987b5c2b1167b168a79d198042ac84399a0e93d",
+  "reader_final_sha256": "240359819c5ee3db5886c0253547220b26480912230157dd1a5142f9191bcd6a",
+  "workload_freeze_sha256": "4f24dd26c0c3621dd0c87e0104ddfac028d2f209fe69cc41737ea4f709f61d32",
+  "dispatch_sha256": "3cd3294837cc4e06925206e2d221c531298532fcbd07700e381fca7242f787d2",
+  "workload_provider": "DeepSeek V4.1 Flash 1017",
+  "workload_requested_model": "deepseek-v4.1-flash",
+  "reader": "Hermes/opencode-go/deepseek-v4.1-flash/max",
+  "reader_rubric_sha256": "d3141e2a15afeda21e15c324f8f0eab5557e9162e079de2ff2b0026a61914169",
+  "reader_operator_release_sha256": "edbbac72c6b6f324061b6530b7b5fca5b3e5893f21ec3b601bc19b64a638024a",
+  "reader_billing": {
+    "attempts": 2,
+    "physical_dispatches": 2,
+    "estimated_equivalent_usd": 0.2850816,
+    "initial_forecast_equivalent_usd": 0.2850816,
+    "actual_equivalent_usd": 0.03006825,
+    "actual_equivalent_usd_unknown_attempts": 0,
+    "actual_cash_usd": 0,
+    "actual_cash_usd_unknown_attempts": 0,
+    "forecast_sha256": "9f3f0a6c40121bb9303036830baee86f44014399dce80045d878c9ba2dee12f3",
+    "token_usage": {
+      "prompt_tokens": 10803,
+      "completion_tokens": 47413,
+      "total_tokens": 58216
+    },
+    "unknown_token_receipts": 0,
+    "equivalent_variance_usd": -0.25501334999999997
+  },
+  "reader_usage": {
+    "prompt_tokens": 10803,
+    "completion_tokens": 47413,
+    "total_tokens": 58216
+  },
+  "readers": [
+    {
+      "route": "calibration",
+      "status": "GRADED",
+      "reason": null,
+      "accepted": true,
+      "official_status": "PASSED",
+      "supplemental_status": "PASSED",
+      "official_sha256": "c6ccab79b0cdbe40385e44fdb5de92c279b978ba752aa116e93c99e0e95e8dac",
+      "supplemental_sha256": "c6ccab79b0cdbe40385e44fdb5de92c279b978ba752aa116e93c99e0e95e8dac",
+      "matched_controls": 28,
+      "returned_model": "deepseek-v4.1-flash",
+      "attempts": 1,
+      "native_dispatches": 1,
+      "unresolved_attempts": 0
+    },
+    {
+      "route": "c16-repeat1",
+      "status": "NOT_TESTED",
+      "reason": "NO_TERMINAL_WORKLOAD_REPORT",
+      "accepted": false,
+      "official_status": null,
+      "supplemental_status": null,
+      "official_sha256": null,
+      "supplemental_sha256": null,
+      "matched_controls": null,
+      "returned_model": null,
+      "attempts": 0,
+      "native_dispatches": 0,
+      "unresolved_attempts": 0
+    },
+    {
+      "route": "c12b",
+      "status": "GRADED",
+      "reason": null,
+      "accepted": true,
+      "official_status": "ACCEPTED",
+      "supplemental_status": "ACCEPTED",
+      "official_sha256": "b860c4766256bf593b8401aa23d9bdea88790f152b34bb1fde509c47e57656e3",
+      "supplemental_sha256": "b860c4766256bf593b8401aa23d9bdea88790f152b34bb1fde509c47e57656e3",
+      "matched_controls": null,
+      "returned_model": "deepseek-v4.1-flash",
+      "attempts": 1,
+      "native_dispatches": 1,
+      "unresolved_attempts": 0
+    }
+  ],
+  "confirmed_system_failure_sha256": null
+}

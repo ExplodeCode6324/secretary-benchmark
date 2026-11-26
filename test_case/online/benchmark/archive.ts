@@ -1,3 +1,6 @@
+import { isGoRehearsal } from "./stage-c-go-rehearsal.ts";
+import { retestWorkload, targetedWorkload } from "./stage-c-targeted-policy.ts";
+import { verifyTargetedCarry } from "./stage-c-targeted-account.ts";
 import { goModelRule } from "./stage-c-go-provider.ts";
 import { isDeepStrictEqual } from "node:util";
 import { echoContract, echoPriceBasis } from "./stage-b-retention.ts";
@@ -27,7 +30,7 @@ import {
   type FileEntry,
 } from "./io.ts";
 import { controlID, pgRunning } from "./postgres.ts";
-import { assertCampaignClosed, loadCampaign } from "./campaign.ts";
+import { assertCampaignClosed, loadCampaign, ledger } from "./campaign.ts";
 import { verifyTierSamples } from "./stage-b-tier-samples.ts";
 import { completionPolicy, stageSlots, stageModels } from "./stage-b-policy.ts";
 
@@ -150,11 +153,55 @@ function verifyPricingOriginals(
     );
   }
 }
+function verifyRehearsalAccount(root: string, hash: string) {
+  const account = path.join(root, "fixture-account");
+  verifyTargetedCarry(account, root);
+  const name = retestWorkload.series + ".json";
+  const claim = readJSON(path.join(account, name));
+  requireThat(
+    claim.closed === true && claim.root === root && claim.freeze === hash,
+    "ARCHIVE_REHEARSAL_CLAIM",
+  );
+  const allowed = new Set([
+    "controller.lock",
+    "active.json",
+    "hold.json",
+    "usage-reservations",
+    name,
+    retestWorkload.series + "-hold.json",
+    targetedWorkload.series + ".json",
+    targetedWorkload.series + "-hold.json",
+    "reader-baseline.json",
+    "reader-preactivation-receipt.json",
+    "reader-preactivation-readback.json",
+    "reader-preactivation-bundle.private.json",
+  ]);
+  for (const key of fs.readdirSync(account))
+    requireThat(allowed.has(key), "ARCHIVE_UNKNOWN_REHEARSAL_FILE");
+  const entries = ledger(root).entries;
+  const history = readJSON(
+    path.join(root, "inputs/targeted-carry.json"),
+  ).parent_records;
+  for (const key of fs.readdirSync(path.join(account, "usage-reservations"))) {
+    if (
+      key === "reader-candidate-97.json" ||
+      Object.hasOwn(history, "usage-reservations/" + key)
+    )
+      continue;
+    requireThat(
+      key.endsWith(".json") &&
+        entries.has(key.slice(0, -5)) &&
+        readJSON(path.join(account, "usage-reservations", key)).freeze === hash,
+      "ARCHIVE_UNKNOWN_REHEARSAL_RESERVATION",
+    );
+  }
+}
 function ownedStoppedRuns(d: Domains): Run[] {
   assertCampaignClosed(d.root);
   let dossier;
   let verifiedTierSamples = false;
-  let completion = false;
+  let completion = false,
+    rehearsalAccount = false;
   if (fs.existsSync(path.join(d.root, "campaign/manifest.json"))) {
     const campaign = loadCampaign(d.root);
     if (
@@ -197,6 +244,16 @@ function ownedStoppedRuns(d: Domains): Run[] {
           policy.lanes.every((l) => state.terminals[l.lane]),
         "ARCHIVE_STAGE_C_UNVERIFIED",
       );
+      if (isGoRehearsal(d.root)) {
+        requireThat(
+          f.evidence_class === "OFFLINE_SSE" &&
+            policy.rehearsal === true &&
+            f.targeted_supplement?.series === retestWorkload.series,
+          "ARCHIVE_REHEARSAL_SOURCE",
+        );
+        verifyRehearsalAccount(d.root, policy.freeze_sha256);
+        rehearsalAccount = true;
+      }
       completion = true;
     } else if (campaign.physical_policy) {
       const registered = readJSON(
@@ -271,6 +328,7 @@ function ownedStoppedRuns(d: Domains): Run[] {
     }
   }
   const allowed = new Set([
+    ...(rehearsalAccount ? ["fixture-account"] : []),
     "facility.json",
     "controller.lock",
     "runs",

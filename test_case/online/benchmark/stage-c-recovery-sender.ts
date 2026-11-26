@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { retestWorkload } from "./stage-c-targeted-policy.ts";
 import { requireThat } from "./io.ts";
 
 /** Owned by one worker incarnation. The synchronous write hook never waits for a promise. */
@@ -19,7 +20,10 @@ export function recoverySender(
       for (;;) {
         signal.throwIfAborted();
         requireThat(
-          deadline !== undefined && deadline - Date.now() >= 45000,
+          deadline !== undefined &&
+            deadline - Date.now() >=
+              retestWorkload.response_headroom_ms +
+                retestWorkload.quota_read_timeout_ms,
           "C12B_SENDER_WINDOW_EXHAUSTED",
         );
         if (!gate.writing && gate.check() && (role === "task" || !taskActive()))

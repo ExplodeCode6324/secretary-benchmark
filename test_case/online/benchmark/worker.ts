@@ -1,7 +1,10 @@
 import { rehearsalFetch } from "./stage-c-rehearsal.ts";
 import { caseDefinition } from "./stage-c-plan.ts";
 import { elmNote } from "./stage-b-scenarios-protocol.ts";
-import { installStageCFault } from "./stage-c-fault.ts";
+import {
+  installStageCFault,
+  recoveryTaskHasPriority,
+} from "./stage-c-fault.ts";
 import { retestWorkload } from "./stage-c-targeted-policy.ts";
 import { recoverySender } from "./stage-c-recovery-sender.ts";
 import { allGoReservationsSettled } from "./stage-c-go-local-usage.ts";
@@ -86,10 +89,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
           freeze = run.config.freeze_sha256;
         faultGate = recoverySender(
           () => allGoReservationsSettled(root, freeze, ledger(root)),
-          () =>
-            !!app?.store
-              .all<ModelCall>("ModelCall")
-              .some((c) => c.state === "IN_FLIGHT" && c.scope.execution_id),
+          () => !!app && recoveryTaskHasPriority(app, run),
         );
       }
       globalThis.fetch = meteredFetch(

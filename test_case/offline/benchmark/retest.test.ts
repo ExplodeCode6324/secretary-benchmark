@@ -49,7 +49,7 @@ test("insufficient time or an aborted request causes zero metadata reads", async
     return Response.json({ usage });
   };
   await assert.rejects(
-    retestQuota("mock", transport, window(44000)),
+    retestQuota("mock", transport, window(64000)),
     /WINDOW_EXHAUSTED/,
   );
   await assert.rejects(
@@ -69,6 +69,53 @@ import { recoverySender } from "../../online/benchmark/stage-c-recovery-sender.t
 import { meteredFetch } from "../../online/benchmark/live-model.ts";
 import { fingerprint } from "../../online/benchmark/source.ts";
 import { writeJSON } from "../../online/benchmark/io.ts";
+
+import {
+  recoveryTaskHasPriority,
+} from "../../online/benchmark/stage-c-fault.ts";
+import type { App } from "../../../sut/secretary/src/pi_secretary/src/app.ts";
+import type { WorkerPermit } from "../../online/benchmark/domain.ts";
+
+test("C12b saved bound write retains admission priority until its durable barrier", (t) => {
+  const evidence = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "retest-priority-"));
+  t.after(() => fs.rmSync(evidence, { recursive: true, force: true }));
+  const run = { id: "fixture", evidence } as WorkerPermit;
+  let proposal = deliveryRequest(run.id, nativeWriteRecipe);
+  let content = "alpha";
+  const app = {
+    store: {
+      all: () => [
+        {
+          scope: { execution_id: "exec" },
+          response: {},
+          state: "RESPONSE_SAVED",
+        },
+      ],
+      read: () => ({
+        content: [
+          {
+            type: "toolCall",
+            name: "write",
+            arguments: { path: "continuity.txt", content },
+          },
+        ],
+      }),
+      get: (type: string) =>
+        type === "Execution"
+          ? { task_id: "task" }
+          : { proposal_request_id: proposal },
+    },
+  } as unknown as App;
+  assert.equal(recoveryTaskHasPriority(app, run), true);
+  content = "beta";
+  assert.equal(recoveryTaskHasPriority(app, run), false);
+  content = "alpha";
+  proposal = deliveryRequest("unrelated", nativeWriteRecipe);
+  assert.equal(recoveryTaskHasPriority(app, run), false);
+  proposal = deliveryRequest(run.id, nativeWriteRecipe);
+  writeJSON(path.join(evidence, "stage-c-barrier.json"), {});
+  assert.equal(recoveryTaskHasPriority(app, run), false);
+});
 
 test("C12b gate waits for the actual metered stream settlement and for the task, with time left", async (t) => {
   const root = fs.realpathSync(

@@ -44,6 +44,43 @@ export const deliveryRequest = (
     (recipe ? "issue122:C12b:native-write-v1:" : "issue122:C12b:") + run,
   );
 
+function savedNativeWrite(app: App, call: ModelCall) {
+  if (call.state !== "RESPONSE_SAVED" || !call.response) return false;
+  const response = app.store.read<{
+    content?: {
+      type: string;
+      name?: string;
+      arguments?: { path?: string; content?: string };
+    }[];
+  }>(call.response);
+  return response.content?.some(
+    (part) =>
+      part.type === "toolCall" &&
+      part.name === "write" &&
+      part.arguments?.path === delivery.name &&
+      part.arguments?.content === delivery.bytes,
+  );
+}
+
+export function recoveryTaskHasPriority(app: App, run: WorkerPermit) {
+  const beforeBarrier = !fs.existsSync(
+    path.join(run.evidence, "stage-c-barrier.json"),
+  );
+  return app.store.all<ModelCall>("ModelCall").some((call) => {
+    if (!call.scope.execution_id) return false;
+    if (call.state === "IN_FLIGHT") return true;
+    if (!beforeBarrier || !savedNativeWrite(app, call)) return false;
+    const execution = app.store.get<Execution>(
+      "Execution",
+      call.scope.execution_id,
+    );
+    return (
+      app.store.get<TaskPlan>("TaskPlan", execution.task_id)
+        .proposal_request_id === deliveryRequest(run.id, nativeWriteRecipe)
+    );
+  });
+}
+
 function parkWorker(): never {
   const latch = new Int32Array(new SharedArrayBuffer(4));
   for (;;) Atomics.wait(latch, 0, 0);
@@ -82,23 +119,7 @@ export function installStageCFault(
             .filter(
               (c) =>
                 c.scope.execution_id === op.scope.execution_id &&
-                c.response &&
-                c.state === "RESPONSE_SAVED" &&
-                app.store
-                  .read<{
-                    content?: {
-                      type: string;
-                      name?: string;
-                      arguments?: { path?: string; content?: string };
-                    }[];
-                  }>(c.response)
-                  .content?.some(
-                    (part) =>
-                      part.type === "toolCall" &&
-                      part.name === "write" &&
-                      part.arguments?.path === delivery.name &&
-                      part.arguments?.content === delivery.bytes,
-                  ),
+                savedNativeWrite(app, c),
             )
             .map((c) => c.request.sha256),
         }

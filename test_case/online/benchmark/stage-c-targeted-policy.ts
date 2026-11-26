@@ -45,7 +45,7 @@ export const retestWorkload = {
     "37f3a9a57e6d28c9e64dd9fd901822b350553583d2073ac85ba7b76ab2a5baca",
   metadata_rechecks: 2,
   quota_read_timeout_ms: 5000,
-  response_headroom_ms: 40000,
+  response_headroom_ms: 60000,
 } as const;
 export type TargetedPolicy = typeof targetedWorkload | typeof retestWorkload;
 export const targetedLanes = [

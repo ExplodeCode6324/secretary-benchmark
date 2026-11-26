@@ -210,7 +210,9 @@ export function continuationReaderView(
           requireThat(
             "official" in verified &&
               verified.accepted === (attempt.state === "GRADED") &&
-              isDeepStrictEqual(verified, parsed("assessment.json")),
+              gradeJSONBytes(verified).equals(
+                gradeJSONBytes(parsed("assessment.json")),
+              ),
             "CONTINUATION_RECEIPT_REPLAY",
           );
           calibrationTime = Date.parse(verified.calibration_native_at);

@@ -60,3 +60,94 @@ test("insufficient time or an aborted request causes zero metadata reads", async
   );
   assert.equal(reads, 0);
 });
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { ledger } from "../../online/benchmark/campaign.ts";
+import { recoverySender } from "../../online/benchmark/stage-c-recovery-sender.ts";
+import { meteredFetch } from "../../online/benchmark/live-model.ts";
+import { fingerprint } from "../../online/benchmark/source.ts";
+import { writeJSON } from "../../online/benchmark/io.ts";
+
+test("C12b gate waits for the actual metered stream settlement and for the task, with time left", async (t) => {
+  const root = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "retest-sender-")),
+  );
+  t.after(() => fs.rmSync(root, { recursive: true }));
+  writeJSON(path.join(root, "campaign/manifest.json"), {
+    version: 1,
+    approval_id: "fixture",
+    source: fingerprint(),
+    facility: root,
+    state: "OPEN",
+    ceiling_usd: null,
+    created_at: new Date().toISOString(),
+  });
+  const evidence = path.join(root, "evidence");
+  fs.mkdirSync(evidence, { mode: 0o700 });
+  let taskActive = true,
+    main = 0;
+  const gate = recoverySender(
+    () => [...ledger(root).entries.values()].every((e) => e.settled),
+    () => taskActive,
+  );
+  const signal = AbortSignal.timeout(10000);
+  const deadline = Date.now() + 120000;
+  let bytes!: ReadableStreamDefaultController<Uint8Array>;
+  const fetcher = meteredFetch(
+    {
+      root,
+      run: "fixture",
+      model: "deepseek-flash",
+      maxSends: 1,
+      evidence,
+      key: "offline-placeholder",
+    },
+    async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            bytes = c;
+          },
+        }),
+      ),
+  );
+  const delayed = gate.admit(signal, "main", deadline, async () => {
+    main++;
+  });
+  const response = await gate.admit(signal, "task", deadline, async () => {
+    assert.equal(gate.check(), false);
+    return fetcher("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "deepseek-flash",
+        stream: true,
+        max_tokens: 64,
+        messages: [],
+      }),
+    });
+  });
+  assert.equal(gate.check(), false);
+  taskActive = false;
+  gate.writing = true;
+  bytes.enqueue(
+    new TextEncoder().encode(
+      'data: {"model":"deepseek-flash","usage":{"prompt_tokens":9,"completion_tokens":2}}\n\ndata: [DONE]\n\n',
+    ),
+  );
+  bytes.close();
+  await response.text();
+  assert.equal(gate.check(), true);
+  assert.equal(main, 0);
+  await assert.rejects(
+    gate.admit(signal, "main", Date.now() + 39000, async () => {
+      main++;
+    }),
+    /WINDOW_EXHAUSTED/,
+  );
+  gate.writing = false;
+  await delayed;
+  assert.equal(main, 1);
+  assert.equal(ledger(root).entries.size, 1);
+});

@@ -169,7 +169,9 @@ def main():
             raise ValueError("Unexpected retest position")
         previous = checked_bytes(args.supplement, PUBLISHED_SUPPLEMENT_SHA)
         projection = effective_supplement(result, {**retest, "archived_reader_rows": previous["archived_reader_rows"]})
-        for group, parent in zip(projection, result["effective_assertion_coverage"], strict=True):
+        if len(projection) != len(result["effective_assertion_coverage"]):
+            raise ValueError("Unexpected retest denominator")
+        for group, parent in zip(projection, result["effective_assertion_coverage"]):
             for i, cell in enumerate(group["positions"]):
                 if group["case"] in {"C16-combined", "C12b"} and cell["repeat"] == 1:
                     cell["origin"] = "retest"

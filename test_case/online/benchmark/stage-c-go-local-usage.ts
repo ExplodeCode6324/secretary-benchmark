@@ -32,6 +32,12 @@ function entry(root: string, id: string) {
   requireThat(/^[a-zA-Z0-9-]{1,120}$/.test(id), "GO_LOCAL_RESERVATION_ID");
   return path.join(directory(root), id + ".json");
 }
+export function settledGoReservation(root: string, id: string, freeze: string) {
+  const file = entry(root, id);
+  if (!fs.existsSync(file)) return false;
+  const row = readJSON<Reservation>(file);
+  return row.freeze === freeze && row.settled === true;
+}
 export function hasGoReservation(root: string, id: string) {
   return fs.existsSync(entry(root, id));
 }

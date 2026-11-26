@@ -3,7 +3,8 @@ import { caseDefinition } from "./stage-c-plan.ts";
 import { elmNote } from "./stage-b-scenarios-protocol.ts";
 import { installStageCFault } from "./stage-c-fault.ts";
 import { retestWorkload } from "./stage-c-targeted-policy.ts";
-import { setTimeout as delay } from "node:timers/promises";
+import { recoverySender } from "./stage-c-recovery-sender.ts";
+import { settledGoReservation } from "./stage-c-go-local-usage.ts";
 import { ledger, loadCampaign } from "./campaign.ts";
 import { forbiddenPayload } from "./payload-guard.ts";
 // Owned fixture/live entry. A detached sender owns its durable campaign accounting.
@@ -66,9 +67,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
       "AMBIENT_CONFIGURATION",
     );
     if (run.config.version === 4) configureProfile(run.config.profile);
-    let faultGate:
-      | { writing: boolean; admissions: number; check: () => boolean }
-      | undefined;
+    let faultGate: ReturnType<typeof recoverySender> | undefined;
     if (run.config.mode === "live") {
       requireThat(run.live?.key && run.live.facility, "LIVE_PERMIT_REQUIRED");
       configureProfile(run.config.profile);
@@ -83,14 +82,19 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
         readJSON(path.join(run.live.facility, "configs/stage-c-freeze.json"))
           .targeted_supplement?.series === retestWorkload.series
       ) {
-        faultGate = {
-          writing: false,
-          admissions: 0,
-          check: () => {
-            const entries = [...ledger(run.live!.facility).entries.values()];
-            return !faultGate!.admissions && entries.every((e) => e.settled);
-          },
-        };
+        const root = run.live.facility,
+          freeze = run.config.freeze_sha256;
+        faultGate = recoverySender(
+          () =>
+            [...ledger(root).entries.values()].every(
+              (e) =>
+                e.settled && settledGoReservation(root, e.attempt.id, freeze),
+            ),
+          () =>
+            !!app?.store
+              .all<ModelCall>("ModelCall")
+              .some((c) => c.state === "IN_FLIGHT" && c.scope.execution_id),
+        );
       }
       globalThis.fetch = meteredFetch(
         {
@@ -105,30 +109,7 @@ process.once("message", async (message: { permit: WorkerPermit }) => {
           key: run.live.key,
           route: run.live.route,
           maxSends: run.config.max_sends,
-          guardAdmission: faultGate
-            ? async (signal, role, admit) => {
-                const gate = faultGate!;
-                while (
-                  gate.writing ||
-                  gate.admissions ||
-                  !gate.check() ||
-                  (role !== "task" &&
-                    app?.store
-                      .all<ModelCall>("ModelCall")
-                      .some(
-                        (c) => c.state === "IN_FLIGHT" && c.scope.execution_id,
-                      ))
-                ) {
-                  await delay(25, undefined, { signal });
-                }
-                gate.admissions++;
-                try {
-                  return await admit();
-                } finally {
-                  gate.admissions--;
-                }
-              }
-            : undefined,
+          guardAdmission: faultGate?.admit,
           deadline: (hash) => {
             const active = app?.store
               .all<ModelCall>("ModelCall")

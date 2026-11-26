@@ -374,6 +374,7 @@ export function meteredFetch(
     guardAdmission?: <T>(
       signal: AbortSignal,
       role: string,
+      deadline: number | undefined,
       admit: () => Promise<T>,
     ) => Promise<T>;
     deadline?: (context: string | undefined) => number | undefined;
@@ -564,7 +565,12 @@ export function meteredFetch(
         );
       const goAdmission = options.route
         ? await (options.guardAdmission
-            ? options.guardAdmission(request.signal, role, admit)
+            ? options.guardAdmission(
+                request.signal,
+                role,
+                options.deadline?.(attribution.getStore()?.context_sha256),
+                admit,
+              )
             : admit())
         : null;
       const id = goAdmission ? goAdmission.result : await commitReservation();

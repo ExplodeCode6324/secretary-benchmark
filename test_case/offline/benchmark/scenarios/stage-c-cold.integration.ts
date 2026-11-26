@@ -160,6 +160,21 @@ for (const mode of ["ORIGINAL_OFFSET", "OTHER_EVENT"] as const) {
       };
       const domain = run.endpoint.data_domain_id;
       verifyPendingWorld(original, proof, domain);
+      const reboundProof = {
+        ...proof,
+        history: journal.operationHistory,
+        transactions: journal.transactions,
+      };
+      verifyPendingWorld(op, reboundProof, domain);
+      assert.throws(
+        () =>
+          verifyPendingWorld(
+            op,
+            { ...reboundProof, transactions: prefix },
+            domain,
+          ),
+        /REBIND_UNPROVEN/,
+      );
       assert.throws(
         () => verifyPendingWorld(original, proof, "different-domain"),
         /AUTHORIZATION_UNPROVEN/,

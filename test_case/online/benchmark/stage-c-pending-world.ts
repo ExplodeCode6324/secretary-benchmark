@@ -40,6 +40,41 @@ export function verifyPendingWorld(
       auth.display_hash === auth.display_ref.sha256,
     "C16_PENDING_AUTHORIZATION_UNPROVEN",
   );
+  const history = proof.history.get(op.id) ?? [];
+  const original = history[0];
+  requireThat(
+    original?.revision === 1 && same(history.at(-1), op),
+    "C16_PENDING_OPERATION_UNPROVEN",
+  );
+  // Native recovery increments the owning epoch on each same-domain restart.
+  // Only a proven, effect-free ownership revision can extend the original history.
+  for (let i = 1; i < history.length; i++) {
+    const prev = history[i - 1],
+      next = history[i];
+    const tx = proof.transactions.find((t) =>
+      t.records.some((r) => same(r, next)),
+    );
+    requireThat(
+      next.revision === prev.revision + 1 &&
+        next.owner_epoch > prev.owner_epoch &&
+        same(next, {
+          ...prev,
+          revision: next.revision,
+          updated_at: next.updated_at,
+          owner_epoch: next.owner_epoch,
+        }) &&
+        tx?.records.length === 1 &&
+        tx.events.length === 1 &&
+        tx.events[0].event_type === "operation.owner_rebound" &&
+        same(tx.events[0].scope, op.scope) &&
+        same(proof.value(tx.events[0].payload), {
+          operation_id: op.id,
+          previous_epoch: prev.owner_epoch,
+          owner_epoch: next.owner_epoch,
+        }),
+      "C16_PENDING_OWNERSHIP_REBIND_UNPROVEN",
+    );
+  }
   requireThat(
     op.action.action === "world.change" &&
       op.state === "WAIT_AUTH" &&
@@ -47,7 +82,6 @@ export function verifyPendingWorld(
       op.receipt === null &&
       !op.process &&
       op.error === null &&
-      op.revision === 1 &&
       op.retry_of === null &&
       op.attempt_id === null &&
       op.rule_id === null &&
@@ -57,7 +91,6 @@ export function verifyPendingWorld(
       records.some(
         (r) => r.record_type === "Session" && r.id === op.scope.session_id,
       ) &&
-      proof.history.get(op.id)?.length === 1 &&
       op.action.parameters_hash === op.action.parameters_ref.sha256,
     "C16_PENDING_OPERATION_UNPROVEN",
   );
@@ -77,9 +110,9 @@ export function verifyPendingWorld(
     "C16_PENDING_WORLD_BATCH_UNPROVEN",
   );
   const created = proof.transactions.find(
-    (t) => t.records.includes(auth) && t.records.some((r) => same(r, op)),
+    (t) => t.records.includes(auth) && t.records.some((r) => same(r, original)),
   );
-  const prepared = { ...op, state: "PREPARED", authorization_id: null };
+  const prepared = { ...original, state: "PREPARED", authorization_id: null };
   requireThat(
     created &&
       created.events.some(

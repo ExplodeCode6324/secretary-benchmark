@@ -414,6 +414,9 @@ async function publishGrade(root: string, id: string) {
               ],
               { encoding: "utf8" },
             ).trim() !== "",
+          ...(execution.manifest.config.judgeProtocol
+            ? { atomicReportVersion: 2 }
+            : {}),
           qualification: qualificationSummary(root, folder),
         }
       : {}),

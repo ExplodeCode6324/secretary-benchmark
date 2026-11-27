@@ -326,6 +326,7 @@ test("withheld qualification reports aggregate evidence without revealing privat
     const report = JSON.parse(fs.readFileSync(result.json, "utf8")),
       summary = report.qualification;
     assert.equal(summary.admitted, false);
+    assert.equal(report.qualificationSuite.qualificationScope, "WITHHELD_KEY");
     assert.equal(summary.checkedProbes, 1);
     assert.equal(summary.matchedProbes, 0);
     assert.equal(report.coverage.graded, 0);

@@ -824,7 +824,9 @@ export function seriesRecord(
           ? "fact-grading-v2.txt"
           : "fact-grading-v1.txt"
       ],
-    ...(g.policy === atomicPolicy ? atomicReport(execution, rows) : {}),
+    ...(g.policy === atomicPolicy
+      ? atomicReport(execution, rows, summary.atomicReportVersion)
+      : {}),
     status,
     counts,
     coverage: {
@@ -862,7 +864,7 @@ export function seriesRecord(
     ),
   };
 }
-function atomicReport(execution: any, rows: Outcome[]) {
+function atomicReport(execution: any, rows: Outcome[], version?: number) {
   const summary: Record<
     string,
     { numerator: number; denominator: number; rate: number | null }
@@ -883,6 +885,10 @@ function atomicReport(execution: any, rows: Outcome[]) {
       rate: denominator ? numerator / denominator : null,
     };
   }
+  requireThat(
+    version === undefined || version === 2,
+    "Unsupported atomic report version",
+  );
   const prior = new Map<string, string>();
   const operationChanges = execution.events.map((e: any) => {
     const changes = (e.effects ?? [])
@@ -903,7 +909,9 @@ function atomicReport(execution: any, rows: Outcome[]) {
     qualificationSuite: {
       qualificationScope:
         c.visibility === "WITHHELD"
-          ? "AGREEMENT_WITH_WITHHELD_KEY"
+          ? version === 2
+            ? "WITHHELD_KEY"
+            : "AGREEMENT_WITH_WITHHELD_KEY"
           : "DEVELOPMENT_REGRESSION_ONLY",
       identity: c.identity,
       digest: c.sha256,

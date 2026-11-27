@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
   repository,
+  processIdentity,
+  processStatus,
   requireThat,
   sha,
   writeJSON,
@@ -102,8 +104,17 @@ function meter(root: string) {
 function writeReport(root: string, id: string, output?: string) {
   requireThat(id === "original" || gradeUUID(id), "Invalid grade ID");
   const gradePath = path.join(root, "grades", id, "grade.json");
-  if (id === "original" && !fs.existsSync(gradePath))
+  if (
+    id === "original" &&
+    (!fs.existsSync(gradePath) ||
+      !fs.existsSync(path.join(root, "grades/original/accounting.json")))
+  ) {
+    requireThat(
+      fs.existsSync(path.join(root, "incomplete.json")),
+      "Original measurement is not published; recover an interrupted run first",
+    );
     return incomplete(root, output);
+  }
   const run = openSeal(path.join(root, "execution.json"));
   const g = openSeal(gradePath);
   for (const key of ["input", "response"])
@@ -163,6 +174,7 @@ function writeReport(root: string, id: string, output?: string) {
       response: g.response,
     },
     publishedAt: summary.at,
+    catalogueVersion: run.manifest.publishedModel,
     unsupported: ["cold retrieval", "process restart", "native comparator"],
     productUsability: "NOT_TESTED",
   };
@@ -355,8 +367,12 @@ async function execute(root: string, m: any, approved?: string) {
       [...(db ? [db.port] : []), ...(gate ? [gate.port] : [])],
       c.timeoutSeconds * 1000,
     );
-    seal(path.join(root, "worker.json"), { pid: target.pid });
     const cap = await target.call("capabilities");
+    requireThat(target.pid, "Missing owned target PID");
+    seal(
+      path.join(root, "worker.json"),
+      processIdentity(target.pid, target.token),
+    );
     requireThat(
       cap.protocol === 1 &&
         ["start", "deliver", "observe", "export", "stop"].every((k) =>
@@ -569,8 +585,16 @@ export async function operatorCommand(command: string, args: string[]) {
         marker.repository === repository && gradeUUID(marker.nonce),
         "Unknown facility",
       );
-      if (fs.existsSync(path.join(root, "stopped.json")))
-        return { run: path.basename(root), stopped: true };
+      if (fs.existsSync(path.join(root, "stopped.json"))) {
+        if (fs.existsSync(path.join(root, "grades/original/accounting.json")))
+          return writeReport(root, "original");
+        if (!fs.existsSync(path.join(root, "incomplete.json")))
+          save(path.join(root, "failures", randomUUID() + ".json"), {
+            at: new Date().toISOString(),
+            error: "Recovered stopped facility with unpublished original grade",
+          });
+        return incomplete(root);
+      }
       const owner = openSeal(path.join(root, "ownership.json")),
         db = openSeal(path.join(root, "pg/recovery.json"));
       requireThat(
@@ -581,19 +605,13 @@ export async function operatorCommand(command: string, args: string[]) {
           controlID(db) === db.systemID,
         "PG ownership mismatch",
       );
-      await stopDatabase(db);
       const workerFile = path.join(root, "worker.json");
-      if (fs.existsSync(workerFile)) {
-        const worker = openSeal(workerFile);
-        try {
-          process.kill(worker.pid, 0);
-          throw Error(
-            "Target PID still present; wait for the recorded worker to exit",
-          );
-        } catch (e: any) {
-          if (e.code !== "ESRCH") throw e;
-        }
-      }
+      if (fs.existsSync(workerFile))
+        requireThat(
+          processStatus(openSeal(workerFile)) === "STOPPED",
+          "Owned target has not confirmed exit",
+        );
+      await stopDatabase(db);
       seal(path.join(root, "stopped.json"), {
         id: owner.id,
         systemID: db.systemID,

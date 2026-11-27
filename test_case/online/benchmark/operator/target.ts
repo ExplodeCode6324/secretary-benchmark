@@ -144,6 +144,8 @@ async function handle(command: string, data: any) {
   if (command === "stop") {
     await service?.close();
     await app?.close();
+    service = undefined;
+    app = undefined;
     return { stopped: true };
   }
   throw Error("UNSUPPORTED_COMMAND");
@@ -169,3 +171,7 @@ for await (const line of lines) {
   }
   if (request.command === "stop") break;
 }
+
+// The controller can disappear before sending stop. Release the journal and pool on EOF.
+await service?.close();
+await app?.close();

@@ -182,7 +182,10 @@ export async function send(
         "Uncertain provider send; reconcile first",
       );
       const receipt = load(closed);
-      requireThat(!receipt.hold, "Provider settlement hold");
+      requireThat(
+        !receipt.hold || (receipt.holdScope === "run" && entry.run !== run),
+        "Provider settlement hold; reconcile the original attempt",
+      );
       if (Date.now() - entry.start < 31 * 86400e3) local += receipt.cost;
     }
     const usage = await checkGoUsage(key, fetch);
@@ -235,21 +238,26 @@ export async function send(
     ...status,
     body: sse,
   });
-  requireThat(r.ok, "Provider HTTP " + r.status + "; reservation retained");
   const meter = goResponseMeter(),
     ids = new Set<string>();
   let usage: any = null,
-    finished = false;
-  for (const line of sse.split(/\r?\n/)) {
-    if (!line.startsWith("data:")) continue;
-    const data = line.slice(5).trim();
-    if (!data || data === "[DONE]") continue;
-    const frame = JSON.parse(data);
-    if (frame.model) ids.add(frame.model);
-    meter.observe(frame);
-    if (frame.usage) usage = frame.usage;
-    if (frame.choices?.some((x: any) => x.finish_reason)) finished = true;
-  }
+    finished = false,
+    parseError = r.ok ? null : "Provider HTTP " + r.status;
+  if (!parseError)
+    try {
+      for (const line of sse.split(/\r?\n/)) {
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (!data || data === "[DONE]") continue;
+        const frame = JSON.parse(data);
+        if (frame.model) ids.add(frame.model);
+        meter.observe(frame);
+        if (frame.usage) usage = frame.usage;
+        if (frame.choices?.some((x: any) => x.finish_reason)) finished = true;
+      }
+    } catch {
+      parseError = "Malformed provider response";
+    }
   const previous = fs
     .readdirSync(ledger)
     .filter((f) => f.endsWith(".reservation.json"))
@@ -263,16 +271,21 @@ export async function send(
         ([k, v]) => meter.receipt.identity[k] !== v,
       ),
   );
-  const hold =
-    (identityChanged ? "Serving identity changed within profile" : null) ||
+  const cost = meter.receipt.list_cost;
+  const financialHold =
+    parseError ||
     targetedBillingHold(
       meter.receipt,
       finished && sse.includes("[DONE]") && usage !== null,
     ) ||
-    (ids.size !== 1 || ![goModel, goCanonicalModel].includes([...ids][0])
-      ? "Unexpected served identity"
-      : null);
-  const cost = meter.receipt.list_cost;
+    (cost === null || cost > reserve ? "Unverified tariff" : null);
+  const identityHold =
+    identityChanged ||
+    ids.size !== 1 ||
+    ![goModel, goCanonicalModel].includes([...ids][0])
+      ? "Unexpected or changed served identity"
+      : null;
+  const hold = financialHold || identityHold;
   const receipt = {
     at: stamp,
     id: attempt,
@@ -282,8 +295,8 @@ export async function send(
     elapsedMs: Date.now() - started,
     cost: cost ?? reserve,
     billing: meter.receipt,
-    hold:
-      hold || (cost === null || cost > reserve ? "Unverified tariff" : null),
+    hold,
+    holdScope: financialHold ? "account" : identityHold ? "run" : null,
   };
   save(path.join(root, "transport", attempt + ".response.json"), {
     ...receipt,
@@ -301,6 +314,7 @@ export async function gateway(
   rehearsal?: (body: any) => string,
 ) {
   const capability = randomUUID();
+  let queue = Promise.resolve();
   const server = http.createServer(async (req, res) => {
     try {
       requireThat(
@@ -318,8 +332,17 @@ export async function gateway(
       }
       const body = Buffer.concat(chunks).toString("utf8");
       const blocked = load(path.join(root, "guard.json"));
+      function containsGuard(value: unknown): boolean {
+        if (typeof value === "string")
+          return blocked.some((text: string) => value.includes(text));
+        return (
+          value !== null &&
+          typeof value === "object" &&
+          Object.values(value).some(containsGuard)
+        );
+      }
       requireThat(
-        blocked.every((text: string) => !body.includes(text)),
+        !containsGuard(JSON.parse(body)),
         "Undelivered event or evaluator sentinel in transmitted request",
       );
       const payload = JSON.parse(body);
@@ -340,15 +363,23 @@ export async function gateway(
           digest: sha(body),
         });
         sse = rehearsal(payload);
-      } else
-        sse = await send(
-          root,
-          m,
-          "workload",
-          body,
-          { "user-agent": "secretary-pi-demo/0.2" },
-          signal,
+      } else {
+        const next = queue.then(() =>
+          send(
+            root,
+            m,
+            "workload",
+            body,
+            { "user-agent": "secretary-pi-demo/0.2" },
+            signal,
+          ),
         );
+        queue = next.then(
+          () => {},
+          () => {},
+        );
+        sse = await next;
+      }
       res.writeHead(200, { "Content-Type": "text/event-stream" });
       res.end(sse);
     } catch (error: any) {

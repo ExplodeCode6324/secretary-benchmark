@@ -7,6 +7,7 @@ import {
   repository,
   requireThat,
   sha,
+  syncDir,
 } from "../io.ts";
 import { gradeJSONBytes, gradeUUID } from "../grading-transaction.ts";
 import { caseDefinition } from "../stage-c-plan.ts";
@@ -38,6 +39,7 @@ export function put(p: string, data: Buffer) {
     fs.linkSync(temp, p);
   } finally {
     fs.unlinkSync(temp);
+    syncDir(path.dirname(p));
   }
 }
 export const save = (p: string, value: unknown) =>

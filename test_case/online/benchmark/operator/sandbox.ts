@@ -52,11 +52,14 @@ export function startTarget(work: string, ports: number[], timeout: number) {
     LANG: "C",
     OPENSSL_CONF: "/dev/null",
   };
+  const token = randomUUID();
   const nodeArgs = [
     exe,
     "--import",
     path.join(repository, "node_modules/tsx/dist/loader.mjs"),
     program,
+    "--run",
+    token,
   ];
   let launcher: string, args: string[];
   if (process.platform === "darwin") {
@@ -77,7 +80,7 @@ export function startTarget(work: string, ports: number[], timeout: number) {
       .map((p) => '(allow network-outbound (remote tcp "localhost:' + p + '"))')
       .join("\n");
     const profile =
-      '(version 1)(deny default)(import "system.sb")(allow process*)(allow sysctl-read)(allow mach-lookup)(allow ipc-posix*)(allow file-read-metadata)(allow signal (target self) (target children))(allow file-read* ' +
+      '(version 1)(deny default)(import "system.sb")(allow process-exec*)(allow process-fork)(allow sysctl-read)(allow file-read-metadata)(allow signal (target self) (target children))(allow file-read* ' +
       paths +
       ")(allow file-read* file-write* (subpath " +
       JSON.stringify(work) +
@@ -100,6 +103,7 @@ export function startTarget(work: string, ports: number[], timeout: number) {
   let child;
   try {
     child = spawn(launcher, args, {
+      detached: true,
       cwd: work,
       env: {
         ...env,
@@ -122,6 +126,7 @@ export function startTarget(work: string, ports: number[], timeout: number) {
     proc.once("close", () => resolve()),
   );
   return {
+    token,
     pid: proc.pid,
     async call(command: string, data: unknown = {}) {
       const id = randomUUID();

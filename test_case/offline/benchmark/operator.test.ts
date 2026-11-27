@@ -183,7 +183,7 @@ test("Go reservations refuse excess calls and retain the first uncertain respons
     await claim(second, "second");
     await assert.rejects(
       send(secondRoot, second, "workload", body),
-      /Uncertain provider send/,
+      /Provider settlement hold/,
     );
     assert.equal(posts, 1);
     const { bound, seal } =
@@ -297,4 +297,131 @@ test("the fixed-prompt judge rejects a mislabelled control and false visibility 
     () => validateJudgeReply(JSON.stringify(invalid), evidence),
     /Visibility must cite/,
   );
+});
+
+test("dispatch checks disabled endpoints, shared allowance, price, identity and connection loss", async () => {
+  const { claim, send } =
+    await import("../../online/benchmark/operator/transport.ts");
+  const { seal } = await import("../../online/benchmark/operator/files.ts");
+  const parent = fs.mkdtempSync(
+    path.join(fs.realpathSync(os.tmpdir()), "operator-guards-"),
+  );
+  const realFetch = globalThis.fetch,
+    env = { ...process.env };
+  let posts = 0;
+  try {
+    for (const mode of [
+      "disabled",
+      "headroom",
+      "claim",
+      "identity",
+      "tariff",
+      "cash",
+      "disconnect",
+      "malformed",
+      "judge-limit",
+    ]) {
+      const dir = path.join(parent, mode),
+        root = path.join(dir, "target");
+      fs.mkdirSync(root, { recursive: true });
+      process.env.BENCHMARK_OPERATOR_ACCOUNT = path.join(dir, "account");
+      process.env.SECRETARY_BENCHMARK_GO_API_KEY = "workload-stub";
+      process.env.SECRETARY_BENCHMARK_JUDGE_KEY = "judge-stub";
+      delete process.env.BENCHMARK_PRIOR_EXPOSURE_USD;
+      const m = {
+        config: { maxJudgeCalls: 5, maxWorkloadCalls: 12, timeoutSeconds: 15 },
+        maxWireBytes: 524288,
+        maxOutput: 49152,
+      };
+      const body = JSON.stringify({
+        model: "deepseek-v4.1-flash",
+        stream: true,
+        max_tokens: 128,
+        messages: [],
+      });
+      await claim(m, mode === "claim" ? "another-run" : "target");
+      const before = posts;
+      globalThis.fetch = async (url, init) => {
+        if (String(url).endsWith("/usage")) {
+          const w = {
+            status: "ok",
+            percent: mode === "headroom" ? 95 : 0,
+            resetsAt: new Date(Date.now() + 600000).toISOString(),
+          };
+          return Response.json({
+            usage: { rolling: w, weekly: w, monthly: w },
+          });
+        }
+        posts++;
+        if (mode === "disconnect") throw Error("fixture connection lost");
+        if (mode === "malformed") return new Response("data: [bad JSON]\n\n");
+        assert.equal(init?.method, "POST");
+        const frame = {
+          model: mode === "identity" ? "another-model" : "deepseek-v4.1-flash",
+          choices: [
+            { index: 0, delta: { content: "ok" }, finish_reason: "stop" },
+          ],
+          usage: {
+            cost: mode === "cash" ? 1 : 0,
+            opencode: {
+              billing_source: "go",
+              list_cost: mode === "tariff" ? 9 : 0.001,
+            },
+          },
+        };
+        return new Response(
+          "data: " + JSON.stringify(frame) + "\n\ndata: [DONE]\n\n",
+        );
+      };
+      if (mode === "judge-limit") {
+        seal(path.join(root, "execution.json"), { id: "target" });
+        process.env.BENCHMARK_DISABLE_JUDGE = "1";
+        await assert.rejects(send(root, m, "judge", body), /disabled/);
+        delete process.env.BENCHMARK_DISABLE_JUDGE;
+        for (let i = 0; i < 5; i++) await send(root, m, "judge", body);
+        await assert.rejects(
+          send(root, m, "judge", body),
+          /allowance exhausted/,
+        );
+        assert.equal(posts - before, 5);
+        continue;
+      }
+      if (mode === "disabled") process.env.BENCHMARK_DISABLE_TARGET = "1";
+      const reasons: Record<string, RegExp> = {
+        disabled: /disabled/,
+        headroom: /GO_INSUFFICIENT_WINDOW/,
+        claim: /different run/,
+        identity: /identity/,
+        tariff: /tariff/,
+        cash: /SUBSCRIPTION_BILLING/,
+        disconnect: /connection lost/,
+        malformed: /Malformed provider/,
+      };
+      await assert.rejects(send(root, m, "workload", body), reasons[mode]);
+      delete process.env.BENCHMARK_DISABLE_TARGET;
+      if (["disabled", "headroom", "claim"].includes(mode)) {
+        assert.equal(posts, before);
+        continue;
+      }
+      await assert.rejects(
+        send(root, m, "workload", body),
+        mode === "disconnect" ? /Uncertain provider send/ : /settlement hold/,
+      );
+      assert.equal(posts - before, 1);
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const key of [
+      "BENCHMARK_OPERATOR_ACCOUNT",
+      "BENCHMARK_PRIOR_EXPOSURE_USD",
+      "BENCHMARK_DISABLE_TARGET",
+      "BENCHMARK_DISABLE_JUDGE",
+      "SECRETARY_BENCHMARK_GO_API_KEY",
+      "SECRETARY_BENCHMARK_JUDGE_KEY",
+    ]) {
+      if (env[key] === undefined) delete process.env[key];
+      else process.env[key] = env[key];
+    }
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
 });

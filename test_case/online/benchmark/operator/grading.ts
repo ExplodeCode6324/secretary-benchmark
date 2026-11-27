@@ -125,6 +125,19 @@ export function mockStream(raw: string) {
     "data: [DONE]\n\n"
   );
 }
+export function providerContent(sse: string) {
+  let text = "";
+  for (const line of sse.split(/\r?\n/)) {
+    if (!line.startsWith("data:")) continue;
+    const data = line.slice(5).trim();
+    if (!data || data === "[DONE]") continue;
+    const delta = JSON.parse(data).choices?.find(
+      (choice: any) => choice.index === 0,
+    )?.delta;
+    if (typeof delta?.content === "string") text += delta.content;
+  }
+  return text;
+}
 export async function nativeTurn(
   directory: string,
   query: string,
@@ -189,16 +202,7 @@ export async function nativeTurn(
         wire = event;
         save(path.join(directory, "wire.json"), wire);
         const sse = await dispatch(wire);
-        for (const line of sse.split(/\r?\n/)) {
-          if (!line.startsWith("data:")) continue;
-          const data = line.slice(5).trim();
-          if (!data || data === "[DONE]") continue;
-          const chunk = JSON.parse(data),
-            delta = chunk.choices?.find(
-              (choice: any) => choice.index === 0,
-            )?.delta;
-          if (typeof delta?.content === "string") providerText += delta.content;
-        }
+        providerText = providerContent(sse);
         save(path.join(directory, "provider-content.json"), {
           raw: providerText,
           wire: wire.sha256,

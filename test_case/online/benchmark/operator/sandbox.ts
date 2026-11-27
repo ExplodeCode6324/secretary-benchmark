@@ -144,7 +144,13 @@ export function startTarget(work: string, ports: number[], timeout: number) {
     pid: proc.pid,
     async call(command: string, data: unknown = {}) {
       const id = randomUUID();
-      const timer = setTimeout(stopGroup, timeout);
+      let timer: NodeJS.Timeout | undefined;
+      const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          stopGroup();
+          reject(Error("Target RPC timed out: " + command));
+        }, timeout);
+      });
       try {
         requireThat(
           proc.exitCode === null && !proc.stdin!.destroyed,
@@ -153,9 +159,9 @@ export function startTarget(work: string, ports: number[], timeout: number) {
         proc.stdin!.write(
           JSON.stringify({ protocol: 1, id, command, data }) + "\n",
         );
-        const line = await replies.next();
+        const line = await Promise.race([replies.next(), deadline]);
         if (line.done) {
-          await closed;
+          await Promise.race([closed, deadline]);
           throw Error(
             "TARGET_EXITED " +
               (failure?.message ?? proc.signalCode ?? proc.exitCode) +
@@ -176,10 +182,19 @@ export function startTarget(work: string, ports: number[], timeout: number) {
     async close() {
       proc.stdin!.end();
       const timer = setTimeout(stopGroup, 3000);
+      let watchdog: NodeJS.Timeout | undefined;
+      const deadline = new Promise<never>((_, reject) => {
+        watchdog = setTimeout(() => {
+          proc.stdout!.destroy();
+          proc.stdin!.destroy();
+          reject(Error("Target supervisor has not confirmed shutdown"));
+        }, 8000);
+      });
       try {
-        await closed;
+        await Promise.race([closed, deadline]);
         if (proc.pid) await confirmGroupStopped(proc.pid);
       } finally {
+        clearTimeout(watchdog);
         clearTimeout(timer);
       }
     },

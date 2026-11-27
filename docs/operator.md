@@ -1,16 +1,25 @@
 # Run a Secretary evaluation
 
-Use a development machine with Node 22.19 or newer, npm, Git, Python 3, and PostgreSQL 18 server tools. On macOS use a host with /usr/bin/sandbox-exec. On Linux use x86-64 or arm64 with Landlock ABI 4 or newer enabled. Obtain a recursive checkout, select the published revision you intend to test, and install its dependencies.
+Use a development machine with Node 22.19 or newer, npm, Git, Python 3, and PostgreSQL 18 server tools. On macOS use a host with /usr/bin/sandbox-exec. Live evaluation uses the verified macOS target boundary. For offline fixtures on Linux use x86-64 or arm64 with Landlock ABI 4 or newer enabled. Obtain a recursive checkout, select the published revision you intend to test, and install its dependencies.
 
 ```sh
-git clone --recurse-submodules https://github.com/ExplodeCode6324/secretary-benchmark.git
+git clone --recurse-submodules --shallow-submodules https://github.com/ExplodeCode6324/secretary-benchmark.git
 cd secretary-benchmark
-git submodule update --init --recursive
+git submodule update --init --recursive --depth 1
 npm ci
 node -v
 python3 --version
 pg_config --version
 npm run benchmark -- evaluate --config examples/secretary-smoke.json
+```
+
+For a slow or interrupted upstream checkout, rerun the depth-limited submodule command. An operator with a local verified source mirror can use standard Git URL substitution for this command only. Provide the actual mirror locations in SUT_MIRROR and PI_MIRROR. The benchmark checks their commits and tracked state on every new run.
+
+```sh
+git -c protocol.file.allow=always \
+  -c "url.file://$SUT_MIRROR.insteadOf=https://github.com/ExplodeCode6324/Secretary.git" \
+  -c "url.file://$PI_MIRROR.insteadOf=https://github.com/earendil-works/pi.git" \
+  submodule update --init --recursive --depth 1
 ```
 
 On macOS with Homebrew, use `brew install postgresql@18` and add `$(brew --prefix postgresql@18)/bin` to PATH. Linux installations can use the PGDG postgresql-18 package. Work in a clean checkout outside any deployment instance. The operator creates a private PG cluster, delivers the setup and probe to the pinned Secretary, grades the observable answer and prints the run UUID, verdict and two report paths. A measured FAIL exits successfully. An incomplete or ungraded measurement exits with an error and retains its first failure. The smoke configuration uses scripted model responses. To exercise the real Secretary request builder and local mock SSE endpoint, substitute `examples/secretary-wire.json`. Both configurations work offline after installation.
@@ -25,8 +34,7 @@ Point the following variables to the pinned Hermes source checkout and its insta
 git clone https://github.com/NousResearch/hermes-agent.git /path/to/hermes-agent
 git -C /path/to/hermes-agent checkout --detach 97a9ae8ee55d31bebce49f1fb6b5ef775323976a
 export BENCHMARK_HERMES_ROOT=/path/to/hermes-agent
-uv venv --python 3.11 /path/to/reader-venv
-uv pip install --python /path/to/reader-venv/bin/python -e "$BENCHMARK_HERMES_ROOT"
+UV_PROJECT_ENVIRONMENT=/path/to/reader-venv uv sync --directory "$BENCHMARK_HERMES_ROOT" --frozen --python 3.14 --no-dev
 export BENCHMARK_HERMES_PYTHON=/path/to/reader-venv/bin/python
 git -C "$BENCHMARK_HERMES_ROOT" rev-parse HEAD
 npm run benchmark -- reader-check --run RUN_UUID
@@ -45,18 +53,22 @@ export BENCHMARK_OPERATOR_ACCOUNT=/private/path/to/shared-account-ledger
 npm run benchmark -- freeze --config examples/secretary-live.json
 ```
 
-Review the displayed source, config, model publication and ceilings. This profile allows one target execution, at most 12 workload sends and five grading sends (calibration, two discrimination controls, original and regrade). It requires subscription billing and zero cash debit. Once authorized for this exact freeze, set its digest and run the complete pipeline.
+Review the displayed source, config, model publication and ceilings. This profile allows one target execution, at most 12 workload sends and five grading sends (calibration, two discrimination controls, original and regrade). The live example allows up to 900 seconds per RPC and HTTP send to accommodate long reasoning responses. It requires subscription billing and zero cash debit. Once authorized for this exact freeze, set its digest and run the complete pipeline.
 
 ```sh
 export BENCHMARK_APPROVAL=APPROVED_DIGEST
 npm run benchmark -- evaluate --config examples/secretary-live.json
 ```
 
-A failed or uncertain send is retained, and the same live freeze cannot launch a replacement execution. Inspect the run's failures, transport receipts and shared ledger before deciding how to resolve an outstanding send. A changed identity, failed calibration or exhausted allowance needs a separate decision. If a controller was interrupted during an execution, use `npm run benchmark -- recover-run --run RUN_UUID` to verify and stop its own PG cluster and retain the incomplete result. Raw bundles and reports belong in private operator storage.
+To preregister a separate measurement, copy the config under .local and give its optional cohort field a new lowercase identifier. Each live cohort requires its own freeze authorization. A failed or uncertain send is retained, and the same live freeze cannot launch a replacement execution. Inspect the run's failures, transport receipts and shared ledger before deciding how to resolve an outstanding send. A changed identity, failed calibration or exhausted allowance needs a separate decision. If a controller was interrupted during an execution, use `npm run benchmark -- recover-run --run RUN_UUID` to verify and stop its own PG cluster and retain the incomplete result. Raw bundles and reports belong in private operator storage.
+
+### An uncertain request
+
+Match the original request UUID, run, freeze and wire digest in the private transport records to the account ledger. Inspect the first HTTP record and raw provider bytes if available. If the account owner elects to retain the entire request ceiling as unresolved, create a private JSON statement with attempt, run, freeze, wireDigest, disposition (`retain-full-ceiling`) and basis (the evidence reviewed). Approve the SHA-256 of those exact bytes, then run `npm run benchmark -- reconcile-call --run RUN_UUID --attempt REQUEST_UUID --evidence STATEMENT_FILE --approval STATEMENT_SHA256`. The command appends the disposition, keeps the full exposure in the account and closes that freeze. It never resends the request or assigns the unknown cash amount a value. Any subsequent live cohort has its own approval.
 
 ## Verify and replay
 
-Use a fresh private directory for each export. The export contains sealed execution evidence, events, grading records and request receipts. It can be moved to a second clean checkout at the same commit. Save the original report bytes or their hashes before regrading. Regrading uses the same authorized judge and a fresh session. It reuses a compatible calibration for up to 24 hours. Each regrade appends a diagnostic grade with a new UUID and preserves the original. The offline render reads the chosen grade without launching the target or reader. Use cmp on both report files.
+Use a fresh private directory for each export. The export contains sealed execution evidence, events, grading records and request receipts. Reports are generated from these inputs. The export prints the SHA-256 of bundle.json for transfer verification. It can be moved to a second clean checkout at the same commit. Save the original report bytes or their hashes before regrading. Regrading uses the same authorized judge and a fresh session. It reuses a compatible calibration for up to 24 hours. Each regrade appends a diagnostic grade with a new UUID and preserves the original. The offline render reads the chosen grade without launching the target or reader. Use cmp on both report files.
 
 ```sh
 RUN=RUN_UUID
@@ -64,8 +76,8 @@ BUNDLE="$PWD/.local/portable-$RUN"
 npm run benchmark -- export-run --run "$RUN" --output "$BUNDLE"
 BENCHMARK_DISABLE_TARGET=1 npm run benchmark -- regrade --bundle "$BUNDLE"
 BENCHMARK_DISABLE_TARGET=1 BENCHMARK_DISABLE_JUDGE=1 npm run benchmark -- report --bundle "$BUNDLE" --grade original --output "$PWD/.local/rebuilt-$RUN"
-cmp "$BUNDLE/reports/report.json" ".local/rebuilt-$RUN/report.json"
-cmp "$BUNDLE/reports/report.md" ".local/rebuilt-$RUN/report.md"
+cmp ".local/benchmark/$RUN/reports/report.json" ".local/rebuilt-$RUN/report.json"
+cmp ".local/benchmark/$RUN/reports/report.md" ".local/rebuilt-$RUN/report.md"
 npm run benchmark -- compare --run "$RUN" --reference "$BUNDLE"
 ```
 

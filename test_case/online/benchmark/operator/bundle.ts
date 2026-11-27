@@ -17,7 +17,6 @@ const components = [
   "calibrations",
   "grades",
   "failures",
-  "reports",
 ];
 function entries(root: string) {
   const files: string[] = [];
@@ -60,7 +59,12 @@ export function pack(root: string, out: string) {
   }
   seal(path.join(out, "bundle.json"), { run: execution.id, members });
   verifyBundle(out);
-  return { bundle: out, run: execution.id, files: Object.keys(members).length };
+  return {
+    bundle: out,
+    run: execution.id,
+    files: Object.keys(members).length,
+    sha256: sha(fs.readFileSync(path.join(out, "bundle.json"))),
+  };
 }
 export function verifyBundle(root: string) {
   const index = openSeal(path.join(root, "bundle.json"));

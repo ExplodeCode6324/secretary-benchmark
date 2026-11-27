@@ -159,6 +159,23 @@ export async function send(
     let local = Number(process.env.BENCHMARK_PRIOR_EXPOSURE_USD ?? 0);
     requireThat(Number.isFinite(local) && local >= 0, "Invalid prior exposure");
     for (const entry of entries) {
+      const reconciled = path.join(ledger, entry.id + ".reconciled.json");
+      if (fs.existsSync(reconciled)) {
+        const r = load(reconciled);
+        requireThat(
+          r.run === entry.run &&
+            r.freeze === entry.freeze &&
+            r.cost === entry.ceiling &&
+            r.attempt === entry.id,
+          "Invalid reconciliation",
+        );
+        requireThat(
+          entry.run !== run,
+          "Reconciled run is closed; freeze a new authorized cohort",
+        );
+        local += entry.ceiling;
+        continue;
+      }
       const closed = path.join(ledger, entry.id + ".settled.json");
       requireThat(
         fs.existsSync(closed),
@@ -184,6 +201,7 @@ export async function send(
       freeze,
       kind,
       start: started,
+      wireDigest: sha(body),
       ceiling: reserve,
     });
     save(path.join(root, "transport", attempt + ".request.json"), {
@@ -194,9 +212,7 @@ export async function send(
       ceiling: reserve,
     });
   });
-  const timeout = AbortSignal.timeout(
-    Math.min(120, m.config.timeoutSeconds) * 1000,
-  );
+  const timeout = AbortSignal.timeout(m.config.timeoutSeconds * 1000);
   const r = await fetch(goAPI + "/chat/completions", {
     method: "POST",
     headers: {
@@ -208,9 +224,19 @@ export async function send(
     redirect: "error",
     signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
   });
+  const status = {
+    at: new Date().toISOString(),
+    status: r.status,
+    requestId: r.headers.get("x-request-id") ?? r.headers.get("request-id"),
+  };
+  save(path.join(root, "transport", attempt + ".http.json"), status);
+  const sse = await r.text();
+  save(path.join(root, "transport", attempt + ".raw.json"), {
+    ...status,
+    body: sse,
+  });
   requireThat(r.ok, "Provider HTTP " + r.status + "; reservation retained");
-  const sse = await r.text(),
-    meter = goResponseMeter(),
+  const meter = goResponseMeter(),
     ids = new Set<string>();
   let usage: any = null,
     finished = false;
@@ -261,7 +287,8 @@ export async function send(
   };
   save(path.join(root, "transport", attempt + ".response.json"), {
     ...receipt,
-    sse,
+    rawDigest: sha(sse),
+    ...status,
   });
   save(path.join(ledger, attempt + ".settled.json"), receipt);
   requireThat(!receipt.hold, receipt.hold ?? "Provider hold");
@@ -350,4 +377,86 @@ export async function gateway(
         server.closeAllConnections();
       }),
   };
+}
+
+// Reconciliation never retries an uncertain send. Only an explicitly reviewed
+// original attempt can be carried forward, at its entire authorized ceiling.
+export async function reconcile(
+  root: string,
+  id: string,
+  proof: string,
+  approval: string,
+) {
+  requireThat(/^[a-f0-9-]{36}$/.test(id), "Supply the original request UUID");
+  const account = accountDirectory(),
+    ledger = path.join(account, "requests");
+  noLinks(proof);
+  const bytes = fs.readFileSync(proof);
+  requireThat(
+    bytes.length > 0 && bytes.length <= 1024 * 1024,
+    "Supply a bounded private reconciliation statement",
+  );
+  const record = JSON.parse(bytes.toString("utf8"));
+  const digest = sha(bytes);
+  requireThat(
+    digest === approval &&
+      record.attempt === id &&
+      record.disposition === "retain-full-ceiling" &&
+      typeof record.basis === "string" &&
+      record.basis.trim().length > 0,
+    "Reconcile requires the operator-approved SHA-256 of the original attempt statement",
+  );
+  return lease(account, async () => {
+    const reservation = load(path.join(ledger, id + ".reservation.json"));
+    const original = load(path.join(root, "transport", id + ".request.json"));
+    const manifest = openSeal(path.join(root, "manifest.json"));
+    const binding = load(
+      path.join(account, "claims", reservation.freeze + ".json"),
+    );
+    requireThat(
+      reservation.run === path.basename(root) &&
+        reservation.freeze === bound(manifest) &&
+        binding.run === reservation.run &&
+        record.freeze === reservation.freeze &&
+        record.run === reservation.run &&
+        record.wireDigest === original.digest &&
+        reservation.wireDigest === original.digest &&
+        original.kind === reservation.kind,
+      "Reconciliation scope mismatch",
+    );
+    const settled = path.join(ledger, id + ".settled.json");
+    requireThat(
+      !fs.existsSync(settled) || load(settled).hold,
+      "The original already settled successfully",
+    );
+    const outcome = {
+      at: new Date().toISOString(),
+      attempt: id,
+      run: reservation.run,
+      freeze: reservation.freeze,
+      wireDigest: original.digest,
+      evidence: digest,
+      basis: record.basis,
+      disposition: record.disposition,
+      cost: reservation.ceiling,
+      cash: null,
+      hold: null,
+    };
+    const name = id + ".reconciled.json";
+    const existing = path.join(ledger, name);
+    if (fs.existsSync(existing)) {
+      requireThat(
+        load(existing).evidence === digest,
+        "Original reconciliation is immutable",
+      );
+    } else save(existing, outcome);
+    const local = path.join(root, "transport", name);
+    if (!fs.existsSync(local)) save(local, load(existing));
+    return {
+      attempt: id,
+      disposition: record.disposition,
+      retained: reservation.ceiling,
+      originalFreezeClosed: true,
+    };
+  });
 }

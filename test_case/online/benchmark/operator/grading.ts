@@ -32,34 +32,27 @@ const evidence = (text: string) => ({
 export function candidate(execution: any, control?: "good" | "bad") {
   const s = execution.manifest.suite,
     last = execution.events.at(-1);
-  const setup = control ? ["Elm archive token is REED-843."] : s.setup;
-  const question = control
-    ? "Using the information just supplied, what is Elm's token?"
-    : s.probe;
+  const setup = s.setup,
+    question = s.probe;
   const answer = control
     ? control === "good"
       ? "REED-843"
       : "PINK-000"
     : last.messages.map((x: any) => x.text).join("\n");
-  const messages = control
-    ? [
-        { role: "user", content: setup[0] },
-        { role: "user", content: question },
-      ]
-    : execution.firstProbeMessages;
+  const messages = execution.firstProbeMessages;
   const rows = [
     evidence("Events in order: " + JSON.stringify([...setup, question])),
     evidence("Observable reply: " + answer),
-    evidence("First eligible request messages: " + JSON.stringify(messages)),
-    evidence(
-      "Capture coverage: " +
-        (control
-          ? "complete scripted resident surface"
-          : execution.probeCoverage),
+    ...messages.map((message: unknown, index: number) =>
+      evidence(
+        "First eligible request message " +
+          (index + 1) +
+          ": " +
+          JSON.stringify(message),
+      ),
     ),
-    evidence(
-      "Observed effects: " + JSON.stringify(control ? [] : last.effects),
-    ),
+    evidence("Capture coverage: " + execution.probeCoverage),
+    evidence("Observed effects: " + JSON.stringify(last.effects)),
   ];
   return {
     packet: {
@@ -81,8 +74,25 @@ function fixtureReply(packet: any, key?: any[], answer?: string) {
   const valid = answer?.includes("REED-843");
   return {
     ...header,
-    visibility: "RESIDENT",
-    visibility_evidence: [packet.evidence[2].id],
+    visibility: packet.evidence.some(
+      (row: any) =>
+        row.text.startsWith("First eligible request message") &&
+        row.text.includes("REED-843"),
+    )
+      ? "RESIDENT"
+      : "OPAQUE",
+    visibility_evidence: [
+      (
+        packet.evidence.find(
+          (row: any) =>
+            row.text.startsWith("First eligible request message") &&
+            row.text.includes("REED-843"),
+        ) ??
+        packet.evidence.find((row: any) =>
+          row.text.startsWith("Capture coverage:"),
+        )
+      ).id,
+    ],
     assertions: [
       {
         assertion: "natural_access",
@@ -162,7 +172,9 @@ export async function nativeTurn(
     proc.once("close", resolve);
   });
   const timer = setTimeout(() => proc.kill("SIGKILL"), timeout);
-  let wire: any, result: any;
+  let wire: any,
+    result: any,
+    providerText = "";
   try {
     proc.stdin!.write(JSON.stringify({ hermes, query }) + "\n");
     for await (const line of readline.createInterface({
@@ -177,6 +189,21 @@ export async function nativeTurn(
         wire = event;
         save(path.join(directory, "wire.json"), wire);
         const sse = await dispatch(wire);
+        for (const line of sse.split(/\r?\n/)) {
+          if (!line.startsWith("data:")) continue;
+          const data = line.slice(5).trim();
+          if (!data || data === "[DONE]") continue;
+          const chunk = JSON.parse(data),
+            delta = chunk.choices?.find(
+              (choice: any) => choice.index === 0,
+            )?.delta;
+          if (typeof delta?.content === "string") providerText += delta.content;
+        }
+        save(path.join(directory, "provider-content.json"), {
+          raw: providerText,
+          wire: wire.sha256,
+          responseStream: sha(sse),
+        });
         proc.stdin!.end(JSON.stringify({ sse }) + "\n");
       } else {
         requireThat(
@@ -193,7 +220,11 @@ export async function nativeTurn(
       (await closed) === 0 && result && result.session === wire.session,
       "Hermes did not produce a complete receipt; see reader.stderr",
     );
-    return result;
+    requireThat(
+      providerText.length > 0 && result.raw.trim() === providerText.trim(),
+      "Native reader text differs from the first provider response",
+    );
+    return { ...result, providerContent: sha(providerText) };
   } finally {
     clearTimeout(timer);
     proc.kill();
@@ -233,6 +264,9 @@ async function grade(
     save(path.join(folder, "response.json"), response);
     raw = response.raw;
   }
+  return validateJudgeReply(raw, packet, key);
+}
+export function validateJudgeReply(raw: string, packet: any, key?: any[]) {
   const mark = JSON.parse(
     raw
       .trim()
@@ -258,6 +292,22 @@ async function grade(
     const ids = new Set(packet.evidence.map((r: any) => r.id));
     const refs = (v: any) =>
       Array.isArray(v) && v.length > 0 && v.every((x) => ids.has(x));
+    const visibilityIds = new Set(
+      packet.evidence
+        .filter((row: any) =>
+          row.text.startsWith(
+            mark.visibility === "RESIDENT"
+              ? "First eligible request message"
+              : "Capture coverage:",
+          ),
+        )
+        .map((r: any) => r.id),
+    );
+    requireThat(
+      refs(mark.visibility_evidence) &&
+        mark.visibility_evidence.every((id: string) => visibilityIds.has(id)),
+      "Visibility must cite the first request or capture coverage",
+    );
     const a = mark.assertions?.[0];
     requireThat(
       mark.assertions.length === 1 &&
@@ -279,8 +329,34 @@ export async function gradeExecution(root: string, regrade: boolean) {
   const id = regrade ? randomUUID() : "original",
     folder = path.join(root, "grades", id);
   dir(folder);
-  const gate = path.join(root, "calibration.json");
-  if (!fs.existsSync(gate)) {
+  const calRoot = path.join(root, "calibrations");
+  dir(calRoot);
+  const prior = fs
+    .readdirSync(calRoot)
+    .map((name) => path.join(calRoot, name, "receipt.json"))
+    .filter((file) => fs.existsSync(file))
+    .map(openSeal)
+    .filter((c) => c.manifest === bound(m))
+    .sort((a, b) => b.at - a.at);
+  let calibration = prior[0];
+  if (!calibration || Date.now() - calibration.at >= 24 * 3600e3) {
+    if (m.config.judge === "hermes-go") {
+      const sent = fs.existsSync(path.join(root, "transport"))
+        ? fs
+            .readdirSync(path.join(root, "transport"))
+            .filter(
+              (f) =>
+                f.endsWith(".request.json") &&
+                JSON.parse(
+                  fs.readFileSync(path.join(root, "transport", f), "utf8"),
+                ).kind === "judge",
+            ).length
+        : 0;
+      requireThat(
+        m.config.maxJudgeCalls - sent >= 4,
+        "Fresh calibration and candidate require four authorized judge calls",
+      );
+    }
     const c = targetedControls(),
       prefix = path.join(root, "calibrations", randomUUID());
     await grade(root, m, path.join(prefix, "calibration"), c.packet, c.key);
@@ -299,21 +375,42 @@ export async function gradeExecution(root: string, regrade: boolean) {
         "Case-shape discrimination control failed: " + control,
       );
     }
-    seal(gate, {
+    const sources: Record<string, string> = {};
+    for (const stage of ["calibration", "good", "bad"]) {
+      for (const name of [
+        "input.json",
+        "response.json",
+        ...(m.config.judge === "hermes-go"
+          ? ["wire.json", "provider-content.json"]
+          : []),
+      ]) {
+        const key = stage + "/" + name;
+        sources[key] = sha(fs.readFileSync(path.join(prefix, key)));
+      }
+    }
+    calibration = {
+      sources,
       manifest: bound(m),
       at: Date.now(),
       source: path.relative(root, prefix),
       controls: 28,
       caseControls: 2,
       judge: m.config.judge,
-    });
+    };
+    seal(path.join(prefix, "receipt.json"), calibration);
   }
-  const calibration = openSeal(gate);
   requireThat(
     calibration.manifest === bound(m) &&
       Date.now() - calibration.at < 24 * 3600e3,
     "Stale or incompatible calibration",
   );
+  for (const [file, digest] of Object.entries(calibration.sources)) {
+    requireThat(
+      sha(fs.readFileSync(path.join(root, calibration.source, file))) ===
+        digest,
+      "Calibration evidence changed",
+    );
+  }
   const openSealOrLoad = (name: string) =>
     JSON.parse(fs.readFileSync(path.join(folder, name), "utf8"));
   const p = candidate(execution),

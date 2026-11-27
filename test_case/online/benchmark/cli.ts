@@ -103,6 +103,7 @@ async function main() {
       "export-run",
       "archive-run",
       "recover-run",
+      "reconcile-call",
       "operator-help",
     ].includes(command) ||
     (command === "report" &&

@@ -1,6 +1,7 @@
 """Run one blinded Hermes native turn. The parent owns billing and transport."""
 import contextlib
 import hashlib
+import importlib.metadata
 import json
 import logging
 import os
@@ -74,6 +75,6 @@ def main():
         with patch.object(httpx.Client, "send", send):
             result=agent.run_conversation(query, conversation_history=[])
         require(len(calls)==1 and result.get("api_calls")==1 and isinstance(result.get("final_response"),str), "incomplete native reader turn")
-        emit({"type":"result","raw":result["final_response"],"wire":calls[0],"release":actual,"session":agent.session_id})
+        emit({"type":"result","raw":result["final_response"],"wire":calls[0],"release":actual,"runtime":{"python":sys.version.split()[0], "openai":importlib.metadata.version("openai"), "httpx":importlib.metadata.version("httpx"),"pydantic":importlib.metadata.version("pydantic")},"session":agent.session_id})
 if __name__ == "__main__":
     main()

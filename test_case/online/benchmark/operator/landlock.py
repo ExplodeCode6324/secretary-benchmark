@@ -38,6 +38,8 @@ def permit(name, rights):
         os.close(pfd)
 for name in json.loads(sys.argv[1]):
     permit(name, 1 | 4 | 8)
+# Node opens the null device read/write for the journal helper stderr.
+permit("/dev/null", 2 | 4)
 permit(sys.argv[2], fs_rights)
 for port in json.loads(sys.argv[3]):
     rule = record(("rights", u64), ("port", u64))(2, port)

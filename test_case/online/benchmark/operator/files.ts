@@ -72,7 +72,10 @@ export function config(file: string) {
     "timeoutSeconds",
   ];
   requireThat(
-    Object.keys(c).length === keys.length &&
+    Object.keys(c).every((k) => keys.includes(k) || k === "cohort") &&
+      (c.cohort === undefined ||
+        (typeof c.cohort === "string" &&
+          /^[a-z0-9][a-z0-9-]{0,63}$/.test(c.cohort))) &&
       keys.every((k) => Object.hasOwn(c, k)),
     "Invalid configuration keys",
   );
@@ -127,6 +130,10 @@ export function manifest(c: any) {
       files.map((f) => [f, sha(fs.readFileSync(path.join(source, f)))]),
     ),
     judgePolicy: "issue122-comparison-reader-go-v1",
+    readerRelease:
+      c.judge === "hermes-go"
+        ? "97a9ae8ee55d31bebce49f1fb6b5ef775323976a"
+        : null,
     provider: c.workload,
     workEffort: c.workload === "fixture" ? null : "low",
     publishedModel:

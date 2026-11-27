@@ -50,6 +50,7 @@ import {
   claim,
   gateway,
   credential,
+  reconcile,
 } from "./transport.ts";
 import { admittedReaderQuery } from "../stage-c-visibility-rubric.ts";
 
@@ -88,7 +89,7 @@ function meter(root: string) {
         hold: r?.hold ?? null,
         models: r?.models ?? [],
         servedIdentity: r?.billing?.identity ?? null,
-        publishedVersion: r ? "DeepSeek V4.1 Flash 1017" : null,
+        reportedVersion: r?.billing?.identity?.version ?? null,
         billingSource: r?.billing?.billing_source ?? null,
         usage: r?.usage ?? null,
         cost: r?.billing?.list_cost ?? null,
@@ -330,6 +331,10 @@ async function execute(root: string, m: any, approved?: string) {
         mockStream("REED-843"),
       );
     } else if (c.workload === "opencode-go") {
+      requireThat(
+        process.platform === "darwin",
+        "Live targets require the verified macOS isolation backend; Linux supports offline fixtures",
+      );
       const rehearsal = path.join(root, "preflight");
       dir(rehearsal);
       await nativeTurn(
@@ -343,7 +348,6 @@ async function execute(root: string, m: any, approved?: string) {
       credential("judge");
       const route = await checkRoute();
       save(path.join(root, "route.json"), route);
-      await claim(m, id);
       gate = await gateway(root, m, signal.signal);
     }
     target = startTarget(
@@ -373,6 +377,7 @@ async function execute(root: string, m: any, approved?: string) {
       ready.ready && ready.denied === 2,
       "Target isolation preflight failed",
     );
+    if (c.workload === "opencode-go") await claim(m, id);
     const captured = () =>
       c.workload === "wire-rehearsal"
         ? fs
@@ -430,7 +435,9 @@ async function execute(root: string, m: any, approved?: string) {
     const firstProbeMessages =
       wire?.data.body.messages ??
       events.at(-1).calls[0]?.request?.messages ??
-      [];
+      (c.target.startsWith("scripted-")
+        ? texts.map((text) => ({ role: "user", content: text }))
+        : []);
     const execution = {
       schema: 1,
       id,
@@ -487,6 +494,7 @@ export async function operatorCommand(command: string, args: string[]) {
     "reader-check": ["--run"],
     "archive-run": ["--run", "--apply"],
     "recover-run": ["--run"],
+    "reconcile-call": ["--run", "--attempt", "--evidence", "--approval"],
   };
   const options: Record<string, string> = {};
   for (let i = 0; i < args.length; i += 2) {
@@ -547,6 +555,13 @@ export async function operatorCommand(command: string, args: string[]) {
     ? path.resolve(options["--bundle"])
     : rootFor(options["--run"] || "");
   noLinks(root);
+  if (command === "reconcile-call")
+    return reconcile(
+      root,
+      options["--attempt"] ?? "",
+      path.resolve(options["--evidence"] ?? ""),
+      options["--approval"] ?? "",
+    );
   if (command === "recover-run") {
     return lease(root, async () => {
       const marker = load(path.join(root, "facility.json"));
@@ -661,7 +676,12 @@ export async function operatorCommand(command: string, args: string[]) {
       JSON.parse(r.raw).fixture === true,
       "Native reader rehearsal failed",
     );
-    return { externalCalls: 0, release: r.release, wire: r.wire };
+    return {
+      externalCalls: 0,
+      release: r.release,
+      runtime: r.runtime,
+      wire: r.wire,
+    };
   }
   requireThat(command === "regrade", "Unknown operator command");
   verifyApproval(

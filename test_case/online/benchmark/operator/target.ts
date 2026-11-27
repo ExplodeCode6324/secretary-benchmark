@@ -1,6 +1,7 @@
 // The controller sends only the current event. This executable has no suite or judge imports.
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import readline from "node:readline";
 import { App } from "../../../../sut/secretary/src/pi_secretary/src/app.ts";
 import { ApplicationService } from "../../../../sut/secretary/src/pi_secretary/src/application-service.ts";
@@ -39,6 +40,18 @@ async function handle(command: string, data: any) {
         throw error;
       }
       throw Error("TARGET_CANARY_READABLE");
+    }
+    if (data.target === "secretary") {
+      const check = spawnSync(
+        "python3",
+        ["-I", "-c", "import fcntl, hashlib, json, pathlib"],
+        { stdio: ["pipe", "pipe", "ignore"] },
+      );
+      if (check.status !== 0)
+        throw Error(
+          "Journal helper preflight failed: " +
+            (check.error?.message ?? check.status),
+        );
     }
     target = data.target;
     if (target === "secretary") {

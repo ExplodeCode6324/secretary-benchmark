@@ -174,6 +174,32 @@ export function recoveredOutcomes(execution: any, folder: string) {
 export function sealInterruptedGrade(execution: any, folder: string) {
   const plan = openSeal(path.join(folder, "plan.json"));
   verifySeriesPlan(folder, execution);
+  // The controller may disappear after persisting provider bytes and before the
+  // native reader delivers its receipt or the attempt's catch block can run.
+  for (const [kind, specs] of [
+    ["qualification", plan.controls],
+    ["packets", plan.batches],
+  ] as const) {
+    for (const [i, spec] of specs.entries()) {
+      const sub = path.join(folder, kind, String(i + 1));
+      if (
+        fs.existsSync(path.join(sub, "provider-content.json")) &&
+        !fs.existsSync(path.join(sub, "response.json")) &&
+        !fs.existsSync(path.join(sub, "attempt-failure.json"))
+      ) {
+        requireThat(
+          !fs.existsSync(path.join(sub, "results.json")) &&
+            bound(load(path.join(sub, "input.json")).packet) === spec.digest,
+          "Interrupted reader evidence mismatch",
+        );
+        seal(path.join(sub, "attempt-failure.json"), {
+          packet: spec.digest,
+          responseReceived: false,
+          error: "INTERRUPTED",
+        });
+      }
+    }
+  }
   const outcomes = recoveredOutcomes(execution, folder);
   const evidence: Record<string, string> = {};
   for (const name of fs.readdirSync(folder, {

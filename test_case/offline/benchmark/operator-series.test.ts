@@ -644,6 +644,30 @@ print(json.dumps(dict(type="result",wire=h,session=s,raw=raw)),flush=True)
     assert.ok(!fs.existsSync(path.join(interruptedFolder, "response.json")));
     const moved = path.join(root, "copied-after-reader-failure");
     pack(bundle, moved);
+    const crashCopy = path.join(root, "crash-after-provider-bytes");
+    fs.cpSync(bundle, crashCopy, { recursive: true });
+    const original = path.join(crashCopy, "grades/original");
+    fs.cpSync(path.join(crashCopy, "grades", interrupted.grade), original, {
+      recursive: true,
+    });
+    for (const name of [
+      "grade.json",
+      "accounting.json",
+      "packets/1/attempt-failure.json",
+      "packets/2",
+    ])
+      fs.rmSync(path.join(original, name), { recursive: true });
+    const { sealInterruptedGrade } =
+      await import("../../online/benchmark/operator/series.ts");
+    sealInterruptedGrade(
+      openSeal(path.join(crashCopy, "execution.json")),
+      original,
+    );
+    assert.equal(
+      openSeal(path.join(original, "grade.json")).outcomes[0].reason,
+      "INTERRUPTED",
+    );
+    pack(crashCopy, path.join(root, "portable-interrupted-original"));
     process.env.BENCHMARK_DISABLE_JUDGE = "1";
     delete process.env.BENCHMARK_OPERATOR_ACCOUNT;
     const replay: any = await operatorCommand("report", [

@@ -962,37 +962,34 @@ export async function operatorCommand(command: string, args: string[]) {
       return {
         sameContract: bound(x.manifest) === bound(y.manifest),
         sameCase:
-          x.manifest.config.case === y.manifest.config.case &&
-          x.manifest.config.caseVersion === y.manifest.config.caseVersion,
+          bound([x.manifest.config.caseVersion, x.manifest.suite]) ===
+          bound([y.manifest.config.caseVersion, y.manifest.suite]),
         samePrompt:
           x.manifest.implementation["fact-grading-v1.txt"] ===
           y.manifest.implementation["fact-grading-v1.txt"],
         coverage: records.map((r) => r.coverage),
-        questions: ids.map((id) => ({
-          id,
-          referenceDigests: [x, y].map((e) => {
+        questions: ids.map((id) => {
+          const referenceDigests = [x, y].map((e) => {
             const q = questions(e.manifest.suite, []).find(
-              (q) => q.item.question_id === id,
+              ({ item }) => item.question_id === id,
             )?.item;
             return q
               ? bound([q.question, q.abstention_policy, q.reference_facts])
               : null;
-          }),
-          sameReference: (() => {
-            const keys = [x, y].map(
-              (e) =>
-                questions(e.manifest.suite, []).find(
-                  (q) => q.item.question_id === id,
-                )?.item,
-            );
-            return !!keys[0] && !!keys[1] && bound(keys[0]) === bound(keys[1]);
-          })(),
-          verdicts: records.map(
-            (r) =>
-              r.questions.find((q: any) => q.id === id)?.verdict ??
-              "NOT_IN_PACKAGE",
-          ),
-        })),
+          });
+          return {
+            id,
+            referenceDigests,
+            sameReference:
+              referenceDigests[0] !== null &&
+              referenceDigests[0] === referenceDigests[1],
+            verdicts: records.map(
+              (r) =>
+                r.questions.find((q: any) => q.id === id)?.verdict ??
+                "NOT_IN_PACKAGE",
+            ),
+          };
+        }),
       };
     }
     return {

@@ -223,11 +223,19 @@ export function verifyFactGrade(execution: any, g: any, folder: string) {
       const wirePath = path.join(sub, "wire.json");
       if (fs.existsSync(wirePath)) {
         const wire = load(wirePath);
+        const failure = path.join(sub, "attempt-failure.json");
+        const refusedBeforeSend =
+          fs.existsSync(failure) &&
+          openSeal(failure).error ===
+            "Native judge wire length differs from qualification plan" &&
+          !fs.existsSync(path.join(sub, "response.json")) &&
+          !fs.existsSync(path.join(sub, "provider-content.json"));
         requireThat(
           sha(wire.body) === wire.sha256 &&
             bound(JSON.parse(wire.body).messages) ===
               bound([{ role: "user", content: input.query }]) &&
-            Buffer.byteLength(wire.body) === spec.wire.bytes,
+            (Buffer.byteLength(wire.body) === spec.wire.bytes ||
+              refusedBeforeSend),
           "Native wire differs from sealed grading packet",
         );
       }

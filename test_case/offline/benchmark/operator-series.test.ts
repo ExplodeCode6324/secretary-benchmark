@@ -887,3 +887,90 @@ test(
     }
   },
 );
+
+test("recover-run publishes accepted original packet decisions without starting either endpoint", async () => {
+  const scratch = fs.mkdtempSync(
+    path.join(repository, ".local", "series-recover-grade-"),
+  );
+  const conf = JSON.parse(
+    fs.readFileSync("examples/secretary-questions.json", "utf8"),
+  );
+  conf.target = "scripted-good";
+  conf.questionsPerRequest = 1;
+  const file = path.join(scratch, "case.json");
+  fs.writeFileSync(file, JSON.stringify(conf));
+  let root: string | undefined;
+  const prior = { ...process.env };
+  try {
+    const first: any = await operatorCommand("evaluate", ["--config", file]);
+    root = rootFor(first.run);
+    const original = path.join(root, "grades/original");
+    const expected = JSON.parse(fs.readFileSync(first.json, "utf8"))
+      .questions[0];
+    for (const name of [
+      "grade.json",
+      "accounting.json",
+      "packets/2",
+      "packets/3",
+    ])
+      fs.renameSync(
+        path.join(original, name),
+        path.join(scratch, name.replace("/", "-")),
+      );
+    fs.renameSync(path.join(root, "reports"), path.join(scratch, "reports"));
+    process.env.BENCHMARK_DISABLE_JUDGE = "1";
+    process.env.BENCHMARK_DISABLE_TARGET = "1";
+    const result: any = await operatorCommand("recover-run", [
+      "--run",
+      first.run,
+    ]);
+    const recovered = JSON.parse(fs.readFileSync(result.json, "utf8"));
+    assert.equal(recovered.canonical, true);
+    assert.equal(recovered.coverage.graded, 1);
+    assert.deepEqual(recovered.questions[0], expected);
+    assert.deepEqual(
+      recovered.questions.slice(1).map((q: any) => q.reason),
+      ["UNSENT", "UNSENT"],
+    );
+    assert.deepEqual(recovered.requests, []);
+    const bundle = path.join(scratch, "portable");
+    await operatorCommand("export-run", [
+      "--run",
+      first.run,
+      "--output",
+      bundle,
+    ]);
+    const compared: any = await operatorCommand("compare", [
+      "--run",
+      first.run,
+      "--reference",
+      bundle,
+    ]);
+    assert.ok(
+      compared.sameCase &&
+        compared.samePrompt &&
+        compared.questions.every((q: any) => q.sameReference),
+    );
+    const grade = openSeal(path.join(original, "grade.json"));
+    grade.outcomes[0].verdict =
+      grade.outcomes[0].verdict === "PASS" ? "FAIL" : "PASS";
+    const { verifyFactGrade } =
+      await import("../../online/benchmark/operator/series.ts");
+    assert.throws(
+      () =>
+        verifyFactGrade(
+          openSeal(path.join(root!, "execution.json")),
+          grade,
+          original,
+        ),
+      /verdict differs/,
+    );
+  } finally {
+    for (const k of ["BENCHMARK_DISABLE_JUDGE", "BENCHMARK_DISABLE_TARGET"]) {
+      if (prior[k] === undefined) delete process.env[k];
+      else process.env[k] = prior[k];
+    }
+    if (root) fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});

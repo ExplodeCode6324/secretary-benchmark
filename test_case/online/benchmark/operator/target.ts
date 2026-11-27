@@ -18,6 +18,7 @@ let service: ApplicationService | undefined;
 let observations: any[] = [];
 let target = "";
 let questionSeries = false;
+let lastObservedTail: string | undefined;
 let scriptedSetup = "";
 const commands = [
   "capabilities",
@@ -86,14 +87,15 @@ async function handle(command: string, data: any) {
     let observation;
     if (app && service) {
       const before = new Set(app.store.all("ModelCall").map((row) => row.id));
-      const previousPage: any = questionSeries
-        ? await service.query(
-            service.principal,
-            "timeline",
-            new URLSearchParams({ limit: "1" }),
-          )
-        : null;
-      const previousTail = previousPage?.items.at(-1)?.id;
+      const previousPage: any =
+        questionSeries && !lastObservedTail
+          ? await service.query(
+              service.principal,
+              "timeline",
+              new URLSearchParams({ limit: "1" }),
+            )
+          : null;
+      const previousTail = lastObservedTail ?? previousPage?.items.at(-1)?.id;
       const receipt = service.command(service.principal, "messages", {
         request_id: data.id,
         text: data.text,
@@ -130,10 +132,15 @@ async function handle(command: string, data: any) {
           );
           freshItems = [...page.items, ...freshItems];
         }
-        if (previousTail)
-          freshItems = freshItems.slice(
-            freshItems.findIndex((item: any) => item.id === previousTail) + 1,
+        if (previousTail) {
+          const anchor = freshItems.findIndex(
+            (item: any) => item.id === previousTail,
           );
+          if (anchor < 0)
+            throw Error("Timeline lost the previous recorded boundary");
+          freshItems = freshItems.slice(anchor + 1);
+        }
+        lastObservedTail = timeline.items.at(-1)?.id ?? previousTail;
       }
       const callIds = new Set(calls.map((c) => c.id));
       const visible = freshItems.filter(

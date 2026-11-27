@@ -140,7 +140,9 @@ export async function claimHistory(m: any, run: string) {
                 path.join(directory, name),
               );
               requireThat(
-                typeof claimedRun === "string" && /^[a-f0-9]{64}$/.test(digest),
+                typeof claimedRun === "string" &&
+                  /^[a-f0-9]{64}$/.test(digest) &&
+                  name === digest + ".json",
                 "Invalid measurement claim",
               );
               return {

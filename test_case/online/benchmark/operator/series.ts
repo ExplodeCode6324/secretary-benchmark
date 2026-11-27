@@ -682,10 +682,21 @@ export function qualificationSummary(root: string, folder: string) {
         });
     }
   }
+  const withheld =
+    !!plan.controls[0]?.hostItems &&
+    openSeal(path.join(root, "manifest.json")).config.controlSuite
+      .visibility === "WITHHELD";
+  const admitted =
+    returnedPackets === plan.controls.length &&
+    !disagreements.length &&
+    !fs.existsSync(path.join(folder, "qualification-failure.json")) &&
+    !fs.existsSync(path.join(folder, "qualification-interruption.json"));
   return {
     ...(plan.controls[0]?.hostItems
       ? {
-          probes: allProbes,
+          ...(withheld
+            ? { qualificationEvidence: "WITHHELD", admitted }
+            : { probes: allProbes }),
           matchedProbes: allProbes.filter((p) => p.pass).length,
           checkedProbes: allProbes.length,
         }
@@ -697,7 +708,7 @@ export function qualificationSummary(root: string, folder: string) {
     matchedFacts,
     checkedAbstentions,
     matchedAbstentions,
-    disagreements,
+    disagreements: withheld ? [] : disagreements,
   };
 }
 export function verifyQualificationAccounting(
@@ -839,7 +850,16 @@ export function seriesRecord(
     plan: g.plan,
     requests: summary.requests,
     claimHistory: summary.claimHistory,
-    failures: [...(summary.failures ?? []), ...g.failures],
+    failures: [...(summary.failures ?? []), ...g.failures].map((f) =>
+      execution.manifest.config.controlSuite?.visibility === "WITHHELD" &&
+      f.stage === "calibration"
+        ? {
+            stage: "calibration",
+            error:
+              "Qualification evidence withheld; inspect the complete private bundle",
+          }
+        : f,
+    ),
   };
 }
 function atomicReport(execution: any, rows: Outcome[]) {
@@ -893,11 +913,16 @@ function atomicReport(execution: any, rows: Outcome[]) {
     rules: execution.manifest.atomicRules,
     temperature: execution.manifest.temperature,
     taskEvidence: {
+      scope:
+        "Package 2 records operation changes in a single uninterrupted session. External task success is unmeasured.",
       operations: operationChanges,
       memoryWrites: "UNAVAILABLE",
       retrieval: "UNAVAILABLE",
       crossSession: "NOT_APPLICABLE",
-      externalTask: "NOT_APPLICABLE",
+      externalTask:
+        execution.manifest.config.case === "public-handover"
+          ? "NOT_APPLICABLE"
+          : "UNAVAILABLE",
     },
   };
 }
@@ -979,6 +1004,26 @@ export function seriesMarkdown(record: ReturnType<typeof seriesRecord>) {
             record.qualification.plannedPackets +
             "; usable replies: " +
             record.qualification.returnedPackets,
+          ...(record.qualification.qualificationEvidence === "WITHHELD"
+            ? [
+                "Qualification evidence withheld · " +
+                  (record.qualification.admitted
+                    ? "ADMITTED"
+                    : "NOT ADMITTED") +
+                  " · facts " +
+                  record.qualification.matchedFacts +
+                  "/" +
+                  record.qualification.checkedFacts +
+                  " · abstention " +
+                  record.qualification.matchedAbstentions +
+                  "/" +
+                  record.qualification.checkedAbstentions +
+                  " · probes " +
+                  record.qualification.matchedProbes +
+                  "/" +
+                  record.qualification.checkedProbes,
+              ]
+            : []),
           ...record.qualification.disagreements.map(
             (q: any) =>
               "Packet " +
@@ -1111,7 +1156,7 @@ function atomicDetails(record: any): string[] {
   );
   if (record.judgeRescoreAgreement)
     lines.push(
-      "Independent regrade on the same recorded answers: " +
+      "Repeat judge rescoring (same model and prompt): " +
         record.judgeRescoreAgreement.fact.matched +
         "/" +
         record.judgeRescoreAgreement.fact.compared +
@@ -1119,7 +1164,9 @@ function atomicDetails(record: any): string[] {
         record.judgeRescoreAgreement.abstention.matched +
         "/" +
         record.judgeRescoreAgreement.abstention.compared +
-        " comparable abstention labels.",
+        " comparable abstention labels; excluded questions: " +
+        record.judgeRescoreAgreement.excludedQuestions +
+        ".",
       "",
     );
   return lines;
@@ -1140,5 +1187,9 @@ export function rescoreAgreement(original: any[], diagnostic: any[]) {
       }
     }
   }
-  return { fact, abstention };
+  return {
+    fact,
+    abstention,
+    excludedQuestions: diagnostic.length - abstention.compared,
+  };
 }

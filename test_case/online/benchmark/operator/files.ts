@@ -152,6 +152,25 @@ export function config(file: string) {
       "Atomic qualification suite digest mismatch",
     );
     const suite = validateControlSuite(JSON.parse(bytes.toString("utf8")));
+    if (suite.visibility === "WITHHELD") {
+      const rel = path.relative(repository, fs.realpathSync(location));
+      requireThat(
+        rel.startsWith(".." + path.sep) || path.isAbsolute(rel),
+        "Keep withheld controls outside this checkout",
+      );
+      const publicSuite = JSON.parse(
+        fs.readFileSync(
+          path.join(repository, "examples/secretary-atomic-controls.json"),
+          "utf8",
+        ),
+      );
+      const signature = (c: any) => bound([c.question, c.answer]);
+      const exposed = new Set(publicSuite.items.map(signature));
+      requireThat(
+        !suite.items.some((c: any) => exposed.has(signature(c))),
+        "Developer-visible control in withheld suite",
+      );
+    }
     c.controlSuite = {
       ...suite,
       sha256: spec.sha256,

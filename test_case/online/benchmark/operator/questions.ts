@@ -7,6 +7,7 @@ import {
   atomicItem,
   atomicPacket,
   atomicPolicy,
+  atomicWirePolicy,
   atomicInstructions,
   validateAtomicReference,
   parseAtomic,
@@ -185,7 +186,7 @@ export function wirePacket(items: Item[]): any {
 }
 export function wireQuery(packet: any) {
   if (packet.policy === factPolicy) return factQuery(packet);
-  requireThat(packet.policy === atomicPolicy, "Unknown fact protocol");
+  requireThat(packet.policy === atomicWirePolicy, "Unknown fact protocol");
   const bytes = gradeJSONBytes(packet);
   return (
     atomicInstructions +
@@ -202,7 +203,7 @@ export function seriesResults(
 ): any[] {
   if (packet.policy === factPolicy) return factResults(raw, packet);
   requireThat(
-    packet.policy === atomicPolicy &&
+    packet.policy === atomicWirePolicy &&
       hostItems &&
       sha(gradeJSONBytes(atomicPacket(hostItems as AtomicItem[]))) ===
         sha(gradeJSONBytes(packet)),

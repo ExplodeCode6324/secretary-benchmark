@@ -4,6 +4,7 @@ import { gradeJSONBytes } from "../grading-transaction.ts";
 import { repository, requireThat, sha } from "../io.ts";
 
 export const atomicPolicy = "secretary-answer-atomic-facts-v2";
+export const atomicWirePolicy = "atomic-facts-v2";
 export const atomicRules = {
   scoring: "atomic-score-v2",
   normalization: "whole-answer-nfc-v1",
@@ -40,6 +41,7 @@ export type AtomicFact = {
   equivalents?: string[];
 };
 type SetRule = {
+  group?: string;
   id: string;
   mode: "ANY_OF" | "ALL_OF";
   members: string[];
@@ -161,7 +163,15 @@ export function validateAtomicReference(r: AtomicReference) {
   check(r.sets === undefined || Array.isArray(r.sets), "set list");
   for (const s of r.sets ?? []) {
     check(
-      fields(s, ["id", "mode", "members", "k", "missing", "multipleValid"]) &&
+      fields(s, [
+        "id",
+        "mode",
+        "members",
+        "k",
+        "missing",
+        "multipleValid",
+        "group",
+      ]) &&
         id(s.id) &&
         !setIds.has(s.id) &&
         ["ANY_OF", "ALL_OF"].includes(s.mode) &&
@@ -169,6 +179,10 @@ export function validateAtomicReference(r: AtomicReference) {
         s.members.length > 0 &&
         unique(s.members),
       "set",
+    );
+    check(
+      s.group === undefined || (s.mode === "ANY_OF" && id(s.group)),
+      "set error group",
     );
     setIds.add(s.id);
     for (const k of s.members) {
@@ -259,7 +273,12 @@ export function validateControlSuite(s: any) {
           typeof p.present === "boolean",
         "probe",
       );
-    check(unique(k.probes.map((p) => p.anchor)), "overlapping probe identity");
+    check(
+      !k.probes.some((a, i) =>
+        k.probes.some((b, j) => i !== j && a.anchor.includes(b.anchor)),
+      ),
+      "nested or repeated probe anchors",
+    );
   }
   return s;
 }
@@ -285,7 +304,7 @@ export function atomicItem(
 export type AtomicItem = ReturnType<typeof atomicItem>;
 export function atomicPacket(items: AtomicItem[]) {
   return {
-    policy: atomicPolicy,
+    policy: atomicWirePolicy,
     items: items.map((x, i) => ({
       question_id: "q" + (i + 1),
       question: x.question,
@@ -454,8 +473,7 @@ export function scoreAtomic(
   blank = false,
 ) {
   const penalties = new Map<string, Severity>(),
-    contradictions = new Set<string>(),
-    refGroups = new Set(r.facts.map((f) => f.group));
+    contradictions = new Set<string>();
   const trigger = (g: string, s: Severity) => {
     if (
       s !== "ignore" &&
@@ -464,8 +482,21 @@ export function scoreAtomic(
       penalties.set(g, s);
   };
   const anySets = (r.sets ?? []).filter((s) => s.mode === "ANY_OF");
-  const alternatives = new Set(anySets.flatMap((s) => s.members));
   const indexes = new Map(r.facts.map((f, j) => [f.id, j]));
+  const groupForSet = (s: SetRule) => {
+    const groups = new Set(
+      s.members.map((id) => r.facts[indexes.get(id)!].group),
+    );
+    return s.group ?? (groups.size === 1 ? [...groups][0] : s.id);
+  };
+  const alternatives = new Map(
+    anySets.flatMap((s) =>
+      s.members.map((id) => [id, groupForSet(s)] as const),
+    ),
+  );
+  const refGroups = new Set(
+    r.facts.map((f) => alternatives.get(f.id) ?? f.group),
+  );
   const permitted = abstained && r.abstention !== "NOT_ACCEPTABLE" && !blank;
   let hits = 0,
     required = 0;
@@ -477,8 +508,9 @@ export function scoreAtomic(
       else trigger(f.group, f.missing);
     }
     if (v === "CONTRADICTED") {
-      contradictions.add(f.group);
-      trigger(f.group, f.contradicted);
+      const group = alternatives.get(f.id) ?? f.group;
+      contradictions.add(group);
+      trigger(group, f.contradicted);
     }
   }
   for (const s of anySets)
@@ -489,7 +521,7 @@ export function scoreAtomic(
           .length >= s.k!
       )
         hits++;
-      else trigger(s.id, s.missing!);
+      else trigger(groupForSet(s), s.missing!);
     }
   if (
     !blank &&

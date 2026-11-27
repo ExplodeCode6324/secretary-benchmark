@@ -253,3 +253,135 @@ test("operator evaluates an atomic case, exports and rebuilds its evidence, and 
     if (root) fs.rmSync(root, { force: true, recursive: true });
   }
 });
+
+test("withheld qualification reports aggregate evidence without revealing private controls", async () => {
+  const { tmpdir } = await import("node:os");
+  const { createHash } = await import("node:crypto");
+  const d = fs.mkdtempSync(
+    path.join(fs.realpathSync(tmpdir()), "atomic-privacy-"),
+  );
+  let run: string | undefined;
+  try {
+    const suite = {
+      ...structuredClone(fixture),
+      identity: "private-test",
+      visibility: "WITHHELD",
+    };
+    const file = path.join(d, "controls.json"),
+      cfg = path.join(d, "config.json");
+    const source = JSON.parse(
+      fs.readFileSync(
+        path.join(repository, "examples/secretary-questions-v2.json"),
+        "utf8",
+      ),
+    );
+    source.target = "scripted-good";
+    const write = () => {
+      const bytes = JSON.stringify(suite);
+      fs.writeFileSync(file, bytes);
+      source.controlSuite = {
+        path: "controls.json",
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      };
+      fs.writeFileSync(cfg, JSON.stringify(source));
+    };
+    write();
+    assert.throws(() => config(cfg), /Developer-visible/);
+    suite.items = [
+      {
+        id: "privateKeyName",
+        question: "Which public warehouse is open?",
+        answer: "private anchor evidence",
+        reference: {
+          abstention: "NOT_ACCEPTABLE",
+          facts: [
+            {
+              id: "privateRef",
+              text: "private withheld truth",
+              role: "REQUIRED",
+              group: "warehouse",
+              missing: "major",
+              contradicted: "major",
+            },
+          ],
+        },
+        expected: {
+          labels: ["SUPPORTED"],
+          abstained: false,
+          probes: [
+            {
+              anchor: "private anchor",
+              status: "SUPPORTED_BY",
+              present: false,
+            },
+          ],
+        },
+      },
+    ];
+    write();
+    const accepted = config(cfg);
+    assert.equal(accepted.controlSuite.items.length, 1);
+    const result: any = await operatorCommand("evaluate", ["--config", cfg]);
+    run = rootFor(result.run);
+    const report = JSON.parse(fs.readFileSync(result.json, "utf8")),
+      summary = report.qualification;
+    assert.equal(summary.admitted, false);
+    assert.equal(summary.checkedProbes, 1);
+    assert.equal(summary.matchedProbes, 0);
+    assert.equal(report.coverage.graded, 0);
+    for (const name of [result.report, result.json]) {
+      const bytes = fs.readFileSync(name, "utf8");
+      for (const s of [
+        "privateKeyName",
+        "privateRef",
+        "private withheld truth",
+        "private anchor",
+      ])
+        assert.ok(!bytes.includes(s));
+    }
+    const dest = path.join(d, "bundle");
+    await operatorCommand("export-run", [
+      "--run",
+      result.run,
+      "--output",
+      dest,
+    ]);
+    const rebuilt: any = await operatorCommand("report", [
+      "--bundle",
+      dest,
+      "--output",
+      path.join(d, "report"),
+    ]);
+    assert.deepEqual(
+      fs.readFileSync(result.json),
+      fs.readFileSync(rebuilt.json),
+    );
+    const nested = structuredClone(suite);
+    nested.items[0].expected.probes.push({
+      anchor: "anchor",
+      status: "SUPPORTED_BY",
+      present: true,
+    });
+    assert.throws(() => validateControlSuite(nested), /nested/);
+    const any = structuredClone(fixture.items[1].reference);
+    any.sets[0].group = "oneObligation";
+    validateAtomicReference(any);
+    const scored = scoreAtomic(any, ["CONTRADICTED", "ABSENT"], false, []);
+    assert.deepEqual(scored.penalties, [
+      { group: "oneObligation", severity: "major" },
+    ]);
+    assert.deepEqual(scored.metrics.contradiction, {
+      numerator: 1,
+      denominator: 1,
+      rate: 1,
+    });
+    assert.ok(
+      !JSON.stringify(
+        atomicPacket([atomicItem("secretary", "Which station?", any, "One")]),
+      ).includes("secretary"),
+    );
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+    if (run) fs.rmSync(run, { recursive: true, force: true });
+  }
+});

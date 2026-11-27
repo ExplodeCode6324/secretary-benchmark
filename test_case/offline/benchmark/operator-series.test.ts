@@ -476,9 +476,11 @@ test("record-only portable regrade binds to original execution, retains a failed
   let n = 0;
   let invalidQualification = false;
   let interruptReader = false;
+  let clipped = false;
   try {
     const c = config("examples/secretary-questions.json");
     c.questionsPerRequest = 1;
+    c.maxJudgeCalls = 80;
     const m: any = manifest(c);
     m.config = {
       ...m.config,
@@ -570,7 +572,12 @@ print(json.dumps(dict(type="result",wire=h,session=s,raw=raw)),flush=True)
               packet.items[0].question_id === "cedar-initial"
             ? "{}"
             : fixtureFacts(packet, control?.key);
-      return new Response(mockStream(raw));
+      const sse = mockStream(raw);
+      return new Response(
+        clipped && packet.items[0].question_id === "cedar-initial"
+          ? sse.replace('"finish_reason":"stop"', '"finish_reason":"length"')
+          : sse,
+      );
     };
     const diagnostic: any = await operatorCommand("regrade", [
       "--bundle",
@@ -683,6 +690,116 @@ print(json.dumps(dict(type="result",wire=h,session=s,raw=raw)),flush=True)
       fs.readFileSync(diagnostic.json),
     );
     assert.equal(n, controls.length * 2 + 5);
+    // Recreate a stopped, acknowledged execution with no original grade and a local
+    // encoder mismatch. Repair the reader and recover that same execution once.
+    process.env.BENCHMARK_OPERATOR_ACCOUNT = path.join(root, "account");
+    delete process.env.BENCHMARK_DISABLE_JUDGE;
+    const realRoot = rootFor(run);
+    const stopped = (id: string, manifest: any) => {
+      const r = rootFor(id);
+      save(path.join(r, "facility.json"), {
+        version: 1,
+        repository,
+        nonce: randomUUID(),
+      });
+      seal(path.join(r, "stopped.json"), { id, systemID: null });
+      seal(path.join(r, "manifest.json"), manifest);
+      seal(path.join(r, "execution.json"), {
+        ...openSeal(path.join(bundle, "execution.json")),
+        id,
+        manifest,
+      });
+      return r;
+    };
+    const boundedId = randomUUID(),
+      boundedRoot = stopped(boundedId, {
+        ...m,
+        config: { ...m.config, billingPolicy: "bounded" },
+      });
+    try {
+      await assert.rejects(
+        operatorCommand("recover-run", [
+          "--run",
+          boundedId,
+          "--approval",
+          "wrong",
+        ]),
+        /LIVE_FREEZE_REQUIRED/,
+      );
+      assert.ok(
+        !fs.existsSync(path.join(boundedRoot, "grades/original/plan.json")),
+      );
+    } finally {
+      fs.rmSync(boundedRoot, { recursive: true, force: true });
+    }
+    stopped(run, m);
+    try {
+      const broken = reader + "-ascii";
+      fs.writeFileSync(
+        broken,
+        fs
+          .readFileSync(reader, "utf8")
+          .replace("ensure_ascii=False", "ensure_ascii=True"),
+        { mode: 0o700 },
+      );
+      process.env.BENCHMARK_HERMES_PYTHON = broken;
+      const start = n;
+      await assert.rejects(
+        operatorCommand("recover-run", ["--run", run]),
+        /planned query or UTF-8 bytes/,
+      );
+      const targetGrade = path.join(realRoot, "grades/original");
+      for (const f of ["plan.json", "grade.json", "qualification-key.json"])
+        assert.ok(!fs.existsSync(path.join(targetGrade, f)));
+      assert.equal(n, start);
+      process.env.BENCHMARK_HERMES_PYTHON = reader;
+      interruptReader = false;
+      clipped = true;
+      const repaired: any = await operatorCommand("recover-run", [
+        "--run",
+        run,
+      ]);
+      const recovered = JSON.parse(fs.readFileSync(repaired.json, "utf8"));
+      assert.equal(recovered.canonical, true);
+      assert.deepEqual(
+        recovered.questions.map((q: any) => q.reason ?? q.verdict),
+        ["JUDGE_FINISH_REASON: length", "FAIL", "NOT_EXECUTED"],
+      );
+      assert.equal(n, start + controls.length + 2);
+      await operatorCommand("recover-run", ["--run", run]);
+      assert.equal(n, start + controls.length + 2);
+      const { verifyFactGrade } =
+        await import("../../online/benchmark/operator/series.ts");
+      const grade = openSeal(path.join(targetGrade, "grade.json")),
+        execution = openSeal(path.join(realRoot, "execution.json"));
+      grade.outcomes[0].reason = "UNSENT";
+      assert.throws(
+        () => verifyFactGrade(execution, grade, targetGrade),
+        /verdict differs/,
+      );
+      const wire = path.join(targetGrade, "packets/2/wire.json");
+      fs.renameSync(wire, path.join(root, "hidden-wire"));
+      assert.throws(
+        () =>
+          verifyFactGrade(
+            execution,
+            openSeal(path.join(targetGrade, "grade.json")),
+            targetGrade,
+          ),
+        /Missing native factual reader wire/,
+      );
+      const failedFolder = path.join(bundle, "grades", failed.grade);
+      assert.ok(
+        recoveredOutcomes(
+          openSeal(path.join(bundle, "execution.json")),
+          failedFolder,
+        )
+          .filter((q) => q.inputId)
+          .every((q) => q.reason === "CALIBRATION_FAILED"),
+      );
+    } finally {
+      fs.rmSync(realRoot, { recursive: true, force: true });
+    }
   } finally {
     globalThis.fetch = realFetch;
     for (const k of [

@@ -388,7 +388,7 @@ async function publishGrade(root: string, id: string) {
   });
   return writeReport(root, id);
 }
-async function finishRecovery(root: string, m: any) {
+async function finishRecovery(root: string, m: any, approval?: string) {
   const original = path.join(root, "grades/original");
   if (fs.existsSync(path.join(original, "accounting.json")))
     return writeReport(root, "original");
@@ -400,6 +400,7 @@ async function finishRecovery(root: string, m: any) {
     return publishIncomplete(root);
   if (!fs.existsSync(path.join(original, "grade.json"))) {
     if (!fs.existsSync(path.join(original, "plan.json"))) {
+      verifyApproval(m, approval);
       verifyJudgeSource(m);
       return assess(root, false);
     }
@@ -714,7 +715,7 @@ export async function operatorCommand(command: string, args: string[]) {
     "export-run": ["--run", "--output"],
     "reader-check": ["--run"],
     "archive-run": ["--run", "--apply"],
-    "recover-run": ["--run"],
+    "recover-run": ["--run", "--approval"],
     "reconcile-call": [
       "--run",
       "--bundle",
@@ -841,7 +842,11 @@ export async function operatorCommand(command: string, args: string[]) {
       if (fs.existsSync(path.join(root, "stopped.json"))) {
         clearTargetAliases(root);
         sealRecoveredPrefix();
-        return finishRecovery(root, m);
+        return finishRecovery(
+          root,
+          m,
+          options["--approval"] ?? process.env.BENCHMARK_APPROVAL,
+        );
       }
       const workerFile = path.join(root, "worker.json");
       if (fs.existsSync(workerFile)) {
@@ -883,7 +888,11 @@ export async function operatorCommand(command: string, args: string[]) {
         at: new Date().toISOString(),
         error: "Interrupted execution; owned facility recovered",
       });
-      return finishRecovery(root, m);
+      return finishRecovery(
+        root,
+        m,
+        options["--approval"] ?? process.env.BENCHMARK_APPROVAL,
+      );
     });
   }
   if (command === "archive-run") {

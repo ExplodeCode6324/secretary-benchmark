@@ -34,7 +34,7 @@ type Outcome = {
 function description(
   p: ReturnType<typeof factPlan>,
   execution: any,
-  schema = 2,
+  schema = 3,
 ) {
   const describe = (items: Item[]) => ({
     packet: factPacket(items),
@@ -63,7 +63,7 @@ function description(
 }
 export function verifySeriesPlan(folder: string, execution: any) {
   const schema = openSeal(path.join(folder, "plan.json")).schema;
-  requireThat(schema === 1 || schema === 2, "Unknown series plan");
+  requireThat([1, 2, 3].includes(schema), "Unknown series plan");
   const expected = description(
     factPlan(execution, schema >= 2),
     execution,
@@ -129,25 +129,54 @@ export function recoveredOutcomes(execution: any, folder: string) {
     );
     return results;
   }
-  if (!fs.existsSync(path.join(folder, "packets"))) return rows;
-  const keys = openSeal(path.join(folder, "qualification-key.json"));
-  for (const [i, c] of plan.controls.entries()) {
-    const labels = qualificationLabels(
-      savedResults(path.join(folder, "qualification", String(i + 1)), c),
-    );
+  const hasFormal = fs.existsSync(path.join(folder, "packets"));
+  const keyFile = path.join(folder, "qualification-key.json");
+  const keys = fs.existsSync(keyFile) ? openSeal(keyFile) : [];
+  const failureFile = path.join(folder, "qualification-failure.json");
+  let qualificationFailure = "";
+  if (fs.existsSync(failureFile)) {
+    const failure = openSeal(failureFile);
     requireThat(
-      bound(keys[i]) === c.keyDigest &&
-        bound(labels) ===
-          bound(
-            keys[i].map(({ required, forbidden, abstained }: any) => ({
-              required,
-              forbidden,
-              abstained,
-            })),
-          ),
-      "Interrupted run has no passing qualification",
+      failure.plan === bound(plan) &&
+        ["CALIBRATION_FAILED", "INSUFFICIENT_CALLS"].includes(failure.reason),
+      "Invalid qualification failure",
     );
+    if (failure.reason === "INSUFFICIENT_CALLS")
+      requireThat(
+        Number.isSafeInteger(failure.remaining) &&
+          failure.remaining < plan.controls.length + plan.batches.length,
+        "Invalid qualification capacity",
+      );
+    qualificationFailure = failure.reason;
   }
+  for (const [i, c] of plan.controls.entries()) {
+    const sub = path.join(folder, "qualification", String(i + 1));
+    if (fs.existsSync(path.join(sub, "attempt-failure.json")))
+      qualificationFailure = "CALIBRATION_FAILED";
+    if (!fs.existsSync(path.join(sub, "results.json"))) {
+      requireThat(!hasFormal, "Formal grading without complete qualification");
+      continue;
+    }
+    const labels = qualificationLabels(savedResults(sub, c));
+    requireThat(
+      keys[i] && bound(keys[i]) === c.keyDigest,
+      "Qualification key mismatch",
+    );
+    const expected = keys[i].map(({ required, forbidden, abstained }: any) => ({
+      required,
+      forbidden,
+      abstained,
+    }));
+    if (bound(labels) !== bound(expected))
+      qualificationFailure = "CALIBRATION_FAILED";
+  }
+  requireThat(
+    !hasFormal || !qualificationFailure,
+    "Formal grading after a failed qualification",
+  );
+  if (qualificationFailure)
+    for (const batch of plan.batches)
+      for (const id of batch.ids) byId.get(id)!.reason = qualificationFailure;
   for (const [i, batch] of plan.batches.entries()) {
     const sub = path.join(folder, "packets", String(i + 1));
     for (const id of batch.ids) byId.get(id)!.batch = i + 1;
@@ -207,7 +236,7 @@ export function sealInterruptedGrade(execution: any, folder: string) {
     encoding: "utf8",
   })) {
     if (
-      /^(qualification-key|native-precheck)\.json$|^(qualification|packets)\/[1-9][0-9]*\/(input|response|wire|provider-content|results|attempt-failure)\.json$/.test(
+      /^(qualification-key|qualification-failure|native-precheck)\.json$|^(qualification|packets)\/[1-9][0-9]*\/(input|response|wire|provider-content|results|attempt-failure)\.json$/.test(
         name,
       )
     )
@@ -247,6 +276,15 @@ export function verifyFactGrade(execution: any, g: any, folder: string) {
         "Grading input differs from planned packet",
       );
       const wirePath = path.join(sub, "wire.json");
+      if (
+        execution.manifest.config.judge === "hermes-go" &&
+        (fs.existsSync(path.join(sub, "response.json")) ||
+          fs.existsSync(path.join(sub, "provider-content.json")))
+      )
+        requireThat(
+          fs.existsSync(wirePath),
+          "Missing native factual reader wire",
+        );
       if (fs.existsSync(wirePath)) {
         const wire = load(wirePath);
         const failure = path.join(sub, "attempt-failure.json");
@@ -285,6 +323,7 @@ export function verifyFactGrade(execution: any, g: any, folder: string) {
         return (
           row.id === v.id &&
           row.verdict === v.verdict &&
+          (plan.schema < 3 || row.reason === v.reason) &&
           bound(row.facts ?? null) === bound(v.facts ?? null) &&
           row.abstained === v.abstained
         );
@@ -298,11 +337,17 @@ export async function gradeSeries(
   id: string,
   execution: any,
   read: Reader,
-  precheck?: () => Promise<void>,
+  precheck?: () => Promise<unknown>,
 ) {
   const p = factPlan(execution),
     m = execution.manifest,
     plan = description(p, execution);
+  // No model output exists at this point. A local reader fault may be fixed and
+  // retried on the same execution without consuming its canonical grade.
+  const nativeCheck =
+    p.batches.length && m.config.judge === "hermes-go" && precheck
+      ? await precheck()
+      : null;
   seal(path.join(folder, "plan.json"), plan);
   const outcomes = initialOutcomes(execution),
     byID = new Map(outcomes.map((r) => [r.id, r]));
@@ -314,6 +359,10 @@ export async function gradeSeries(
   const record = (file: string) => {
     evidence[path.relative(folder, file)] = bound(load(file));
   };
+  if (nativeCheck) {
+    seal(path.join(folder, "native-precheck.json"), nativeCheck);
+    record(path.join(folder, "native-precheck.json"));
+  }
   async function attempt(
     items: Item[],
     where: string,
@@ -364,21 +413,17 @@ export async function gradeSeries(
   );
   record(path.join(folder, "qualification-key.json"));
   if (required) {
+    let remaining: number | null = null;
     try {
-      if (
-        m.config.judge === "hermes-go" &&
-        (await remainingJudgeCalls(m, execution.id)) < required
-      ) {
+      if (m.config.judge === "hermes-go")
+        remaining = await remainingJudgeCalls(m, execution.id);
+      if (remaining !== null && remaining < required) {
         stopReason = "INSUFFICIENT_CALLS";
         throw Error(
           "Insufficient remaining judge calls for " +
             required +
             " planned packets",
         );
-      }
-      if (m.config.judge === "hermes-go" && precheck) {
-        await precheck();
-        record(path.join(folder, "native-precheck.json"));
       }
       for (const [i, c] of p.controls.entries()) {
         const results = await attempt(
@@ -400,6 +445,13 @@ export async function gradeSeries(
       }
     } catch (error: any) {
       stopReason ||= "CALIBRATION_FAILED";
+      seal(path.join(folder, "qualification-failure.json"), {
+        plan: bound(plan),
+        reason: stopReason,
+        remaining,
+        error: error.message,
+      });
+      record(path.join(folder, "qualification-failure.json"));
       failures.push({ stage: "calibration", error: error.message });
     }
   }

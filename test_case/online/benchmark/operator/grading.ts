@@ -468,10 +468,7 @@ export async function gradeExecution(root: string, regrade: boolean) {
         save(path.join(sub, "response.json"), response);
         return response.raw;
       },
-      async () => {
-        const replay = await checkSeriesReader(root, execution);
-        seal(path.join(folder, "native-precheck.json"), replay);
-      },
+      () => checkSeriesReader(root, execution),
     );
   }
   const calRoot = path.join(root, "calibrations");

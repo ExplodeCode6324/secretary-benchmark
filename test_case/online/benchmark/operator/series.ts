@@ -77,6 +77,88 @@ export function initialOutcomes(execution: any): Outcome[] {
     }),
   );
 }
+function qualificationLabels(results: ReturnType<typeof factResults>) {
+  return results.map((row) => ({
+    required: row.facts
+      .filter((f) => f.kind === "required")
+      .map((f) => f.verdict),
+    forbidden: row.facts
+      .filter((f) => f.kind === "forbidden")
+      .map((f) => f.verdict),
+    abstained: row.abstained,
+  }));
+}
+
+// Recover only decisions accepted before interruption. This path cannot start a reader.
+export function recoveredOutcomes(execution: any, folder: string) {
+  const rows = initialOutcomes(execution);
+  if (!fs.existsSync(path.join(folder, "plan.json"))) return rows;
+  const plan = openSeal(path.join(folder, "plan.json"));
+  requireThat(
+    plan.execution === bound(execution),
+    "Interrupted plan execution mismatch",
+  );
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  for (const id of plan.oversize) byId.get(id)!.reason = "OVERSIZE";
+  function savedResults(sub: string, spec: any) {
+    const input = load(path.join(sub, "input.json"));
+    requireThat(
+      bound(input.packet) === spec.digest &&
+        bound(input.query) === spec.queryDigest,
+      "Interrupted packet mismatch",
+    );
+    const results = factResults(
+      load(path.join(sub, "response.json")).raw,
+      input.packet,
+    );
+    requireThat(
+      bound(results) === bound(openSeal(path.join(sub, "results.json"))),
+      "Interrupted decision mismatch",
+    );
+    return results;
+  }
+  if (!fs.existsSync(path.join(folder, "packets"))) return rows;
+  const keys = openSeal(path.join(folder, "qualification-key.json"));
+  for (const [i, c] of plan.controls.entries()) {
+    const labels = qualificationLabels(
+      savedResults(path.join(folder, "qualification", String(i + 1)), c),
+    );
+    requireThat(
+      bound(keys[i]) === c.keyDigest &&
+        bound(labels) ===
+          bound(
+            keys[i].map(({ required, forbidden, abstained }: any) => ({
+              required,
+              forbidden,
+              abstained,
+            })),
+          ),
+      "Interrupted run has no passing qualification",
+    );
+  }
+  for (const [i, batch] of plan.batches.entries()) {
+    const sub = path.join(folder, "packets", String(i + 1));
+    for (const id of batch.ids) byId.get(id)!.batch = i + 1;
+    if (fs.existsSync(path.join(sub, "results.json"))) {
+      for (const result of savedResults(sub, batch)) {
+        const row = byId.get(result.question_id)!;
+        delete row.reason;
+        Object.assign(row, {
+          verdict: result.verdict,
+          facts: result.facts,
+          abstained: result.abstained,
+        });
+      }
+    } else if (fs.existsSync(path.join(sub, "input.json"))) {
+      const failure = path.join(sub, "attempt-failure.json");
+      const why = fs.existsSync(failure)
+        ? openSeal(failure).error
+        : "INTERRUPTED";
+      for (const id of batch.ids) byId.get(id)!.reason = why;
+    }
+  }
+  return rows;
+}
 export async function gradeSeries(
   root: string,
   folder: string,
@@ -166,22 +248,15 @@ export async function gradeSeries(
           "qualification/" + (i + 1),
           c.key,
         );
-        const received = results.map((row) => ({
-          required: row.facts
-            .filter((f) => f.kind === "required")
-            .map((f) => f.verdict),
-          forbidden: row.facts
-            .filter((f) => f.kind === "forbidden")
-            .map((f) => f.verdict),
-          abstained: row.abstained,
-        }));
         requireThat(
-          received.every(
-            (x, j) =>
-              x.abstained === c.key[j].abstained &&
-              bound(x.required) === bound(c.key[j].required) &&
-              bound(x.forbidden) === bound(c.key[j].forbidden),
-          ),
+          bound(qualificationLabels(results)) ===
+            bound(
+              c.key.map(({ required, forbidden, abstained }) => ({
+                required,
+                forbidden,
+                abstained,
+              })),
+            ),
           "Factual qualification labels disagree with preregistered key",
         );
       }

@@ -113,15 +113,24 @@ export function verifyBundle(root: string) {
         "Native reader receipt mismatch",
       );
     } else {
-      const failure = openSeal(path.join(root, dir, "attempt-failure.json"));
+      const gradeDirectory = path.dirname(path.dirname(dir));
+      const failure = Object.hasOwn(
+        index.members,
+        dir + "/attempt-failure.json",
+      )
+        ? openSeal(path.join(root, dir, "attempt-failure.json"))
+        : null;
+
       const input = load(path.join(root, dir, "input.json"));
       requireThat(
         /^grades\/(original|[a-f0-9-]+)\/(qualification|packets)\/[1-9][0-9]*$/.test(
           dir,
         ) &&
-          Object.hasOwn(index.members, dir + "/attempt-failure.json") &&
-          failure.responseReceived === false &&
-          failure.packet === sha(gradeJSONBytes(input.packet)) &&
+          (failure
+            ? failure.responseReceived === false &&
+              failure.packet === sha(gradeJSONBytes(input.packet))
+            : !Object.hasOwn(index.members, gradeDirectory + "/grade.json") &&
+              Object.hasOwn(index.members, gradeDirectory + "/plan.json")) &&
           !Object.hasOwn(index.members, dir + "/results.json"),
         "Missing native reader receipt without failed attempt",
       );

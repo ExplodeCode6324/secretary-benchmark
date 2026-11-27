@@ -469,6 +469,17 @@ print(json.dumps(dict(type="result",wire=h,session=s,raw=raw)),flush=True)
       bundle,
     ]);
     const r = JSON.parse(fs.readFileSync(diagnostic.json, "utf8"));
+    const { recoveredOutcomes } =
+      await import("../../online/benchmark/operator/series.ts");
+    const rows = recoveredOutcomes(
+      openSeal(path.join(bundle, "execution.json")),
+      path.join(bundle, "grades", diagnostic.grade),
+    );
+    assert.deepEqual(
+      rows.map((row) => row.verdict),
+      ["JUDGE_FAILED", "FAIL", "NOT_EXECUTED"],
+    );
+    assert.match(rows[0].reason!, /packet|result/i);
     assert.equal(r.grade, diagnostic.grade);
     assert.equal(r.canonical, false);
     assert.equal(r.status, "INCOMPLETE");

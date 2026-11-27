@@ -67,7 +67,7 @@ import {
   verifySeriesPlan,
   seriesRecord,
   seriesMarkdown,
-  initialOutcomes,
+  recoveredOutcomes,
 } from "./series.ts";
 import {
   factPlan,
@@ -293,6 +293,12 @@ function incomplete(
     const m = openSeal(path.join(root, "manifest.json")),
       hasRun = fs.existsSync(path.join(root, "execution.json"));
     const failures = path.join(root, "failures");
+    const execution = hasRun
+      ? openSeal(path.join(root, "execution.json"))
+      : { manifest: m, events: [] };
+    const rows = m.suite.timeline
+      ? recoveredOutcomes(execution, path.join(root, "grades/original"))
+      : undefined;
     seal(file, {
       run: path.basename(root),
       case: m.config.case,
@@ -301,26 +307,17 @@ function incomplete(
           ? "UNGRADED"
           : "INCOMPLETE",
       claimHistory: history,
-      coverage: m.suite.timeline
+      coverage: rows
         ? {
-            planned: questions(m.suite, []).length,
-            executed: hasRun
-              ? questions(
-                  m.suite,
-                  openSeal(path.join(root, "execution.json")).events,
-                ).filter((q) => q.inputId).length
-              : 0,
-            graded: 0,
+            planned: rows.length,
+            executed: rows.filter((row) => row.inputId).length,
+            graded: rows.filter((row) =>
+              ["PASS", "PARTIAL", "FAIL"].includes(row.verdict),
+            ).length,
           }
         : { planned: 1, executed: hasRun ? 1 : 0, graded: 0 },
-      questions: m.suite.timeline
-        ? initialOutcomes({
-            manifest: m,
-            events: hasRun
-              ? openSeal(path.join(root, "execution.json")).events
-              : [],
-          })
-        : undefined,
+      recoveryFormat: rows ? 2 : undefined,
+      questions: rows,
       firstFailures: fs.existsSync(failures)
         ? fs
             .readdirSync(failures)
@@ -339,6 +336,10 @@ function incomplete(
     "",
     record.status,
     "",
+    ...(record.recoveryFormat === 2 ? record.questions : []).map(
+      (row: any) =>
+        row.id + " · " + row.verdict + (row.reason ? " · " + row.reason : ""),
+    ),
     ...record.firstFailures.map((f: any) => f.error),
     "",
   ].join("\n");
@@ -370,8 +371,10 @@ async function publishIncomplete(root: string) {
   );
 }
 async function assess(root: string, again: boolean) {
-  const id = await gradeExecution(root, again),
-    grade = openSeal(path.join(root, "grades", id, "grade.json"));
+  return publishGrade(root, await gradeExecution(root, again));
+}
+async function publishGrade(root: string, id: string) {
+  const grade = openSeal(path.join(root, "grades", id, "grade.json"));
   const failures = path.join(root, "failures");
   seal(path.join(root, "grades", id, "accounting.json"), {
     grade: bound(grade),
@@ -820,6 +823,12 @@ export async function operatorCommand(command: string, args: string[]) {
         sealRecoveredPrefix();
         if (fs.existsSync(path.join(root, "grades/original/accounting.json")))
           return writeReport(root, "original");
+        if (
+          m.suite.timeline &&
+          !fs.existsSync(path.join(root, "incomplete.json")) &&
+          fs.existsSync(path.join(root, "grades/original/grade.json"))
+        )
+          return publishGrade(root, "original");
         if (!fs.existsSync(path.join(root, "incomplete.json")))
           save(path.join(root, "failures", randomUUID() + ".json"), {
             at: new Date().toISOString(),

@@ -674,6 +674,35 @@ print(json.dumps(dict(type="result",wire=h,session=s,raw=raw)),flush=True)
       openSeal(path.join(original, "grade.json")).outcomes[0].reason,
       "INTERRUPTED",
     );
+    // Stop within a qualification response or between qualification packets.
+    for (const within of [true, false]) {
+      const folder = path.join(
+        root,
+        within ? "inside-qualification" : "between-qualifications",
+      );
+      fs.cpSync(path.join(bundle, "grades", diagnostic.grade), folder, {
+        recursive: true,
+      });
+      for (const name of ["grade.json", "accounting.json", "packets"])
+        fs.rmSync(path.join(folder, name), { recursive: true });
+      for (let i = 2; i <= controls.length; i++)
+        fs.rmSync(path.join(folder, "qualification", String(i)), {
+          recursive: true,
+        });
+      if (within)
+        for (const name of ["response.json", "results.json"])
+          fs.rmSync(path.join(folder, "qualification/1", name));
+      const execution = openSeal(path.join(bundle, "execution.json"));
+      sealInterruptedGrade(execution, folder);
+      const recovered = openSeal(path.join(folder, "grade.json"));
+      assert.deepEqual(
+        recovered.outcomes.map((r: any) => r.reason ?? r.verdict),
+        ["INTERRUPTED", "INTERRUPTED", "NOT_EXECUTED"],
+      );
+      const { verifyFactGrade } =
+        await import("../../online/benchmark/operator/series.ts");
+      verifyFactGrade(execution, recovered, folder);
+    }
     pack(crashCopy, path.join(root, "portable-interrupted-original"));
     process.env.BENCHMARK_DISABLE_JUDGE = "1";
     delete process.env.BENCHMARK_OPERATOR_ACCOUNT;

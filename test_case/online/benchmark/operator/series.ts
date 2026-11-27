@@ -133,7 +133,14 @@ export function recoveredOutcomes(execution: any, folder: string) {
   const keyFile = path.join(folder, "qualification-key.json");
   const keys = fs.existsSync(keyFile) ? openSeal(keyFile) : [];
   const failureFile = path.join(folder, "qualification-failure.json");
-  let qualificationFailure = "";
+  const recoveryFile = path.join(folder, "qualification-interruption.json");
+  const interrupted = fs.existsSync(recoveryFile);
+  if (interrupted)
+    requireThat(
+      openSeal(recoveryFile).plan === bound(plan),
+      "Qualification interruption belongs to a different plan",
+    );
+  let qualificationFailure = interrupted ? "INTERRUPTED" : "";
   if (fs.existsSync(failureFile)) {
     const failure = openSeal(failureFile);
     requireThat(
@@ -151,7 +158,11 @@ export function recoveredOutcomes(execution: any, folder: string) {
   }
   for (const [i, c] of plan.controls.entries()) {
     const sub = path.join(folder, "qualification", String(i + 1));
-    if (fs.existsSync(path.join(sub, "attempt-failure.json")))
+    const failure = path.join(sub, "attempt-failure.json");
+    if (
+      fs.existsSync(failure) &&
+      (!interrupted || openSeal(failure).error !== "INTERRUPTED")
+    )
       qualificationFailure = "CALIBRATION_FAILED";
     if (!fs.existsSync(path.join(sub, "results.json"))) {
       requireThat(!hasFormal, "Formal grading without complete qualification");
@@ -229,6 +240,21 @@ export function sealInterruptedGrade(execution: any, folder: string) {
       }
     }
   }
+  const recoveryFile = path.join(folder, "qualification-interruption.json");
+  if (
+    plan.batches.length &&
+    !fs.existsSync(path.join(folder, "packets")) &&
+    !fs.existsSync(path.join(folder, "qualification-failure.json")) &&
+    plan.controls.some(
+      (_: unknown, i: number) =>
+        !fs.existsSync(
+          path.join(folder, "qualification", String(i + 1), "results.json"),
+        ),
+    ) &&
+    !fs.existsSync(recoveryFile)
+  ) {
+    seal(recoveryFile, { plan: bound(plan) });
+  }
   const outcomes = recoveredOutcomes(execution, folder);
   const evidence: Record<string, string> = {};
   for (const name of fs.readdirSync(folder, {
@@ -236,7 +262,7 @@ export function sealInterruptedGrade(execution: any, folder: string) {
     encoding: "utf8",
   })) {
     if (
-      /^(qualification-key|qualification-failure|native-precheck)\.json$|^(qualification|packets)\/[1-9][0-9]*\/(input|response|wire|provider-content|results|attempt-failure)\.json$/.test(
+      /^(qualification-key|qualification-failure|qualification-interruption|native-precheck)\.json$|^(qualification|packets)\/[1-9][0-9]*\/(input|response|wire|provider-content|results|attempt-failure)\.json$/.test(
         name,
       )
     )

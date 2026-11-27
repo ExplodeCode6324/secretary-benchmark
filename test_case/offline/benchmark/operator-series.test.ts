@@ -57,6 +57,10 @@ test("a continuous workload grades every question and replays the full denominat
       );
       assert.equal(item.answer, q.answer);
     }
+    const { archiveFacility } =
+      await import("../../online/benchmark/archive.ts");
+    const archive = await archiveFacility(original, directory);
+    assert.equal(archive.status, "DRY_RUN");
     const exported = path.join(directory, "portable");
     await operatorCommand("export-run", [
       "--run",
@@ -82,6 +86,30 @@ test("a continuous workload grades every question and replays the full denominat
     if (original) fs.rmSync(original, { recursive: true, force: true });
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("reply attribution excludes late, unrelated, incomplete and withdrawn output", async () => {
+  const { isAnswerMessage } =
+    await import("../../online/benchmark/operator/answer.ts");
+  const input = { loop_id: "current", updated_at: "2026-11-01T00:00:04Z" };
+  const call = { completed_at: "2026-11-01T00:00:03Z" };
+  const context = { loop_id: "current", purpose: "MAIN" };
+  assert.ok(isAnswerMessage(input, call, context, {}));
+  assert.ok(
+    !isAnswerMessage(
+      input,
+      { completed_at: "2026-11-01T00:00:05Z" },
+      context,
+      {},
+    ),
+  );
+  assert.ok(
+    !isAnswerMessage(input, call, { ...context, loop_id: "previous" }, {}),
+  );
+  assert.ok(!isAnswerMessage(input, call, { ...context, purpose: "TASK" }, {}));
+  assert.ok(!isAnswerMessage(input, {}, context, {}));
+  assert.ok(!isAnswerMessage(input, call, context, { withdrawn: true }));
+  assert.ok(!isAnswerMessage(input, call, context, { incomplete: true }));
 });
 
 test("normal target exit reaps surviving helpers and leaves an unrelated process alive", async () => {
@@ -308,6 +336,7 @@ test("record-only portable regrade binds to original execution, retains a failed
     realFetch = globalThis.fetch;
   let n = 0;
   let invalidQualification = false;
+  let interruptReader = false;
   try {
     const c = config("examples/secretary-questions.json");
     c.questionsPerRequest = 1;
@@ -358,6 +387,7 @@ h=hashlib.sha256(body.encode()).hexdigest(); s=str(uuid.uuid4())
 print(json.dumps(dict(type="wire",sha256=h,body=body,session=s,userAgent="Hermes-fixture")),flush=True)
 sse=json.loads(sys.stdin.readline())["sse"]
 raw="".join(json.loads(line[6:])["choices"][0]["delta"].get("content","") for line in sse.splitlines() if line.startswith("data: {"))
+if raw == "MISSING_NATIVE_RECEIPT": sys.exit(1)
 print(json.dumps(dict(type="result",wire=h,session=s,raw=raw)),flush=True)
 `,
       { mode: 0o700 },
@@ -395,9 +425,12 @@ print(json.dumps(dict(type="result",wire=h,session=s,raw=raw)),flush=True)
       );
       // A malformed response in the first formal packet cannot select a retry.
       const raw =
-        invalidQualification || packet.items[0].question_id === "cedar-initial"
-          ? "{}"
-          : fixtureFacts(packet, control?.key);
+        interruptReader && !control
+          ? "MISSING_NATIVE_RECEIPT"
+          : invalidQualification ||
+              packet.items[0].question_id === "cedar-initial"
+            ? "{}"
+            : fixtureFacts(packet, control?.key);
       return new Response(mockStream(raw));
     };
     const diagnostic: any = await operatorCommand("regrade", [
@@ -431,11 +464,37 @@ print(json.dumps(dict(type="result",wire=h,session=s,raw=raw)),flush=True)
       ["CALIBRATION_FAILED", "CALIBRATION_FAILED", "NOT_EXECUTED"],
     );
     assert.equal(n, controls.length + 3);
+    invalidQualification = false;
+    interruptReader = true;
+    const interrupted: any = await operatorCommand("regrade", [
+      "--bundle",
+      bundle,
+    ]);
+    const interruptedReport = JSON.parse(
+      fs.readFileSync(interrupted.json, "utf8"),
+    );
+    assert.deepEqual(
+      interruptedReport.questions.map((q: any) => q.verdict),
+      ["JUDGE_FAILED", "JUDGE_FAILED", "NOT_EXECUTED"],
+    );
+    assert.equal(interruptedReport.questions[1].reason, "UNSENT");
+    const interruptedFolder = path.join(
+      bundle,
+      "grades",
+      interrupted.grade,
+      "packets/1",
+    );
+    assert.ok(
+      fs.existsSync(path.join(interruptedFolder, "provider-content.json")),
+    );
+    assert.ok(!fs.existsSync(path.join(interruptedFolder, "response.json")));
+    const moved = path.join(root, "copied-after-reader-failure");
+    pack(bundle, moved);
     process.env.BENCHMARK_DISABLE_JUDGE = "1";
     delete process.env.BENCHMARK_OPERATOR_ACCOUNT;
     const replay: any = await operatorCommand("report", [
       "--bundle",
-      bundle,
+      moved,
       "--grade",
       diagnostic.grade,
       "--output",
@@ -445,7 +504,7 @@ print(json.dumps(dict(type="result",wire=h,session=s,raw=raw)),flush=True)
       fs.readFileSync(replay.json),
       fs.readFileSync(diagnostic.json),
     );
-    assert.equal(n, controls.length + 3);
+    assert.equal(n, controls.length * 2 + 4);
   } finally {
     globalThis.fetch = realFetch;
     for (const k of [

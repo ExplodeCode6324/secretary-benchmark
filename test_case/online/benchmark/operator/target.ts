@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { isAnswerMessage } from "./answer.ts";
 import readline from "node:readline";
 import { App } from "../../../../sut/secretary/src/pi_secretary/src/app.ts";
 import { ApplicationService } from "../../../../sut/secretary/src/pi_secretary/src/application-service.ts";
@@ -143,14 +144,7 @@ async function handle(command: string, data: any) {
         if (!questionSeries) return true;
         const call = app!.store.get<any>("ModelCall", item.call_id);
         const ctx = app!.store.get<any>("Context", call.context_id);
-        return (
-          ctx.loop_id === input.loop_id &&
-          ctx.purpose === "MAIN" &&
-          call.completed_at &&
-          call.completed_at <= input.updated_at &&
-          !item.incomplete &&
-          !item.withdrawn
-        );
+        return isAnswerMessage(input, call, ctx, item);
       };
       const messages = visible.filter(belongs);
       if (questionSeries)

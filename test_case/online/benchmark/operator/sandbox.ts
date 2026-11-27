@@ -19,6 +19,7 @@ export function startTarget(work: string, ports: number[], timeout: number) {
   const exe = fs.realpathSync(process.execPath);
   const allowed = [
     program,
+    path.join(directory, "answer.ts"),
     path.join(repository, "package.json"),
     path.join(repository, "node_modules"),
     path.join(repository, "sut/secretary/src/pi_secretary/src"),

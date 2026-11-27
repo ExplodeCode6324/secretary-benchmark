@@ -110,16 +110,34 @@ export async function gradeSeries(
     const input = path.join(sub, "input.json");
     save(input, { packet, query });
     record(input);
-    let raw: string;
-    if (m.config.judge === "fixture") {
-      raw = fixtureFacts(packet, key);
-      save(path.join(sub, "response.json"), { mode: "FIXTURE", raw });
-    } else raw = await read(sub, query, packetLimits(items).bytes);
-    record(path.join(sub, "response.json"));
-    const results = factResults(raw, packet);
-    seal(path.join(sub, "results.json"), results);
-    record(path.join(sub, "results.json"));
-    return results;
+    try {
+      let raw: string;
+      if (m.config.judge === "fixture") {
+        raw = fixtureFacts(packet, key);
+        save(path.join(sub, "response.json"), { mode: "FIXTURE", raw });
+      } else raw = await read(sub, query, packetLimits(items).bytes);
+      const results = factResults(raw, packet);
+      seal(path.join(sub, "results.json"), results);
+      record(path.join(sub, "results.json"));
+      return results;
+    } catch (error) {
+      seal(path.join(sub, "attempt-failure.json"), {
+        packet: bound(packet),
+        responseReceived: fs.existsSync(path.join(sub, "response.json")),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      record(path.join(sub, "attempt-failure.json"));
+      throw error;
+    } finally {
+      for (const name of [
+        "wire.json",
+        "provider-content.json",
+        "response.json",
+      ]) {
+        const file = path.join(sub, name);
+        if (fs.existsSync(file)) record(file);
+      }
+    }
   }
   const required = p.batches.length ? p.controls.length + p.batches.length : 0;
   let stopReason = "";

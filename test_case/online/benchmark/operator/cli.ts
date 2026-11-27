@@ -391,6 +391,21 @@ async function assess(root: string, again: boolean) {
   });
   return writeReport(root, id);
 }
+function clearTargetAliases(root: string) {
+  const target = path.join(root, "target");
+  noLinks(target);
+  for (const [name, file] of [
+    ["alias", "private-canary"],
+    ["reference-alias", "references.json"],
+  ]) {
+    const link = path.join(target, name);
+    if (
+      fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink() &&
+      fs.readlinkSync(link) === path.join(root, file)
+    )
+      fs.unlinkSync(link);
+  }
+}
 export function sealPrefix(root: string, m: any) {
   const started = openSeal(path.join(root, "series-started.json")),
     events = [];
@@ -641,20 +656,6 @@ async function execute(
     if (gate?.firstFailure) throw Error(gate.firstFailure);
     throw error;
   } finally {
-    if (
-      fs.existsSync(alias) &&
-      fs.lstatSync(alias).isSymbolicLink() &&
-      fs.readlinkSync(alias) === privateFile
-    )
-      fs.unlinkSync(alias);
-    if (referenceCanary) {
-      const link = path.join(work, "reference-alias");
-      if (
-        fs.lstatSync(link).isSymbolicLink() &&
-        fs.readlinkSync(link) === path.join(root, "references.json")
-      )
-        fs.unlinkSync(link);
-    }
     signal.abort();
     try {
       if (target) await target.close();
@@ -665,6 +666,7 @@ async function execute(
         if (db && pgRunning(db)) await stopDatabase(db);
       }
     }
+    clearTargetAliases(root);
     seal(path.join(root, "stopped.json"), {
       id,
       at: new Date().toISOString(),
@@ -814,6 +816,7 @@ export async function operatorCommand(command: string, args: string[]) {
           sealPrefix(root, m);
       };
       if (fs.existsSync(path.join(root, "stopped.json"))) {
+        clearTargetAliases(root);
         sealRecoveredPrefix();
         if (fs.existsSync(path.join(root, "grades/original/accounting.json")))
           return writeReport(root, "original");
@@ -854,6 +857,7 @@ export async function operatorCommand(command: string, args: string[]) {
         systemID = db.systemID;
       }
       sealRecoveredPrefix();
+      clearTargetAliases(root);
       seal(path.join(root, "stopped.json"), {
         id: path.basename(root),
         systemID,

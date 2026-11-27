@@ -218,7 +218,10 @@ function ownedStoppedRuns(d: Domains): Run[] {
     requireThat(
       stop.id === path.basename(d.root) &&
         uuid.test(stop.id) &&
-        m.config?.suite === "public-resident-v1",
+        (m.config?.suite === "public-resident-v1" ||
+          (m.config?.suite === "question-series-v1" &&
+            m.config.version === 2 &&
+            m.config.caseVersion === 1)),
       "ARCHIVE_OPERATOR_OWNER",
     );
     const allowed = new Set([
@@ -247,6 +250,10 @@ function ownedStoppedRuns(d: Domains): Run[] {
       "preflight",
       "route.json",
     ]);
+    if (m.config.suite === "question-series-v1") {
+      allowed.add("references.json");
+      allowed.add("series-started.json");
+    }
     requireThat(
       fs.readdirSync(d.root).every((name) => allowed.has(name)),
       "ARCHIVE_UNKNOWN_OPERATOR_DATA",

@@ -96,21 +96,36 @@ export function verifyBundle(root: string) {
       dir = path.dirname(member);
     const raw = streams.get(record.responseStream);
     requireThat(
-      raw &&
-        Object.hasOwn(index.members, dir + "/response.json") &&
-        Object.hasOwn(index.members, dir + "/wire.json"),
+      raw && Object.hasOwn(index.members, dir + "/wire.json"),
       "Missing native reader transport",
     );
-    const reply = load(path.join(root, dir, "response.json")),
-      wire = load(path.join(root, dir, "wire.json"));
+    const wire = load(path.join(root, dir, "wire.json"));
     requireThat(
       record.wire === wire.sha256 &&
         sha(wire.body) === wire.sha256 &&
-        reply.wire === wire.sha256 &&
-        providerContent(load(path.join(root, raw)).body) === record.raw &&
-        reply.raw.trim() === record.raw.trim(),
+        providerContent(load(path.join(root, raw)).body) === record.raw,
       "Native reader transport or text mismatch",
     );
+    if (Object.hasOwn(index.members, dir + "/response.json")) {
+      const reply = load(path.join(root, dir, "response.json"));
+      requireThat(
+        reply.wire === wire.sha256 && reply.raw.trim() === record.raw.trim(),
+        "Native reader receipt mismatch",
+      );
+    } else {
+      const failure = openSeal(path.join(root, dir, "attempt-failure.json"));
+      const input = load(path.join(root, dir, "input.json"));
+      requireThat(
+        /^grades\/(original|[a-f0-9-]+)\/(qualification|packets)\/[1-9][0-9]*$/.test(
+          dir,
+        ) &&
+          Object.hasOwn(index.members, dir + "/attempt-failure.json") &&
+          failure.responseReceived === false &&
+          failure.packet === sha(gradeJSONBytes(input.packet)) &&
+          !Object.hasOwn(index.members, dir + "/results.json"),
+        "Missing native reader receipt without failed attempt",
+      );
+    }
   }
   const original = path.join(root, "grades/original");
   for (const name of [

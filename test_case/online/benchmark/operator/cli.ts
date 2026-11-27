@@ -343,10 +343,6 @@ async function execute(root: string, m: any, approved?: string) {
         mockStream("REED-843"),
       );
     } else if (c.workload === "opencode-go") {
-      requireThat(
-        process.platform === "darwin",
-        "Live targets require the verified macOS isolation backend; Linux supports offline fixtures",
-      );
       const rehearsal = path.join(root, "preflight");
       dir(rehearsal);
       await nativeTurn(
@@ -510,7 +506,13 @@ export async function operatorCommand(command: string, args: string[]) {
     "reader-check": ["--run"],
     "archive-run": ["--run", "--apply"],
     "recover-run": ["--run"],
-    "reconcile-call": ["--run", "--attempt", "--evidence", "--approval"],
+    "reconcile-call": [
+      "--run",
+      "--bundle",
+      "--attempt",
+      "--evidence",
+      "--approval",
+    ],
   };
   const options: Record<string, string> = {};
   for (let i = 0; i < args.length; i += 2) {
@@ -538,6 +540,11 @@ export async function operatorCommand(command: string, args: string[]) {
               goReaderPolicy.request_ceiling_usd_equivalent.candidate,
       };
     }
+    if (c.workload === "opencode-go")
+      requireThat(
+        process.platform === "darwin",
+        "Live targets require the verified macOS isolation backend; Linux supports offline fixtures",
+      );
     verifyApproval(m, options["--approval"] ?? process.env.BENCHMARK_APPROVAL);
     const id = randomUUID(),
       root = rootFor(id);
@@ -571,13 +578,18 @@ export async function operatorCommand(command: string, args: string[]) {
     ? path.resolve(options["--bundle"])
     : rootFor(options["--run"] || "");
   noLinks(root);
-  if (command === "reconcile-call")
+  if (command === "reconcile-call") {
+    const run = options["--bundle"]
+      ? verifyBundle(root).id
+      : path.basename(root);
     return reconcile(
       root,
       options["--attempt"] ?? "",
       path.resolve(options["--evidence"] ?? ""),
       options["--approval"] ?? "",
+      run,
     );
+  }
   if (command === "recover-run") {
     return lease(root, async () => {
       const marker = load(path.join(root, "facility.json"));
@@ -606,11 +618,19 @@ export async function operatorCommand(command: string, args: string[]) {
         "PG ownership mismatch",
       );
       const workerFile = path.join(root, "worker.json");
-      if (fs.existsSync(workerFile))
+      if (fs.existsSync(workerFile)) {
+        const worker = openSeal(workerFile);
         requireThat(
-          processStatus(openSeal(workerFile)) === "STOPPED",
+          processStatus(worker) === "STOPPED",
           "Owned target has not confirmed exit",
         );
+        try {
+          process.kill(-worker.pgid, 0);
+          throw Error("Owned target process group is still present");
+        } catch (e: any) {
+          if (e.code !== "ESRCH") throw e;
+        }
+      }
       await stopDatabase(db);
       seal(path.join(root, "stopped.json"), {
         id: owner.id,

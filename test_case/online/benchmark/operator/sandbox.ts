@@ -125,12 +125,21 @@ export function startTarget(work: string, ports: number[], timeout: number) {
   const closed = new Promise<void>((resolve) =>
     proc.once("close", () => resolve()),
   );
+  const stopGroup = () => {
+    if (proc.pid && proc.exitCode === null && proc.signalCode === null) {
+      try {
+        process.kill(-proc.pid, "SIGKILL");
+      } catch (e: any) {
+        if (e.code !== "ESRCH") throw e;
+      }
+    }
+  };
   return {
     token,
     pid: proc.pid,
     async call(command: string, data: unknown = {}) {
       const id = randomUUID();
-      const timer = setTimeout(() => proc.kill("SIGKILL"), timeout);
+      const timer = setTimeout(stopGroup, timeout);
       try {
         requireThat(
           proc.exitCode === null && !proc.stdin!.destroyed,
@@ -161,7 +170,7 @@ export function startTarget(work: string, ports: number[], timeout: number) {
     },
     async close() {
       proc.stdin!.end();
-      const timer = setTimeout(() => proc.kill("SIGKILL"), 3000);
+      const timer = setTimeout(stopGroup, 3000);
       try {
         await closed;
       } finally {

@@ -101,6 +101,25 @@ export async function claim(m: any, run: string) {
     save(path.join(account, "claims", digest + ".json"), binding);
   });
 }
+export async function remainingJudgeCalls(m: any, run: string) {
+  const account = accountDirectory();
+  return lease(account, async () => {
+    const binding = load(path.join(account, "claims", bound(m) + ".json"));
+    requireThat(
+      binding.run === run && binding.digest === bound(m),
+      "Freeze claimed by a different run",
+    );
+    const ledger = path.join(account, "requests");
+    const spent = fs.existsSync(ledger)
+      ? fs
+          .readdirSync(ledger)
+          .filter((n) => n.endsWith(".reservation.json"))
+          .map((n) => load(path.join(ledger, n)))
+          .filter((r) => r.run === run && r.kind === "judge").length
+      : 0;
+    return m.config.maxJudgeCalls - spent;
+  });
+}
 export async function send(
   root: string,
   m: any,
@@ -173,7 +192,7 @@ export async function send(
           entry.run !== run,
           "Reconciled run is closed; freeze a new authorized cohort",
         );
-        local += entry.ceiling;
+        if (Date.now() - entry.start < 31 * 86400e3) local += entry.ceiling;
         continue;
       }
       const closed = path.join(ledger, entry.id + ".settled.json");
@@ -417,6 +436,7 @@ export async function reconcile(
   id: string,
   proof: string,
   approval: string,
+  run = path.basename(root),
 ) {
   requireThat(/^[a-f0-9-]{36}$/.test(id), "Supply the original request UUID");
   const account = accountDirectory(),
@@ -445,7 +465,7 @@ export async function reconcile(
       path.join(account, "claims", reservation.freeze + ".json"),
     );
     requireThat(
-      reservation.run === path.basename(root) &&
+      reservation.run === run &&
         reservation.freeze === bound(manifest) &&
         binding.run === reservation.run &&
         record.freeze === reservation.freeze &&

@@ -17,7 +17,7 @@ import {
   goReaderPolicy,
 } from "../stage-c-visibility-rubric.ts";
 import { repository, requireThat, sha } from "../io.ts";
-import { send } from "./transport.ts";
+import { send, remainingJudgeCalls } from "./transport.ts";
 import { bound, dir, save, seal, openSeal } from "./files.ts";
 
 const named = {
@@ -345,19 +345,8 @@ export async function gradeExecution(root: string, regrade: boolean) {
   let calibration = prior[0];
   if (!calibration || Date.now() - calibration.at >= 24 * 3600e3) {
     if (m.config.judge === "hermes-go") {
-      const sent = fs.existsSync(path.join(root, "transport"))
-        ? fs
-            .readdirSync(path.join(root, "transport"))
-            .filter(
-              (f) =>
-                f.endsWith(".request.json") &&
-                JSON.parse(
-                  fs.readFileSync(path.join(root, "transport", f), "utf8"),
-                ).kind === "judge",
-            ).length
-        : 0;
       requireThat(
-        m.config.maxJudgeCalls - sent >= 4,
+        (await remainingJudgeCalls(m, execution.id)) >= 4,
         "Fresh calibration and candidate require four authorized judge calls",
       );
     }

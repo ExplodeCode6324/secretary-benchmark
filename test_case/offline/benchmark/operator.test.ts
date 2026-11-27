@@ -425,3 +425,139 @@ test("dispatch checks disabled endpoints, shared allowance, price, identity and 
     fs.rmSync(parent, { recursive: true, force: true });
   }
 });
+
+test("a portable judge failure can be reconciled by original execution identity", async () => {
+  const { claim, send, remainingJudgeCalls } =
+    await import("../../online/benchmark/operator/transport.ts");
+  const { bound } = await import("../../online/benchmark/operator/files.ts");
+  const temp = fs.mkdtempSync(
+    path.join(repository, ".local", "reconcile-portable-"),
+  );
+  const oldFetch = globalThis.fetch,
+    env = { ...process.env };
+  let source: string | undefined,
+    posts = 0;
+  try {
+    const config = JSON.parse(
+      fs.readFileSync(
+        path.join(repository, "examples/secretary-smoke.json"),
+        "utf8",
+      ),
+    );
+    const file = path.join(temp, "config.json");
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ ...config, target: "scripted-good" }),
+    );
+    const evaluated: any = await operatorCommand("evaluate", [
+      "--config",
+      file,
+    ]);
+    source = rootFor(evaluated.run);
+    const bundle = path.join(temp, "moved-private-bundle");
+    await operatorCommand("export-run", [
+      "--run",
+      evaluated.run,
+      "--output",
+      bundle,
+    ]);
+    const m = openSeal(path.join(bundle, "manifest.json"));
+    process.env.BENCHMARK_OPERATOR_ACCOUNT = path.join(temp, "account");
+    process.env.SECRETARY_BENCHMARK_JUDGE_KEY = "reader-stub";
+    await claim(m, evaluated.run);
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith("/usage")) {
+        const w = {
+          status: "ok",
+          percent: 0,
+          resetsAt: new Date(Date.now() + 86400000).toISOString(),
+        };
+        return Response.json({ usage: { rolling: w, weekly: w, monthly: w } });
+      }
+      posts++;
+      return new Response("fixture reader unavailable", { status: 503 });
+    };
+    const body = JSON.stringify({
+      model: "deepseek-v4.1-flash",
+      stream: true,
+      max_tokens: 128,
+      messages: [],
+    });
+    await assert.rejects(send(bundle, m, "judge", body), /Provider HTTP 503/);
+    assert.equal(await remainingJudgeCalls(m, evaluated.run), 4);
+    const attempt = fs
+      .readdirSync(path.join(bundle, "transport"))
+      .find((f) => f.endsWith(".request.json"))!
+      .split(".")[0];
+    assert.equal(
+      fs.existsSync(path.join(source, "transport", attempt + ".request.json")),
+      false,
+    );
+    const record = {
+      attempt,
+      run: evaluated.run,
+      freeze: bound(m),
+      wireDigest: sha(body),
+      disposition: "retain-full-ceiling",
+      basis: "Reviewed retained synthetic 503",
+    };
+    const statement = path.join(temp, "statement.json");
+    const reconcile = async (value: typeof record) => {
+      const data = JSON.stringify(value);
+      fs.writeFileSync(statement, data);
+      return operatorCommand("reconcile-call", [
+        "--bundle",
+        bundle,
+        "--attempt",
+        attempt,
+        "--evidence",
+        statement,
+        "--approval",
+        sha(data),
+      ]);
+    };
+    await assert.rejects(
+      reconcile({ ...record, run: "different-run" }),
+      /scope mismatch/,
+    );
+    const receipt: any = await reconcile(record);
+    assert.equal(receipt.originalFreezeClosed, true);
+    assert.deepEqual(receipt, await reconcile(record));
+    assert.equal(posts, 1);
+    await assert.rejects(
+      send(bundle, m, "judge", body),
+      /Reconciled run is closed/,
+    );
+    const account = process.env.BENCHMARK_OPERATOR_ACCOUNT!;
+    assert.ok(
+      fs.existsSync(
+        path.join(account, "requests", attempt + ".reconciled.json"),
+      ),
+    );
+    assert.ok(
+      fs.existsSync(path.join(bundle, "transport", attempt + ".raw.json")),
+    );
+    const next = path.join(temp, "next");
+    fs.mkdirSync(next);
+    const newManifest = { ...m, cohort: "fresh" };
+    const { seal } = await import("../../online/benchmark/operator/files.ts");
+    seal(path.join(next, "execution.json"), { id: "fresh" });
+    await claim(newManifest, "fresh");
+    await assert.rejects(
+      send(next, newManifest, "judge", body),
+      /Provider HTTP 503/,
+    );
+    assert.equal(posts, 2);
+  } finally {
+    globalThis.fetch = oldFetch;
+    for (const k of [
+      "BENCHMARK_OPERATOR_ACCOUNT",
+      "SECRETARY_BENCHMARK_JUDGE_KEY",
+    ]) {
+      if (env[k] === undefined) delete process.env[k];
+      else process.env[k] = env[k];
+    }
+    if (source) fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});

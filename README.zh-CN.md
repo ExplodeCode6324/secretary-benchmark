@@ -21,3 +21,7 @@
 本仓库尚未选择或授予额外软件许可；公开可见不代表开放源代码许可。第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 若操作系统账号数据库无法解析当前用户（例如容器 UID 没有对应记录），受保护目录检查会拒绝运行；运行前需提供正常账号记录。
+
+## 原子事实评分
+
+运行 `npm run benchmark -- evaluate --config examples/secretary-questions-v2.json`，可在同一 Secretary 中按顺序处理公开三题，逐个原子事实评分并查看报告。实测的独立裁判只接收当时有效的参考事实和原答。[配置和实测说明](docs/operator.md#score-atomic-facts-across-a-continuous-workload)

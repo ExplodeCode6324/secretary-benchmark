@@ -1,3 +1,4 @@
+import { fixtureAtomic, type AtomicItem } from "./atomic.ts";
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
@@ -21,9 +22,10 @@ import { repository, requireThat, sha } from "../io.ts";
 import { send, remainingJudgeCalls } from "./transport.ts";
 import {
   factPlan,
-  factQuery,
-  factPacket,
-  factResults,
+  wireQuery,
+  deterministicRaw,
+  wirePacket,
+  seriesResults,
   fixtureFacts,
   packetLimits,
 } from "./questions.ts";
@@ -373,13 +375,15 @@ export async function checkSeriesReader(root: string, execution: any) {
     sessions = [];
   const specs = [
     ...plan.controls.map((c) => ({ stage: "qualification", items: c.items })),
-    ...plan.batches.map((items) => ({ stage: "formal", items })),
+    ...plan.batches
+      .filter((items) => deterministicRaw(items) === null)
+      .map((items) => ({ stage: "formal", items })),
   ];
   for (const { stage, items } of specs) {
     const folder = path.join(root, "reader-check", randomUUID());
     dir(folder);
-    const packet = factPacket(items),
-      query = factQuery(packet),
+    const packet = wirePacket(items),
+      query = wireQuery(packet),
       plannedBytes = packetLimits(items).bytes;
     const receipt = await nativeTurn(
       folder,
@@ -391,11 +395,15 @@ export async function checkSeriesReader(root: string, execution: any) {
             Buffer.byteLength(wire.body) === plannedBytes,
           "Native factual reader differs from planned query or UTF-8 bytes",
         );
-        return mockStream(fixtureFacts(packet));
+        return mockStream(
+          items[0]?.atomic
+            ? fixtureAtomic(items as AtomicItem[])
+            : fixtureFacts(packet),
+        );
       },
       120000,
     );
-    factResults(receipt.raw, packet);
+    seriesResults(receipt.raw, packet, items);
     sessions.push({
       stage,
       session: receipt.session,

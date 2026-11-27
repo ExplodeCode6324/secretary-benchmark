@@ -5,7 +5,10 @@ import { requireThat, sha } from "../io.ts";
 import {
   factPacket,
   factPlan,
-  factQuery,
+  wireQuery,
+  wirePacket,
+  seriesResults,
+  deterministicRaw,
   factResults,
   packetLimits,
   fixtureFacts,
@@ -14,6 +17,14 @@ import {
 } from "./questions.ts";
 import { remainingJudgeCalls } from "./transport.ts";
 
+import {
+  atomicPolicy,
+  probeChecks,
+  fixtureAtomic,
+  scoreAtomic,
+  type AtomicItem,
+  type AtomicKey,
+} from "./atomic.ts";
 export class TerminalFactTransport extends Error {}
 
 type Reader = (
@@ -30,6 +41,10 @@ type Outcome = {
   facts?: any[];
   abstained?: boolean;
   batch?: number;
+  assertions?: any[];
+  penalties?: any[];
+  metrics?: any;
+  scoringPath?: string;
 };
 function description(
   p: ReturnType<typeof factPlan>,
@@ -37,10 +52,11 @@ function description(
   schema = 3,
 ) {
   const describe = (items: Item[]) => ({
-    packet: factPacket(items),
-    queryDigest: bound(factQuery(factPacket(items))),
+    packet: wirePacket(items),
+    ...(items[0]?.atomic ? { hostItems: items } : {}),
+    queryDigest: bound(wireQuery(wirePacket(items))),
     ids: items.map((i) => i.question_id),
-    digest: bound(factPacket(items)),
+    digest: bound(wirePacket(items)),
     wire: packetLimits(items),
   });
   return {
@@ -50,7 +66,9 @@ function description(
       id: item.question_id,
       sequence,
       inputId,
-      referenceDigest: bound([item.abstention_policy, item.reference_facts]),
+      referenceDigest: bound(
+        item.atomic ?? [item.abstention_policy, item.reference_facts],
+      ),
       answerDigest: bound(item.answer),
     })),
     oversize: p.oversize,
@@ -86,7 +104,64 @@ export function initialOutcomes(execution: any): Outcome[] {
           ? "JUDGE_FAILED"
           : "MISSING",
       ...(inputId && item.answer.trim() ? { reason: "UNSENT" } : {}),
+      ...(item.atomic && inputId && !item.answer.trim()
+        ? blankOutcome(item as AtomicItem)
+        : {}),
     }),
+  );
+}
+function blankOutcome(item: AtomicItem) {
+  const score = scoreAtomic(
+    item.atomic,
+    item.atomic.facts.map(() => "ABSENT"),
+    false,
+    [],
+    true,
+  );
+  return {
+    penalties: score.penalties,
+    metrics: score.metrics,
+    scoringPath: "MISSING",
+  };
+}
+function applyResults(row: Outcome, result: any, items?: Item[]) {
+  delete row.reason;
+  Object.assign(row, {
+    verdict: result.verdict,
+    facts: result.facts,
+    abstained: result.abstained,
+  });
+  if (result.metrics)
+    Object.assign(row, {
+      metrics: result.metrics,
+      assertions: result.assertions,
+      penalties: result.penalties,
+      scoringPath:
+        items && deterministicRaw(items) !== null ? "DETERMINISTIC" : "JUDGE",
+    });
+}
+function matchedControl(results: any[], keys: any[], atomic: boolean) {
+  if (atomic)
+    return (
+      results.length === keys.length &&
+      results.every((r, i) => {
+        const k = keys[i] as AtomicKey;
+        return (
+          r.abstained === k.abstained &&
+          bound(r.facts.map((f: any) => f.verdict)) === bound(k.labels) &&
+          probeChecks(k, r).every((p) => p.pass)
+        );
+      })
+    );
+  return (
+    bound(qualificationLabels(results)) ===
+    bound(
+      keys.map(({ required, forbidden, abstained }) => ({
+        required,
+        forbidden,
+        abstained,
+      })),
+    )
   );
 }
 function qualificationLabels(results: ReturnType<typeof factResults>) {
@@ -119,9 +194,10 @@ export function recoveredOutcomes(execution: any, folder: string) {
         bound(input.query) === spec.queryDigest,
       "Interrupted packet mismatch",
     );
-    const results = factResults(
+    const results = seriesResults(
       load(path.join(sub, "response.json")).raw,
       input.packet,
+      spec.hostItems,
     );
     requireThat(
       bound(results) === bound(openSeal(path.join(sub, "results.json"))),
@@ -168,17 +244,12 @@ export function recoveredOutcomes(execution: any, folder: string) {
       requireThat(!hasFormal, "Formal grading without complete qualification");
       continue;
     }
-    const labels = qualificationLabels(savedResults(sub, c));
+    const accepted = savedResults(sub, c);
     requireThat(
       keys[i] && bound(keys[i]) === c.keyDigest,
       "Qualification key mismatch",
     );
-    const expected = keys[i].map(({ required, forbidden, abstained }: any) => ({
-      required,
-      forbidden,
-      abstained,
-    }));
-    if (bound(labels) !== bound(expected))
+    if (!matchedControl(accepted, keys[i], !!c.hostItems))
       qualificationFailure = "CALIBRATION_FAILED";
   }
   requireThat(
@@ -194,12 +265,7 @@ export function recoveredOutcomes(execution: any, folder: string) {
     if (fs.existsSync(path.join(sub, "results.json"))) {
       for (const result of savedResults(sub, batch)) {
         const row = byId.get(result.question_id)!;
-        delete row.reason;
-        Object.assign(row, {
-          verdict: result.verdict,
-          facts: result.facts,
-          abstained: result.abstained,
-        });
+        applyResults(row, result, batch.hostItems);
       }
     } else if (fs.existsSync(path.join(sub, "input.json"))) {
       const failure = path.join(sub, "attempt-failure.json");
@@ -304,6 +370,11 @@ export function verifyFactGrade(execution: any, g: any, folder: string) {
       const wirePath = path.join(sub, "wire.json");
       if (
         execution.manifest.config.judge === "hermes-go" &&
+        !(
+          kind === "packets" &&
+          spec.hostItems &&
+          deterministicRaw(spec.hostItems) !== null
+        ) &&
         (fs.existsSync(path.join(sub, "response.json")) ||
           fs.existsSync(path.join(sub, "provider-content.json")))
       )
@@ -330,9 +401,22 @@ export function verifyFactGrade(execution: any, g: any, folder: string) {
         );
       }
       if (fs.existsSync(path.join(sub, "results.json"))) {
-        const result = factResults(
-          load(path.join(sub, "response.json")).raw,
+        const response = load(path.join(sub, "response.json"));
+        const deterministic =
+          kind === "packets" && spec.hostItems
+            ? deterministicRaw(spec.hostItems)
+            : null;
+        if (deterministic !== null)
+          requireThat(
+            response.mode === "DETERMINISTIC" &&
+              response.raw === deterministic &&
+              !fs.existsSync(wirePath),
+            "Deterministic evidence mismatch",
+          );
+        const result = seriesResults(
+          response.raw,
           input.packet,
+          spec.hostItems,
         );
         requireThat(
           bound(result) === bound(openSeal(path.join(sub, "results.json"))),
@@ -351,7 +435,8 @@ export function verifyFactGrade(execution: any, g: any, folder: string) {
           row.verdict === v.verdict &&
           (plan.schema < 3 || row.reason === v.reason) &&
           bound(row.facts ?? null) === bound(v.facts ?? null) &&
-          row.abstained === v.abstained
+          row.abstained === v.abstained &&
+          (!execution.manifest.config.judgeProtocol || bound(row) === bound(v))
         );
       }),
     "Sealed factual verdict differs from accepted reader evidence",
@@ -394,8 +479,8 @@ export async function gradeSeries(
     where: string,
     key?: (typeof p.controls)[number]["key"],
   ) {
-    const packet = factPacket(items),
-      query = factQuery(packet),
+    const packet = wirePacket(items),
+      query = wireQuery(packet),
       sub = path.join(folder, where);
     dir(sub);
     const input = path.join(sub, "input.json");
@@ -403,11 +488,17 @@ export async function gradeSeries(
     record(input);
     try {
       let raw: string;
-      if (m.config.judge === "fixture") {
-        raw = fixtureFacts(packet, key);
+      const certified = !key ? deterministicRaw(items) : null;
+      if (certified !== null) {
+        raw = certified;
+        save(path.join(sub, "response.json"), { mode: "DETERMINISTIC", raw });
+      } else if (m.config.judge === "fixture") {
+        raw = items[0]?.atomic
+          ? fixtureAtomic(items as AtomicItem[], key as AtomicKey[] | undefined)
+          : fixtureFacts(packet, key);
         save(path.join(sub, "response.json"), { mode: "FIXTURE", raw });
       } else raw = await read(sub, query, packetLimits(items).bytes);
-      const results = factResults(raw, packet);
+      const results = seriesResults(raw, packet, items);
       seal(path.join(sub, "results.json"), results);
       record(path.join(sub, "results.json"));
       return results;
@@ -430,7 +521,10 @@ export async function gradeSeries(
       }
     }
   }
-  const required = p.batches.length ? p.controls.length + p.batches.length : 0;
+  const required = p.batches.length
+    ? p.controls.length +
+      p.batches.filter((b) => deterministicRaw(b) === null).length
+    : 0;
   let stopReason = "";
   // Freeze the entire prospective qualification key before the first possible send.
   seal(
@@ -458,14 +552,7 @@ export async function gradeSeries(
           c.key,
         );
         requireThat(
-          bound(qualificationLabels(results)) ===
-            bound(
-              c.key.map(({ required, forbidden, abstained }) => ({
-                required,
-                forbidden,
-                abstained,
-              })),
-            ),
+          matchedControl(results, c.key, !!c.items[0]?.atomic),
           "Factual qualification labels disagree with preregistered key",
         );
       }
@@ -490,12 +577,7 @@ export async function gradeSeries(
     try {
       for (const result of await attempt(items, where)) {
         const row = byID.get(result.question_id)!;
-        delete row.reason;
-        Object.assign(row, {
-          verdict: result.verdict,
-          facts: result.facts,
-          abstained: result.abstained,
-        });
+        applyResults(row, result, items);
       }
     } catch (error: any) {
       failures.push({ stage: where, error: error.message });
@@ -536,6 +618,7 @@ export function qualificationSummary(root: string, folder: string) {
     checkedAbstentions = 0,
     matchedAbstentions = 0;
   const disagreements = [];
+  const allProbes: any[] = [];
   for (const [i, spec] of plan.controls.entries()) {
     const sub = path.join(folder, "qualification", String(i + 1));
     const wirePath = path.join(sub, "wire.json");
@@ -551,12 +634,16 @@ export function qualificationSummary(root: string, folder: string) {
     const results = openSeal(path.join(sub, "results.json"));
     returnedPackets++;
     for (const [j, item] of spec.packet.items.entries()) {
+      const host = spec.hostItems?.[j] ?? item;
       const result = results.find(
-        (r: any) => r.question_id === item.question_id,
+        (r: any) => r.question_id === host.question_id,
       );
       const expected = keys[i][j];
-      const key = [...expected.required, ...expected.forbidden];
-      const facts = item.reference_facts.map((fact: any, k: number) => {
+      const key = expected.labels ?? [
+        ...expected.required,
+        ...expected.forbidden,
+      ];
+      const facts = host.reference_facts.map((fact: any, k: number) => {
         const answer = result.facts.find((f: any) => f.id === fact.id);
         checkedFacts++;
         if (answer.verdict === key[k]) matchedFacts++;
@@ -570,13 +657,23 @@ export function qualificationSummary(root: string, folder: string) {
       });
       checkedAbstentions++;
       if (expected.abstained === result.abstained) matchedAbstentions++;
+      const probes = spec.hostItems ? probeChecks(expected, result) : [];
+      allProbes.push(
+        ...probes.map((p) => ({
+          packet: i + 1,
+          question: host.question_id,
+          ...p,
+        })),
+      );
       if (
+        probes.some((p) => !p.pass) ||
         expected.abstained !== result.abstained ||
         facts.some((f: any) => f.expected !== f.returned)
       )
         disagreements.push({
           packet: i + 1,
-          question: item.question_id,
+          question: host.question_id,
+          ...(spec.hostItems ? { probes } : {}),
           facts,
           abstention: {
             expected: expected.abstained,
@@ -586,6 +683,13 @@ export function qualificationSummary(root: string, folder: string) {
     }
   }
   return {
+    ...(plan.controls[0]?.hostItems
+      ? {
+          probes: allProbes,
+          matchedProbes: allProbes.filter((p) => p.pass).length,
+          checkedProbes: allProbes.length,
+        }
+      : {}),
     plannedPackets: plan.controls.length,
     sentPackets,
     returnedPackets,
@@ -657,6 +761,7 @@ export function seriesRecord(
       ...row,
       question: item.question,
       reference: item.reference_facts,
+      ...(item.atomic ? { atomicReference: item.atomic } : {}),
       abstentionPolicy: item.abstention_policy,
       answer: inputId ? item.answer : null,
     };
@@ -702,7 +807,13 @@ export function seriesRecord(
     caseVersion: execution.manifest.config.caseVersion,
     workModel: execution.manifest.workModel,
     judgeModel: execution.manifest.judgeModel,
-    promptSha256: execution.manifest.implementation["fact-grading-v1.txt"],
+    promptSha256:
+      execution.manifest.implementation[
+        g.policy === atomicPolicy
+          ? "fact-grading-v2.txt"
+          : "fact-grading-v1.txt"
+      ],
+    ...(g.policy === atomicPolicy ? atomicReport(execution, rows) : {}),
     status,
     counts,
     coverage: {
@@ -731,11 +842,81 @@ export function seriesRecord(
     failures: [...(summary.failures ?? []), ...g.failures],
   };
 }
+function atomicReport(execution: any, rows: Outcome[]) {
+  const summary: Record<
+    string,
+    { numerator: number; denominator: number; rate: number | null }
+  > = {};
+  for (const key of ["requiredHit", "contradiction", "unsupportedExtra"]) {
+    let numerator = 0,
+      denominator = 0;
+    for (const row of rows) {
+      const metric = row.metrics?.[key];
+      if (metric) {
+        numerator += metric.numerator;
+        denominator += metric.denominator;
+      }
+    }
+    summary[key] = {
+      numerator,
+      denominator,
+      rate: denominator ? numerator / denominator : null,
+    };
+  }
+  const prior = new Map<string, string>();
+  const operationChanges = execution.events.map((e: any) => {
+    const changes = (e.effects ?? [])
+      .filter((op: any) => prior.get(op.id) !== op.state)
+      .map((op: any) => ({ ...op, previous: prior.get(op.id) ?? null }));
+    for (const op of e.effects ?? []) prior.set(op.id, op.state);
+    return {
+      sequence: e.sequence,
+      inputId: e.inputId,
+      loop: e.loop ?? null,
+      handledAt: e.handledAt ?? null,
+      changes,
+    };
+  });
+  const c = execution.manifest.config.controlSuite;
+  return {
+    atomicMetrics: summary,
+    qualificationSuite: {
+      identity: c.identity,
+      digest: c.sha256,
+      visibility: c.visibility,
+      labelSource: c.labelSource,
+    },
+    rules: execution.manifest.atomicRules,
+    temperature: execution.manifest.temperature,
+    taskEvidence: {
+      operations: operationChanges,
+      memoryWrites: "UNAVAILABLE",
+      retrieval: "UNAVAILABLE",
+      crossSession: "NOT_APPLICABLE",
+      externalTask: "NOT_APPLICABLE",
+    },
+  };
+}
 export function seriesMarkdown(record: ReturnType<typeof seriesRecord>) {
   const clean = (v: string) => v.replace(/\|/g, "\\|").replace(/[\r\n]+/g, " ");
   return [
     "# Secretary factual answer evaluation",
     "",
+    ...(record.atomicMetrics
+      ? [
+          ...Object.entries(record.atomicMetrics).map(
+            ([name, m]: [string, any]) =>
+              name +
+              " " +
+              m.numerator +
+              "/" +
+              m.denominator +
+              " · " +
+              (m.rate === null ? "n/a" : (100 * m.rate).toFixed(1) + "%"),
+          ),
+          "",
+        ]
+      : []),
     record.status +
       " · workload " +
       record.workload +
@@ -778,6 +959,7 @@ export function seriesMarkdown(record: ReturnType<typeof seriesRecord>) {
             record.otherMessageCount,
           "",
         ]),
+    ...(record.atomicMetrics ? atomicDetails(record) : []),
     ...(record.qualification
       ? [
           "Accounting published by " +
@@ -821,4 +1003,136 @@ export function seriesMarkdown(record: ReturnType<typeof seriesRecord>) {
     ...Object.entries(record.counts).map(([k, n]) => k + " " + n),
     "",
   ].join("\n");
+}
+
+function atomicDetails(record: any): string[] {
+  const lines = [
+    "## Atomic fact evidence",
+    "",
+    "Each reference applies at the time of its question.",
+    "",
+  ];
+  for (const q of record.questions) {
+    lines.push(
+      "### " + q.id,
+      "",
+      q.question,
+      "",
+      "Recorded answer",
+      "",
+      q.answer ?? "(not executed)",
+      "",
+      "Scoring path: " + (q.scoringPath ?? q.reason ?? q.verdict),
+      "",
+    );
+    for (const f of q.facts ?? [])
+      lines.push(
+        "- " +
+          f.id +
+          " (" +
+          f.role +
+          ", " +
+          f.group +
+          "): " +
+          f.verdict +
+          " · " +
+          f.text +
+          " · " +
+          (f.quote ? JSON.stringify(f.quote) : "(absent)") +
+          " · " +
+          f.reason,
+      );
+    for (const a of q.assertions ?? [])
+      lines.push(
+        "- " + a.status + " · " + JSON.stringify(a.quote) + " · " + a.claim,
+      );
+    for (const p of q.penalties ?? [])
+      lines.push("- " + p.severity + " penalty · " + p.group);
+    lines.push("");
+  }
+  const evidence = record.taskEvidence;
+  lines.push(
+    "## Task and memory evidence",
+    "",
+    "Memory writes: " +
+      evidence.memoryWrites +
+      " · retrieval: " +
+      evidence.retrieval +
+      " · cross-session: " +
+      evidence.crossSession +
+      " · external task: " +
+      evidence.externalTask,
+    "",
+  );
+  for (const e of evidence.operations)
+    lines.push(
+      "- Event " +
+        e.sequence +
+        " · " +
+        (e.handledAt ?? "no native completion timestamp") +
+        " · " +
+        e.changes.length +
+        " new or changed operations" +
+        (e.changes.length
+          ? ": " +
+            e.changes
+              .map(
+                (o: any) =>
+                  o.id +
+                  " " +
+                  o.kind +
+                  " " +
+                  (o.previous ?? "new") +
+                  " → " +
+                  o.state,
+              )
+              .join(", ")
+          : ""),
+    );
+  lines.push(
+    "",
+    "Qualification suite: " +
+      record.qualificationSuite.identity +
+      " · " +
+      record.qualificationSuite.digest +
+      " · " +
+      record.qualificationSuite.labelSource,
+    "Temperature requested: " +
+      record.temperature.requested +
+      " · effective: " +
+      record.temperature.effective,
+    "",
+  );
+  if (record.judgeRescoreAgreement)
+    lines.push(
+      "Independent regrade on the same recorded answers: " +
+        record.judgeRescoreAgreement.fact.matched +
+        "/" +
+        record.judgeRescoreAgreement.fact.compared +
+        " comparable fact labels, " +
+        record.judgeRescoreAgreement.abstention.matched +
+        "/" +
+        record.judgeRescoreAgreement.abstention.compared +
+        " comparable abstention labels.",
+      "",
+    );
+  return lines;
+}
+export function rescoreAgreement(original: any[], diagnostic: any[]) {
+  const fact = { matched: 0, compared: 0 },
+    abstention = { matched: 0, compared: 0 };
+  for (const b of diagnostic) {
+    const a = original.find((r) => r.id === b.id);
+    if (!a || a.scoringPath !== "JUDGE" || b.scoringPath !== "JUDGE") continue;
+    abstention.compared++;
+    if (a.abstained === b.abstained) abstention.matched++;
+    for (const x of a.facts) {
+      const y = b.facts.find((f: any) => f.id === x.id);
+      if (y) {
+        fact.compared++;
+        if (x.verdict === y.verdict) fact.matched++;
+      }
+    }
+  }
+  return { fact, abstention };
 }

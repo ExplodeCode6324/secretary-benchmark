@@ -3,6 +3,20 @@ import path from "node:path";
 import { gradeJSONBytes } from "../grading-transaction.ts";
 import { repository, requireThat, sha } from "../io.ts";
 
+import {
+  atomicItem,
+  atomicPacket,
+  atomicPolicy,
+  atomicInstructions,
+  validateAtomicReference,
+  parseAtomic,
+  rawAtomic,
+  certifiedResult,
+  type AtomicReference,
+  type AtomicItem,
+  type AtomicControl,
+} from "./atomic.ts";
+
 export const factPolicy = "secretary-answer-facts-v1";
 export const factInstructions = fs
   .readFileSync(
@@ -25,10 +39,13 @@ type Question = {
   type: "question";
   id: string;
   text: string;
-  reference: Reference;
+  reference: Reference | AtomicReference;
 };
 export type Timeline = (Note | Question)[];
-export function validateTimeline(value: unknown): asserts value is Timeline {
+export function validateTimeline(
+  value: unknown,
+  atomic = false,
+): asserts value is Timeline {
   requireThat(
     Array.isArray(value) && value.length > 0,
     "Supply an ordered timeline with information and questions",
@@ -56,6 +73,21 @@ export function validateTimeline(value: unknown): asserts value is Timeline {
       continue;
     }
     const ref = event.reference;
+    if (atomic) {
+      requireThat(
+        event.type === "question" &&
+          typeof event.id === "string" &&
+          /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(event.id) &&
+          !ids.has(event.id) &&
+          Object.keys(event).every((k) =>
+            ["type", "text", "id", "reference"].includes(k),
+          ),
+        "Invalid atomic question",
+      );
+      validateAtomicReference(ref);
+      ids.add(event.id);
+      continue;
+    }
     requireThat(
       event.type === "question" &&
         typeof event.id === "string" &&
@@ -113,7 +145,7 @@ export function itemFor(
     answer,
   };
 }
-export type Item = ReturnType<typeof itemFor>;
+export type Item = ReturnType<typeof itemFor> & { atomic?: AtomicReference };
 export function questions(suite: { timeline: Timeline }, events: any[]) {
   return suite.timeline.flatMap((event, index) => {
     if (event.type !== "question") return [];
@@ -123,12 +155,13 @@ export function questions(suite: { timeline: Timeline }, events: any[]) {
         observed.sequence === index + 1 && typeof observed.inputId === "string",
         "Question evidence is out of sequence",
       );
-    const item = itemFor(
-      event.id,
-      event.text,
-      event.reference,
-      observed ? observed.messages.map((m: any) => m.text).join("\n") : "",
-    );
+    const answer = observed
+      ? observed.messages.map((m: any) => m.text).join("\n")
+      : "";
+    const item: Item =
+      "facts" in event.reference
+        ? atomicItem(event.id, event.text, event.reference, answer)
+        : itemFor(event.id, event.text, event.reference, answer);
     return [{ item, sequence: index + 1, inputId: observed?.inputId ?? null }];
   });
 }
@@ -145,8 +178,47 @@ export function factQuery(packet: ReturnType<typeof factPacket>) {
     bytes.toString()
   );
 }
+export function wirePacket(items: Item[]): any {
+  return items[0]?.atomic
+    ? atomicPacket(items as AtomicItem[])
+    : factPacket(items);
+}
+export function wireQuery(packet: any) {
+  if (packet.policy === factPolicy) return factQuery(packet);
+  requireThat(packet.policy === atomicPolicy, "Unknown fact protocol");
+  const bytes = gradeJSONBytes(packet);
+  return (
+    atomicInstructions +
+    "\n\npacket_sha256=" +
+    sha(bytes) +
+    "\n" +
+    bytes.toString()
+  );
+}
+export function seriesResults(
+  raw: string,
+  packet: any,
+  hostItems?: Item[],
+): any[] {
+  if (packet.policy === factPolicy) return factResults(raw, packet);
+  requireThat(
+    packet.policy === atomicPolicy &&
+      hostItems &&
+      sha(gradeJSONBytes(atomicPacket(hostItems as AtomicItem[]))) ===
+        sha(gradeJSONBytes(packet)),
+    "Invalid atomic packet projection",
+  );
+  return parseAtomic(raw, hostItems as AtomicItem[]);
+}
+export function deterministicRaw(items: Item[]): string | null {
+  if (!items[0]?.atomic) return null;
+  const results = items.map((i) => certifiedResult(i as AtomicItem));
+  return results.every((r) => r !== null)
+    ? rawAtomic(atomicPacket(items as AtomicItem[]), results)
+    : null;
+}
 export function packetLimits(items: Item[]) {
-  const query = factQuery(factPacket(items));
+  const query = wireQuery(wirePacket(items));
   // The Hermes adapter emits exactly this compact UTF-8 wire (checked again at dispatch).
   const body = {
     model: "deepseek-v4.1-flash",
@@ -206,6 +278,48 @@ export function factPlan(execution: any, rotate = true) {
   const eligible = observations.filter(
     (q) => q.inputId && q.item.answer.trim(),
   );
+  if (execution.manifest.config.suite === "question-series-v2") {
+    const m = execution.manifest,
+      suite = m.config.controlSuite;
+    requireThat(
+      m.judgePolicy === atomicPolicy &&
+        m.config.judgeProtocol === atomicPolicy &&
+        m.config.questionsPerRequest === 1 &&
+        typeof suite.sourceBytes === "string" &&
+        sha(suite.sourceBytes) === suite.sha256,
+      "Invalid frozen atomic suite",
+    );
+    const { sourceBytes, sha256, ...content } = suite;
+    requireThat(
+      sha(gradeJSONBytes(JSON.parse(sourceBytes))) ===
+        sha(gradeJSONBytes(content)) &&
+        m.implementation["fact-grading-v2.txt"] ===
+          sha(atomicInstructions + "\n"),
+      "Atomic evidence and contract differ",
+    );
+    const controls = execution.manifest.config.controlSuite.items.map(
+      (c: AtomicControl) => ({
+        items: [atomicItem(c.id, c.question, c.reference, c.answer)],
+        key: [c.expected],
+      }),
+    ) as { items: Item[]; key: any[] }[];
+    const fits = (item: Item) => {
+      const l = packetLimits([item]);
+      return l.facts <= 64 && l.bytes <= 524288;
+    };
+    requireThat(
+      controls.every((c) => fits(c.items[0])),
+      "Atomic control exceeds singleton wire limits",
+    );
+    return {
+      controls,
+      batches: eligible.filter((q) => fits(q.item)).map((q) => [q.item]),
+      oversize: eligible
+        .filter((q) => !fits(q.item))
+        .map((q) => q.item.question_id),
+      observations,
+    };
+  }
   const controls = calibrationBatches(
     Math.max(
       1,

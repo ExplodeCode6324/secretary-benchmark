@@ -8,6 +8,10 @@ A separately versioned benchmark harness for [Secretary](https://github.com/Expl
 
 **Scope:** runnable benchmark, traceable evidence and reproducible reports. Results are advisory and not human-qualified; this release does not qualify Secretary memory performance or set acceptance thresholds.
 
+## Atomic fact evaluation
+
+Run the continuous three-question example with `npm run benchmark -- evaluate --config examples/secretary-questions-v2.json`. It scores individual facts, applies authored severities, and prints the report paths. [Configuration and real-model instructions](docs/operator.md#score-atomic-facts-across-a-continuous-workload)
+
 ## Reproduce correctness checks
 
 Requirements: Node.js 22.19+, npm, Python 3, Git, PostgreSQL **18 server tools** (`initdb`, `pg_ctl`, `psql`) on PATH. Tests create their own isolated clusters; no API credentials or deployed Secretary instance are required. Run as a regular user, not root.

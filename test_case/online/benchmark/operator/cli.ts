@@ -68,6 +68,7 @@ import {
   verifySeriesPlan,
   seriesRecord,
   seriesMarkdown,
+  rescoreAgreement,
   recoveredOutcomes,
   qualificationSummary,
   sealInterruptedGrade,
@@ -150,6 +151,23 @@ function writeReport(root: string, id: string, output?: string) {
   );
   if (run.manifest.suite.timeline) {
     const r = seriesRecord(run, g, summary, path.dirname(gradePath));
+    if (run.manifest.config.judgeProtocol && id !== "original") {
+      const originalDir = path.join(root, "grades", "original");
+      const originalGrade = openSeal(path.join(originalDir, "grade.json"));
+      const account = openSeal(path.join(originalDir, "accounting.json"));
+      requireThat(
+        originalGrade.execution === bound(run) &&
+          account.grade === bound(originalGrade),
+        "Diagnostic baseline mismatch",
+      );
+      const original = seriesRecord(run, originalGrade, account, originalDir);
+      Object.assign(r, {
+        judgeRescoreAgreement: rescoreAgreement(
+          original.questions,
+          r.questions,
+        ),
+      });
+    }
     const out =
       output ?? path.join(root, "reports", ...(id === "original" ? [] : [id]));
     emitReports(out, r, seriesMarkdown(r));
@@ -767,7 +785,24 @@ export async function operatorCommand(command: string, args: string[]) {
           : null;
       return {
         digest: bound(m),
-        manifest: m,
+        ...(c.judgeProtocol
+          ? {
+              manifestPreview: {
+                ...m,
+                config: {
+                  ...c,
+                  controlSuite: {
+                    identity: c.controlSuite.identity,
+                    sha256: c.controlSuite.sha256,
+                    visibility: c.controlSuite.visibility,
+                    labelSource: c.controlSuite.labelSource,
+                    count: c.controlSuite.items.length,
+                  },
+                },
+                qualificationEvidence: "WITHHELD_FROM_CONSOLE",
+              },
+            }
+          : { manifest: m }),
         publishedModel: model?.published_version ?? null,
         maxTariffEquivalent:
           c.billingPolicy === "record-only"
@@ -997,8 +1032,17 @@ export async function operatorCommand(command: string, args: string[]) {
           bound([x.manifest.config.caseVersion, x.manifest.suite]) ===
           bound([y.manifest.config.caseVersion, y.manifest.suite]),
         samePrompt:
-          x.manifest.implementation["fact-grading-v1.txt"] ===
-          y.manifest.implementation["fact-grading-v1.txt"],
+          x.manifest.judgePolicy === y.manifest.judgePolicy &&
+          x.manifest.implementation[
+            x.manifest.config.judgeProtocol
+              ? "fact-grading-v2.txt"
+              : "fact-grading-v1.txt"
+          ] ===
+            y.manifest.implementation[
+              y.manifest.config.judgeProtocol
+                ? "fact-grading-v2.txt"
+                : "fact-grading-v1.txt"
+            ],
         coverage: records.map((r) => r.coverage),
         questions: ids.map((id) => {
           const referenceDigests = [x, y].map((e) => {
@@ -1006,7 +1050,11 @@ export async function operatorCommand(command: string, args: string[]) {
               ({ item }) => item.question_id === id,
             )?.item;
             return q
-              ? bound([q.question, q.abstention_policy, q.reference_facts])
+              ? bound(
+                  q.atomic
+                    ? [q.question, q.atomic]
+                    : [q.question, q.abstention_policy, q.reference_facts],
+                )
               : null;
           });
           return {

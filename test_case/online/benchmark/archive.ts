@@ -219,6 +219,9 @@ function ownedStoppedRuns(d: Domains): Run[] {
       stop.id === path.basename(d.root) &&
         uuid.test(stop.id) &&
         (m.config?.suite === "public-resident-v1" ||
+          (m.config?.suite === "question-series-v2" &&
+            m.config.version === 3 &&
+            m.config.caseVersion === 2) ||
           (m.config?.suite === "question-series-v1" &&
             m.config.version === 2 &&
             m.config.caseVersion === 1)),
@@ -250,7 +253,7 @@ function ownedStoppedRuns(d: Domains): Run[] {
       "preflight",
       "route.json",
     ]);
-    if (m.config.suite === "question-series-v1") {
+    if (["question-series-v1", "question-series-v2"].includes(m.config.suite)) {
       allowed.add("references.json");
       allowed.add("series-started.json");
     }

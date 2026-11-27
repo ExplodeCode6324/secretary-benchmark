@@ -11,6 +11,7 @@ import {
 } from "../io.ts";
 import { gradeJSONBytes, gradeUUID } from "../grading-transaction.ts";
 import { operatorVisibilityVersion } from "../stage-c-visibility-rubric.ts";
+import { atomicPolicy, atomicRules, validateControlSuite } from "./atomic.ts";
 import { factPolicy, validateTimeline } from "./questions.ts";
 import { caseDefinition } from "../stage-c-plan.ts";
 import { verifySut } from "../source.ts";
@@ -63,8 +64,9 @@ export function openSeal(p: string) {
 }
 export function config(file: string) {
   const c = load(path.resolve(file));
-  const series = c.suite === "question-series-v1";
-  if (series) validateTimeline(c.timeline);
+  const atomic = c.suite === "question-series-v2";
+  const series = atomic || c.suite === "question-series-v1";
+  if (series) validateTimeline(c.timeline, atomic);
   const keys = [
     "version",
     "suite",
@@ -73,6 +75,7 @@ export function config(file: string) {
     "workload",
     "judge",
     "repeat",
+    ...(atomic ? ["judgeProtocol", "controlSuite"] : []),
     ...(series
       ? ["workloadCallsPerEvent", "caseVersion"]
       : ["maxWorkloadCalls"]),
@@ -94,14 +97,14 @@ export function config(file: string) {
     (c.billingPolicy === undefined ||
       c.billingPolicy === "record-only" ||
       c.billingPolicy === "bounded") &&
-      c.version === (series ? 2 : 1) &&
+      c.version === (atomic ? 3 : series ? 2 : 1) &&
       (series
         ? typeof c.case === "string" &&
           /^[a-zA-Z0-9_-]+$/.test(c.case) &&
           Number.isSafeInteger(c.questionsPerRequest) &&
           c.questionsPerRequest > 0 &&
           c.questionsPerRequest <= 12 &&
-          c.caseVersion === 1
+          c.caseVersion === (atomic ? 2 : 1)
         : c.suite === "public-resident-v1" && c.case === "C04-resident") &&
       ["secretary", "scripted-good", "scripted-bad"].includes(c.target) &&
       ["fixture", "wire-rehearsal", "opencode-go"].includes(c.workload) &&
@@ -128,6 +131,38 @@ export function config(file: string) {
       (c.workload === "fixture" || c.target === "secretary"),
     "Mixing real and simulated profiles is unsupported",
   );
+  if (atomic) {
+    requireThat(
+      c.judgeProtocol === atomicPolicy && c.questionsPerRequest === 1,
+      "Unsupported atomic protocol or packet width",
+    );
+    const spec = c.controlSuite;
+    requireThat(
+      spec &&
+        Object.keys(spec).length === 2 &&
+        typeof spec.path === "string" &&
+        /^[a-f0-9]{64}$/.test(spec.sha256),
+      "Expected controlSuite path and SHA-256",
+    );
+    const location = path.resolve(path.dirname(path.resolve(file)), spec.path);
+    noLinks(location);
+    const bytes = fs.readFileSync(location);
+    requireThat(
+      sha(bytes) === spec.sha256,
+      "Atomic qualification suite digest mismatch",
+    );
+    const suite = validateControlSuite(JSON.parse(bytes.toString("utf8")));
+    c.controlSuite = {
+      ...suite,
+      sha256: spec.sha256,
+      sourceBytes: bytes.toString("utf8"),
+    };
+    if (c.workload === "opencode-go")
+      requireThat(
+        suite.visibility === "WITHHELD",
+        "Live atomic qualification requires a prospectively withheld control suite",
+      );
+  }
   if (series) c.maxWorkloadCalls = c.timeline.length * c.workloadCallsPerEvent;
   return c.workload === "opencode-go"
     ? { ...c, billingPolicy: c.billingPolicy ?? "bounded" }
@@ -159,7 +194,19 @@ export function manifest(c: any) {
     implementation: Object.fromEntries(
       files.map((f) => [f, sha(fs.readFileSync(path.join(source, f)))]),
     ),
-    judgePolicy: c.timeline ? factPolicy : operatorVisibilityVersion,
+    judgePolicy:
+      c.judgeProtocol ?? (c.timeline ? factPolicy : operatorVisibilityVersion),
+    ...(c.judgeProtocol === atomicPolicy
+      ? {
+          atomicRules,
+          temperature: { requested: "NOT_SENT", effective: "UNKNOWN" },
+          referenceDigest: bound(
+            c.timeline
+              .filter((e: any) => e.type === "question")
+              .map((e: any) => e.reference),
+          ),
+        }
+      : {}),
     readerRelease:
       c.judge === "hermes-go"
         ? "97a9ae8ee55d31bebce49f1fb6b5ef775323976a"

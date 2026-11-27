@@ -202,6 +202,9 @@ test("blind wire, bidirectional evidence and certified whole-response evaluation
   );
 });
 test("operator evaluates an atomic case, exports and rebuilds its evidence, and regrades the same answers", async () => {
+  const live = config("examples/secretary-questions-v2-live.json");
+  assert.equal(live.workload, "opencode-go");
+  assert.equal(live.controlSuite.visibility, "DEVELOPMENT");
   const c = config("examples/secretary-questions-v2.json");
   assert.equal(c.controlSuite.visibility, "DEVELOPMENT");
   fs.mkdirSync(path.join(repository, ".local"), { recursive: true });

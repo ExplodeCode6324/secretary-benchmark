@@ -157,11 +157,6 @@ export function config(file: string) {
       sha256: spec.sha256,
       sourceBytes: bytes.toString("utf8"),
     };
-    if (c.workload === "opencode-go")
-      requireThat(
-        suite.visibility === "WITHHELD",
-        "Live atomic qualification requires a prospectively withheld control suite",
-      );
   }
   if (series) c.maxWorkloadCalls = c.timeline.length * c.workloadCallsPerEvent;
   return c.workload === "opencode-go"

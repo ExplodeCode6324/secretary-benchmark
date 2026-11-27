@@ -881,6 +881,10 @@ function atomicReport(execution: any, rows: Outcome[]) {
   return {
     atomicMetrics: summary,
     qualificationSuite: {
+      qualificationScope:
+        c.visibility === "WITHHELD"
+          ? "AGREEMENT_WITH_WITHHELD_KEY"
+          : "DEVELOPMENT_REGRESSION_ONLY",
       identity: c.identity,
       digest: c.sha256,
       visibility: c.visibility,
@@ -1096,7 +1100,9 @@ function atomicDetails(record: any): string[] {
       " · " +
       record.qualificationSuite.digest +
       " · " +
-      record.qualificationSuite.labelSource,
+      record.qualificationSuite.labelSource +
+      " · " +
+      record.qualificationSuite.qualificationScope,
     "Temperature requested: " +
       record.temperature.requested +
       " · effective: " +

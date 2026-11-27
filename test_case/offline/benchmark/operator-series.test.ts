@@ -1218,7 +1218,8 @@ test("claim snapshots retain per-run legacy records and reject ambiguous identit
     const pendingName = digest + ".json." + randomUUID();
     fs.writeFileSync(path.join(claims, pendingName), "{");
     const withPending = await claimHistory(m, run);
-    assert.deepEqual(withPending!.incompleteWrites, [
+    assert.ok(withPending && "incompleteWrites" in withPending);
+    assert.deepEqual(withPending.incompleteWrites, [
       { freeze: digest, run: null },
     ]);
     assert.equal(withPending!.claims!.length, 3);

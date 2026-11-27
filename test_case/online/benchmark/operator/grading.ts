@@ -19,8 +19,16 @@ import {
 } from "../stage-c-visibility-rubric.ts";
 import { repository, requireThat, sha } from "../io.ts";
 import { send, remainingJudgeCalls } from "./transport.ts";
-import { gradeSeries } from "./series.ts";
-import { bound, dir, save, seal, openSeal } from "./files.ts";
+import {
+  factPlan,
+  factQuery,
+  factPacket,
+  factResults,
+  fixtureFacts,
+  packetLimits,
+} from "./questions.ts";
+import { gradeSeries, TerminalFactTransport } from "./series.ts";
+import { bound, dir, save, seal, openSeal, load } from "./files.ts";
 
 const named = {
   provider: goReaderPolicy.provider,
@@ -360,6 +368,46 @@ export function validateJudgeReply(
   }
   return mark;
 }
+export async function checkSeriesReader(root: string, execution: any) {
+  const plan = factPlan(execution),
+    sessions = [];
+  const specs = [
+    ...plan.controls.map((c) => ({ stage: "qualification", items: c.items })),
+    ...plan.batches.map((items) => ({ stage: "formal", items })),
+  ];
+  for (const { stage, items } of specs) {
+    const folder = path.join(root, "reader-check", randomUUID());
+    dir(folder);
+    const packet = factPacket(items),
+      query = factQuery(packet),
+      plannedBytes = packetLimits(items).bytes;
+    const receipt = await nativeTurn(
+      folder,
+      query,
+      async (wire) => {
+        const messages = JSON.parse(wire.body).messages;
+        requireThat(
+          bound(messages) === bound([{ role: "user", content: query }]) &&
+            Buffer.byteLength(wire.body) === plannedBytes,
+          "Native factual reader differs from planned query or UTF-8 bytes",
+        );
+        return mockStream(fixtureFacts(packet));
+      },
+      120000,
+    );
+    factResults(receipt.raw, packet);
+    sessions.push({
+      stage,
+      session: receipt.session,
+      wire: receipt.wire,
+      bytes: plannedBytes,
+      runtime: receipt.runtime,
+      release: receipt.release,
+      ids: items.map((i) => i.question_id),
+    });
+  }
+  return { externalCalls: 0, sessions };
+}
 export async function gradeExecution(root: string, regrade: boolean) {
   const execution = openSeal(path.join(root, "execution.json")),
     m = execution.manifest;
@@ -385,15 +433,44 @@ export async function gradeExecution(root: string, regrade: boolean) {
               Buffer.byteLength(wire.body) === bytes,
               "Native judge wire length differs from qualification plan",
             );
-            return send(root, m, "judge", wire.body, {
-              "x-opencode-session": wire.session,
-              "user-agent": wire.userAgent,
-            });
+            try {
+              return await send(root, m, "judge", wire.body, {
+                "x-opencode-session": wire.session,
+                "user-agent": wire.userAgent,
+              });
+            } catch (error) {
+              const tr = path.join(root, "transport");
+              const request =
+                fs.existsSync(tr) &&
+                fs
+                  .readdirSync(tr)
+                  .find(
+                    (name) =>
+                      name.endsWith(".request.json") &&
+                      load(path.join(tr, name)).routing?.session ===
+                        wire.session,
+                  );
+              const reply =
+                request &&
+                path.join(
+                  tr,
+                  request.replace(".request.json", ".response.json"),
+                );
+              if (!reply || !fs.existsSync(reply) || load(reply).hold)
+                throw new TerminalFactTransport(
+                  error instanceof Error ? error.message : String(error),
+                );
+              throw error;
+            }
           },
           m.config.timeoutSeconds * 1000,
         );
         save(path.join(sub, "response.json"), response);
         return response.raw;
+      },
+      async () => {
+        const replay = await checkSeriesReader(root, execution);
+        seal(path.join(folder, "native-precheck.json"), replay);
       },
     );
   }

@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { isAnswerMessage } from "./answer.ts";
+import { partitionAnswers } from "./answer.ts";
 import readline from "node:readline";
 import { App } from "../../../../sut/secretary/src/pi_secretary/src/app.ts";
 import { ApplicationService } from "../../../../sut/secretary/src/pi_secretary/src/application-service.ts";
@@ -139,14 +139,22 @@ async function handle(command: string, data: any) {
       const visible = freshItems.filter(
         (item: any) => item.kind === "message" && item.role === "assistant",
       );
-      const belongs = (item: any) => {
-        if (!callIds.has(item.call_id)) return false;
-        if (!questionSeries) return true;
-        const call = app!.store.get<any>("ModelCall", item.call_id);
-        const ctx = app!.store.get<any>("Context", call.context_id);
-        return isAnswerMessage(input, call, ctx, item);
-      };
-      const messages = visible.filter(belongs);
+      const attribution = questionSeries
+        ? calls.map((call: any) => {
+            const ctx = app!.store.get<any>("Context", call.context_id);
+            return {
+              id: call.id,
+              completed_at: call.completed_at,
+              context: { loop_id: ctx.loop_id, purpose: ctx.purpose },
+            };
+          })
+        : [];
+      const { messages, otherMessages } = questionSeries
+        ? partitionAnswers(visible, input, attribution)
+        : {
+            messages: visible.filter((item: any) => callIds.has(item.call_id)),
+            otherMessages: [],
+          };
       if (questionSeries)
         for (const msg of messages) {
           while (msg.next_cursor) {
@@ -172,7 +180,8 @@ async function handle(command: string, data: any) {
         messages,
         ...(questionSeries
           ? {
-              otherMessages: visible.filter((item: any) => !belongs(item)),
+              otherMessages,
+              attribution,
               handledAt: input.updated_at,
             }
           : {}),

@@ -36,6 +36,24 @@ test("a continuous workload grades every question and replays the full denominat
       report.questions.map((q: any) => q.id),
       expected.map((q: any) => q.id),
     );
+    const [first, later] = [run.events[1], run.events[4]];
+    const { partitionAnswers } =
+      await import("../../online/benchmark/operator/answer.ts");
+    assert.ok(later.handledAt > first.handledAt && later.messages.length > 0);
+    const selected = partitionAnswers(
+      [...first.messages, ...later.messages],
+      { loop_id: first.loop, updated_at: first.handledAt },
+      [...first.attribution, ...later.attribution],
+    );
+    assert.deepEqual(selected.messages, first.messages);
+    assert.deepEqual(selected.otherMessages, later.messages);
+    assert.equal(
+      report.otherMessageCount,
+      run.events.reduce(
+        (n: number, event: any) => n + event.otherMessages.length,
+        0,
+      ),
+    );
     const plan = openSeal(path.join(original, "grades/original/plan.json"));
     assert.equal(plan.batches.length, 1);
     const input = JSON.parse(
@@ -175,6 +193,29 @@ test("fact scoring uses the time-specific key, validates every ID, and handles m
   const m = manifest(config("examples/secretary-questions.json"));
   const sub = fs.mkdtempSync(path.join(repository, ".local", "series-edges-"));
   try {
+    for (const width of [1, 2, 3, 4, 6, 8, 12]) {
+      const windows = calibrationBatches(width);
+      assert.equal(windows.length, 12);
+      for (let pos = 0; pos < width; pos++)
+        assert.equal(
+          new Set(windows.map((w) => w.items[pos].question_id)).size,
+          12,
+        );
+      if (width > 1)
+        for (const [first, second] of [
+          [1, 2],
+          [3, 4],
+        ]) {
+          const ids = calibrationBatches(12)[0].items.map((i) => i.question_id);
+          assert.ok(
+            windows.some(
+              (w) =>
+                w.items.some((i) => i.question_id === ids[first]) &&
+                w.items.some((i) => i.question_id === ids[second]),
+            ),
+          );
+        }
+    }
     const pc = calibrationBatches(12)[0],
       qualified = factResults(
         fixtureFacts(factPacket(pc.items), pc.key),
@@ -342,6 +383,73 @@ test("the future-event and reference canaries stop outbound requests before tran
     }
   } finally {
     fs.rmSync(f, { recursive: true, force: true });
+  }
+});
+
+test("series gateway protects short event text and resets the allowance only on the next event", async () => {
+  const { gateway } =
+    await import("../../online/benchmark/operator/transport.ts");
+  const { writeJSON } = await import("../../online/benchmark/io.ts");
+  const root = fs.mkdtempSync(
+    path.join(repository, ".local", "series-gateway-"),
+  );
+  const body = (content: string) =>
+    JSON.stringify({
+      model: "deepseek-v4.1-flash",
+      stream: true,
+      max_tokens: 100,
+      messages: [{ role: "user", content }],
+    });
+  try {
+    for (const reason of ["allowance", "future"]) {
+      const dir = path.join(root, reason);
+      fs.mkdirSync(dir);
+      let sent = 0;
+      const gate = await gateway(
+        dir,
+        {
+          maxWireBytes: 5000,
+          maxOutput: 100,
+          suite: { timeline: true },
+          config: { workloadCallsPerEvent: 1 },
+        },
+        new AbortController().signal,
+        () => {
+          sent++;
+          return "data: [DONE]\n\n";
+        },
+      );
+      try {
+        const post = (content: string) =>
+          fetch(gate.url + "/chat/completions", {
+            method: "POST",
+            headers: {
+              authorization: "Bearer " + gate.capability,
+              "user-agent": "secretary-pi-demo/0.2",
+              "x-opencode-session": "fixture",
+            },
+            body: body(content),
+          });
+        const guard = path.join(dir, "guard.json");
+        writeJSON(guard, { sequence: 1, blocked: ["ABCDEF"] });
+        assert.ok((await post("normal ABCDEF suffix")).ok);
+        writeJSON(guard, { sequence: 2, blocked: ["ABCDEF"] });
+        if (reason === "allowance")
+          assert.ok((await post("allowed second event")).ok);
+        assert.ok(
+          !(await post(reason === "allowance" ? "over limit" : "ABCDEF")).ok,
+        );
+        assert.match(
+          gate.firstFailure!,
+          reason === "allowance" ? /allowance/ : /Undelivered/,
+        );
+        assert.equal(sent, reason === "allowance" ? 2 : 1);
+      } finally {
+        await gate.close();
+      }
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -523,7 +631,7 @@ print(json.dumps(dict(type="result",wire=h,session=s,raw=raw)),flush=True)
       interruptedReport.questions.map((q: any) => q.verdict),
       ["JUDGE_FAILED", "JUDGE_FAILED", "NOT_EXECUTED"],
     );
-    assert.equal(interruptedReport.questions[1].reason, "UNSENT");
+    assert.match(interruptedReport.questions[1].reason, /receipt/i);
     const interruptedFolder = path.join(
       bundle,
       "grades",
@@ -550,7 +658,7 @@ print(json.dumps(dict(type="result",wire=h,session=s,raw=raw)),flush=True)
       fs.readFileSync(replay.json),
       fs.readFileSync(diagnostic.json),
     );
-    assert.equal(n, controls.length * 2 + 4);
+    assert.equal(n, controls.length * 2 + 5);
   } finally {
     globalThis.fetch = realFetch;
     for (const k of [
@@ -567,3 +675,215 @@ print(json.dumps(dict(type="result",wire=h,session=s,raw=raw)),flush=True)
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test(
+  "CLI recovery preserves the original after loss of a target, controller or stop confirmation",
+  { timeout: 150000 },
+  async () => {
+    const { spawn, execFileSync } = await import("node:child_process");
+    const { setTimeout: delay } = await import("node:timers/promises");
+    const { until } = await import("../../online/benchmark/io.ts");
+    const scratch = fs.mkdtempSync(
+      path.join(repository, ".local", "series-interrupt-"),
+    );
+    const c = JSON.parse(
+      fs.readFileSync(
+        path.join(repository, "examples/secretary-questions.json"),
+        "utf8",
+      ),
+    );
+    c.timeoutSeconds = 10;
+    const configFile = path.join(scratch, "case.json");
+    fs.writeFileSync(configFile, JSON.stringify(c));
+    try {
+      for (const mode of ["controller", "target", "supervisor"]) {
+        const cli = spawn(
+          process.execPath,
+          [
+            "--import",
+            "tsx",
+            "test_case/online/benchmark/cli.ts",
+            "evaluate",
+            "--config",
+            configFile,
+          ],
+          { cwd: repository, stdio: ["ignore", "ignore", "pipe"] },
+        );
+        const ended = new Promise((resolve) => cli.once("exit", resolve));
+        let stderr = "";
+        cli.stderr.on("data", (chunk) => (stderr += chunk));
+        let runRoot: string | undefined;
+        let suspended: number[] = [];
+        try {
+          await until(() => /Run [0-9a-f-]{36}/.test(stderr), 10000);
+          const id = /Run ([0-9a-f-]{36})/.exec(stderr)![1];
+          runRoot = rootFor(id);
+          const ack = path.join(runRoot, "events/1.ack.json");
+          const deadline = Date.now() + 25000;
+          while (!fs.existsSync(ack) && Date.now() < deadline) await delay(3);
+          assert.ok(fs.existsSync(ack));
+          cli.kill("SIGSTOP");
+          const group = openSeal(path.join(runRoot, "worker.json")).pgid;
+          const members = execFileSync("ps", ["-axo", "pid=,pgid="], {
+            encoding: "utf8",
+          })
+            .trim()
+            .split("\n")
+            .map((l) => l.trim().split(/\s+/).map(Number))
+            .filter(([pid, pgid]) => pgid === group && pid !== group)
+            .map(([pid]) => pid);
+          assert.ok(members.length > 0);
+          if (mode === "controller") cli.kill("SIGKILL");
+          else {
+            if (mode === "target")
+              for (const pid of members) {
+                try {
+                  process.kill(pid, "SIGKILL");
+                } catch (e: any) {
+                  if (e.code !== "ESRCH") throw e;
+                }
+              }
+            else {
+              for (const pid of members) {
+                try {
+                  process.kill(pid, "SIGSTOP");
+                  suspended.push(pid);
+                } catch (e: any) {
+                  if (e.code !== "ESRCH") throw e;
+                }
+              }
+              process.kill(group, "SIGKILL");
+            }
+            cli.kill("SIGCONT");
+          }
+          await ended;
+          if (mode === "supervisor") {
+            assert.ok(!fs.existsSync(path.join(runRoot, "stopped.json")));
+            assert.ok(!fs.existsSync(path.join(runRoot, "incomplete.json")));
+            await assert.rejects(
+              operatorCommand("recover-run", ["--run", id]),
+              /group|owned target/i,
+            );
+            for (const pid of suspended) {
+              try {
+                process.kill(pid, "SIGKILL");
+              } catch (e: any) {
+                if (e.code !== "ESRCH") throw e;
+              }
+            }
+            suspended = [];
+          }
+          if (mode === "controller" || mode === "supervisor") {
+            await until(() => {
+              try {
+                process.kill(-group, 0);
+                return false;
+              } catch (e: any) {
+                return e.code === "ESRCH";
+              }
+            }, 10000);
+          }
+          const result: any = await operatorCommand("recover-run", [
+            "--run",
+            id,
+          ]);
+          const report = JSON.parse(fs.readFileSync(result.json, "utf8"));
+          assert.ok(report.canonical);
+          assert.equal(report.status, "INCOMPLETE");
+          assert.equal(report.coverage.planned, 3);
+          assert.ok(report.coverage.graded >= 1 && report.coverage.graded < 3);
+          assert.equal(report.coverage.executed, report.coverage.graded);
+          const again: any = await operatorCommand("recover-run", [
+            "--run",
+            id,
+          ]);
+          assert.equal(again.grade, "original");
+        } finally {
+          if (cli.exitCode === null && cli.signalCode === null)
+            cli.kill("SIGKILL");
+          await ended;
+          for (const pid of suspended) {
+            try {
+              process.kill(pid, "SIGKILL");
+            } catch (e: any) {
+              if (e.code !== "ESRCH") throw e;
+            }
+          }
+          if (runRoot && fs.existsSync(path.join(runRoot, "stopped.json")))
+            fs.rmSync(runRoot, { recursive: true, force: true });
+        }
+      }
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "an unsuccessful live preflight leaves the same measurement claimable",
+  { skip: process.platform !== "darwin" },
+  async () => {
+    const { config, manifest, bound } =
+      await import("../../online/benchmark/operator/files.ts");
+    const { claim, claimHistory } =
+      await import("../../online/benchmark/operator/transport.ts");
+    const { randomUUID } = await import("node:crypto");
+    const scratch = fs.mkdtempSync(
+      path.join(repository, ".local", "series-preclaim-"),
+    );
+    const env = { ...process.env };
+    const bench = path.join(repository, ".local/benchmark");
+    fs.mkdirSync(bench, { recursive: true });
+    const before = new Set(fs.readdirSync(bench));
+    const c = config("examples/secretary-questions.json");
+    c.workload = "opencode-go";
+    c.judge = "hermes-go";
+    c.billingPolicy = "record-only";
+    delete c.maxWorkloadCalls;
+    const file = path.join(scratch, "case.json");
+    fs.writeFileSync(file, JSON.stringify(c));
+    try {
+      process.env.BENCHMARK_HERMES_ROOT = path.join(scratch, "absent");
+      process.env.BENCHMARK_HERMES_PYTHON = path.join(scratch, "absent/python");
+      process.env.BENCHMARK_OPERATOR_ACCOUNT = path.join(scratch, "account");
+      await assert.rejects(
+        operatorCommand("evaluate", ["--config", file]),
+        /venv missing/,
+      );
+      const owned = fs.readdirSync(bench).filter((name) => !before.has(name));
+      assert.equal(owned.length, 1);
+      const root = rootFor(owned[0]),
+        m = manifest(config(file));
+      assert.equal(
+        openSeal(path.join(root, "incomplete.json")).coverage.executed,
+        0,
+      );
+      assert.ok(!fs.existsSync(path.join(root, "transport")));
+      assert.ok(!fs.existsSync(path.join(scratch, "account/claims")));
+      const id = randomUUID();
+      await claim(m, id);
+      const fileOfClaim = path.join(
+        scratch,
+        "account/claims",
+        bound(m) + ".json",
+      );
+      assert.ok(fs.existsSync(fileOfClaim));
+      fs.writeFileSync(
+        fileOfClaim,
+        JSON.stringify({ digest: "invalid", run: id }),
+      );
+      await assert.rejects(claimHistory(m, id), /Invalid measurement claim/);
+      fs.rmSync(root, { recursive: true, force: true });
+    } finally {
+      for (const k of [
+        "BENCHMARK_HERMES_ROOT",
+        "BENCHMARK_HERMES_PYTHON",
+        "BENCHMARK_OPERATOR_ACCOUNT",
+      ]) {
+        if (env[k] === undefined) delete process.env[k];
+        else process.env[k] = env[k];
+      }
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
+  },
+);

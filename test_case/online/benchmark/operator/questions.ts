@@ -170,7 +170,7 @@ type Control = {
   answer: string;
   expected: { required: string[]; forbidden: string[]; abstained: boolean };
 };
-export function calibrationBatches(width: number) {
+export function calibrationBatches(width: number, rotate = true) {
   const source = JSON.parse(
     fs.readFileSync(
       path.join(
@@ -186,7 +186,7 @@ export function calibrationBatches(width: number) {
     "Invalid frozen fact controls",
   );
   const batches: { items: Item[]; key: Control["expected"][] }[] = [];
-  for (let start = 0; start < controls.length; start += width) {
+  for (let start = 0; start < controls.length; start += rotate ? 1 : width) {
     // Cycle through the fixed set to qualify a full final packet at every width.
     const slice = Array.from(
       { length: width },
@@ -201,7 +201,7 @@ export function calibrationBatches(width: number) {
   }
   return batches;
 }
-export function factPlan(execution: any) {
+export function factPlan(execution: any, rotate = true) {
   const observations = questions(execution.manifest.suite, execution.events);
   const eligible = observations.filter(
     (q) => q.inputId && q.item.answer.trim(),
@@ -211,6 +211,7 @@ export function factPlan(execution: any) {
       1,
       Math.min(eligible.length, execution.manifest.config.questionsPerRequest),
     ),
+    rotate,
   );
   const envelopes = controls.map((c) => packetLimits(c.items));
   requireThat(

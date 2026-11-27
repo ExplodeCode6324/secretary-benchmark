@@ -29,6 +29,7 @@ import { startTarget } from "./sandbox.ts";
 import {
   candidate,
   gradeExecution,
+  checkSeriesReader,
   nativeTurn,
   mockStream,
 } from "./grading.ts";
@@ -68,16 +69,9 @@ import {
   seriesRecord,
   seriesMarkdown,
   recoveredOutcomes,
+  sealInterruptedGrade,
 } from "./series.ts";
-import {
-  factPlan,
-  factQuery,
-  factPacket,
-  fixtureFacts,
-  factResults,
-  eventTexts,
-  questions,
-} from "./questions.ts";
+import { eventTexts, questions } from "./questions.ts";
 import { pack, verifyBundle } from "./bundle.ts";
 function receipts(root: string) {
   const tr = path.join(root, "transport");
@@ -393,6 +387,25 @@ async function publishGrade(root: string, id: string) {
       : [],
   });
   return writeReport(root, id);
+}
+async function finishRecovery(root: string, m: any) {
+  const original = path.join(root, "grades/original");
+  if (fs.existsSync(path.join(original, "accounting.json")))
+    return writeReport(root, "original");
+  if (
+    fs.existsSync(path.join(root, "incomplete.json")) ||
+    !m.suite.timeline ||
+    !fs.existsSync(path.join(root, "execution.json"))
+  )
+    return publishIncomplete(root);
+  if (!fs.existsSync(path.join(original, "grade.json"))) {
+    if (!fs.existsSync(path.join(original, "plan.json"))) {
+      verifyJudgeSource(m);
+      return assess(root, false);
+    }
+    sealInterruptedGrade(openSeal(path.join(root, "execution.json")), original);
+  }
+  return publishGrade(root, "original");
 }
 function clearTargetAliases(root: string) {
   const target = path.join(root, "target");
@@ -777,6 +790,13 @@ export async function operatorCommand(command: string, args: string[]) {
         console.error(JSON.stringify(partial));
         throw error;
       }
+      if (c.timeline && fs.existsSync(path.join(root, "execution.json"))) {
+        console.error(
+          "Original pending. After stopping the facility, use recover-run --run " +
+            id,
+        );
+        throw error;
+      }
       const result = await publishIncomplete(root);
       console.error(JSON.stringify(result));
       throw error;
@@ -821,20 +841,7 @@ export async function operatorCommand(command: string, args: string[]) {
       if (fs.existsSync(path.join(root, "stopped.json"))) {
         clearTargetAliases(root);
         sealRecoveredPrefix();
-        if (fs.existsSync(path.join(root, "grades/original/accounting.json")))
-          return writeReport(root, "original");
-        if (
-          m.suite.timeline &&
-          !fs.existsSync(path.join(root, "incomplete.json")) &&
-          fs.existsSync(path.join(root, "grades/original/grade.json"))
-        )
-          return publishGrade(root, "original");
-        if (!fs.existsSync(path.join(root, "incomplete.json")))
-          save(path.join(root, "failures", randomUUID() + ".json"), {
-            at: new Date().toISOString(),
-            error: "Recovered stopped facility with unpublished original grade",
-          });
-        return publishIncomplete(root);
+        return finishRecovery(root, m);
       }
       const workerFile = path.join(root, "worker.json");
       if (fs.existsSync(workerFile)) {
@@ -876,7 +883,7 @@ export async function operatorCommand(command: string, args: string[]) {
         at: new Date().toISOString(),
         error: "Interrupted execution; owned facility recovered",
       });
-      return publishIncomplete(root);
+      return finishRecovery(root, m);
     });
   }
   if (command === "archive-run") {
@@ -930,8 +937,15 @@ export async function operatorCommand(command: string, args: string[]) {
         "Incompatible scoring policies",
       );
       const records = [root, other].map((dir, i) => {
-        const folder = path.join(dir, "grades", "original"),
-          g = openSeal(path.join(folder, "grade.json")),
+        const folder = path.join(dir, "grades", "original");
+        if (!fs.existsSync(path.join(folder, "accounting.json"))) {
+          const incomplete = openSeal(path.join(dir, "incomplete.json"));
+          return {
+            questions: incomplete.questions,
+            coverage: incomplete.coverage,
+          };
+        }
+        const g = openSeal(path.join(folder, "grade.json")),
           accounting = openSeal(path.join(folder, "accounting.json"));
         requireThat(
           g.execution === bound([x, y][i]) &&
@@ -947,9 +961,32 @@ export async function operatorCommand(command: string, args: string[]) {
       ];
       return {
         sameContract: bound(x.manifest) === bound(y.manifest),
+        sameCase:
+          x.manifest.config.case === y.manifest.config.case &&
+          x.manifest.config.caseVersion === y.manifest.config.caseVersion,
+        samePrompt:
+          x.manifest.implementation["fact-grading-v1.txt"] ===
+          y.manifest.implementation["fact-grading-v1.txt"],
         coverage: records.map((r) => r.coverage),
         questions: ids.map((id) => ({
           id,
+          referenceDigests: [x, y].map((e) => {
+            const q = questions(e.manifest.suite, []).find(
+              (q) => q.item.question_id === id,
+            )?.item;
+            return q
+              ? bound([q.question, q.abstention_policy, q.reference_facts])
+              : null;
+          }),
+          sameReference: (() => {
+            const keys = [x, y].map(
+              (e) =>
+                questions(e.manifest.suite, []).find(
+                  (q) => q.item.question_id === id,
+                )?.item,
+            );
+            return !!keys[0] && !!keys[1] && bound(keys[0]) === bound(keys[1]);
+          })(),
           verdicts: records.map(
             (r) =>
               r.questions.find((q: any) => q.id === id)?.verdict ??
@@ -970,28 +1007,7 @@ export async function operatorCommand(command: string, args: string[]) {
   );
   const e = openSeal(path.join(root, "execution.json"));
   if (command === "reader-check") {
-    if (e.manifest.suite.timeline) {
-      const p = factPlan(e),
-        packets = p.batches.map(factPacket),
-        sessions = [];
-      for (const packet of packets) {
-        const folder = path.join(root, "reader-check", randomUUID());
-        dir(folder);
-        const receipt = await nativeTurn(
-          folder,
-          factQuery(packet),
-          async () => mockStream(fixtureFacts(packet)),
-          120000,
-        );
-        factResults(receipt.raw, packet);
-        sessions.push({
-          session: receipt.session,
-          wire: receipt.wire,
-          ids: packet.items.map((i) => i.question_id),
-        });
-      }
-      return { externalCalls: 0, sessions };
-    }
+    if (e.manifest.suite.timeline) return checkSeriesReader(root, e);
     const q = admittedReaderQuery(candidate(e, "good").packet),
       folder = path.join(root, "reader-check", randomUUID());
     dir(folder);

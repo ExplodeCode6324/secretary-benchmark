@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { bound, dir, load, openSeal, save, seal } from "./files.ts";
-import { requireThat } from "../io.ts";
+import { requireThat, sha } from "../io.ts";
 import {
   factPacket,
   factPlan,
@@ -13,6 +13,8 @@ import {
   type Item,
 } from "./questions.ts";
 import { remainingJudgeCalls } from "./transport.ts";
+
+export class TerminalFactTransport extends Error {}
 
 type Reader = (
   folder: string,
@@ -29,7 +31,11 @@ type Outcome = {
   abstained?: boolean;
   batch?: number;
 };
-function description(p: ReturnType<typeof factPlan>, execution: any) {
+function description(
+  p: ReturnType<typeof factPlan>,
+  execution: any,
+  schema = 2,
+) {
   const describe = (items: Item[]) => ({
     packet: factPacket(items),
     queryDigest: bound(factQuery(factPacket(items))),
@@ -38,7 +44,7 @@ function description(p: ReturnType<typeof factPlan>, execution: any) {
     wire: packetLimits(items),
   });
   return {
-    schema: 1,
+    schema,
     execution: bound(execution),
     order: p.observations.map(({ item, sequence, inputId }) => ({
       id: item.question_id,
@@ -56,7 +62,13 @@ function description(p: ReturnType<typeof factPlan>, execution: any) {
   };
 }
 export function verifySeriesPlan(folder: string, execution: any) {
-  const expected = description(factPlan(execution), execution);
+  const schema = openSeal(path.join(folder, "plan.json")).schema;
+  requireThat(schema === 1 || schema === 2, "Unknown series plan");
+  const expected = description(
+    factPlan(execution, schema >= 2),
+    execution,
+    schema,
+  );
   requireThat(
     bound(openSeal(path.join(folder, "plan.json"))) === bound(expected),
     "Series packet plan disagrees with sealed observations and references",
@@ -159,12 +171,100 @@ export function recoveredOutcomes(execution: any, folder: string) {
   }
   return rows;
 }
+export function sealInterruptedGrade(execution: any, folder: string) {
+  const plan = openSeal(path.join(folder, "plan.json"));
+  verifySeriesPlan(folder, execution);
+  const outcomes = recoveredOutcomes(execution, folder);
+  const evidence: Record<string, string> = {};
+  for (const name of fs.readdirSync(folder, {
+    recursive: true,
+    encoding: "utf8",
+  })) {
+    if (
+      /^(qualification-key|native-precheck)\.json$|^(qualification|packets)\/[1-9][0-9]*\/(input|response|wire|provider-content|results|attempt-failure)\.json$/.test(
+        name,
+      )
+    )
+      evidence[name] = bound(load(path.join(folder, name)));
+  }
+  seal(path.join(folder, "grade.json"), {
+    id: "original",
+    canonical: true,
+    execution: bound(execution),
+    policy: execution.manifest.judgePolicy,
+    plan: bound(plan),
+    evidence,
+    outcomes,
+    failures: [
+      {
+        stage: "recovery",
+        error:
+          "Controller interrupted during original grading; no packet was resent",
+      },
+    ],
+  });
+}
+export function verifyFactGrade(execution: any, g: any, folder: string) {
+  verifySeriesPlan(folder, execution);
+  const plan = openSeal(path.join(folder, "plan.json"));
+  for (const [kind, specs] of [
+    ["qualification", plan.controls],
+    ["packets", plan.batches],
+  ] as const) {
+    for (const [i, spec] of specs.entries()) {
+      const sub = path.join(folder, kind, String(i + 1));
+      if (!fs.existsSync(path.join(sub, "input.json"))) continue;
+      const input = load(path.join(sub, "input.json"));
+      requireThat(
+        bound(input.packet) === spec.digest &&
+          bound(input.query) === spec.queryDigest,
+        "Grading input differs from planned packet",
+      );
+      const wirePath = path.join(sub, "wire.json");
+      if (fs.existsSync(wirePath)) {
+        const wire = load(wirePath);
+        requireThat(
+          sha(wire.body) === wire.sha256 &&
+            bound(JSON.parse(wire.body).messages) ===
+              bound([{ role: "user", content: input.query }]) &&
+            Buffer.byteLength(wire.body) === spec.wire.bytes,
+          "Native wire differs from sealed grading packet",
+        );
+      }
+      if (fs.existsSync(path.join(sub, "results.json"))) {
+        const result = factResults(
+          load(path.join(sub, "response.json")).raw,
+          input.packet,
+        );
+        requireThat(
+          bound(result) === bound(openSeal(path.join(sub, "results.json"))),
+          "Saved factual labels differ from reader response",
+        );
+      }
+    }
+  }
+  const rows = recoveredOutcomes(execution, folder);
+  requireThat(
+    rows.length === g.outcomes.length &&
+      rows.every((row, i) => {
+        const v = g.outcomes[i];
+        return (
+          row.id === v.id &&
+          row.verdict === v.verdict &&
+          bound(row.facts ?? null) === bound(v.facts ?? null) &&
+          row.abstained === v.abstained
+        );
+      }),
+    "Sealed factual verdict differs from accepted reader evidence",
+  );
+}
 export async function gradeSeries(
   root: string,
   folder: string,
   id: string,
   execution: any,
   read: Reader,
+  precheck?: () => Promise<void>,
 ) {
   const p = factPlan(execution),
     m = execution.manifest,
@@ -242,6 +342,10 @@ export async function gradeSeries(
             " planned packets",
         );
       }
+      if (m.config.judge === "hermes-go" && precheck) {
+        await precheck();
+        record(path.join(folder, "native-precheck.json"));
+      }
       for (const [i, c] of p.controls.entries()) {
         const results = await attempt(
           c.items,
@@ -285,12 +389,7 @@ export async function gradeSeries(
       failures.push({ stage: where, error: error.message });
       for (const item of items)
         byID.get(item.question_id)!.reason = error.message;
-      // Only a completed response can precede another independent packet.
-      if (
-        !fs.existsSync(path.join(folder, where, "response.json")) &&
-        !String(error.message).startsWith("JUDGE_FINISH_REASON")
-      )
-        stopReason = "UNSENT";
+      if (error instanceof TerminalFactTransport) stopReason = "UNSENT";
     }
   }
   seal(path.join(folder, "grade.json"), {
@@ -324,6 +423,7 @@ export function seriesRecord(
       bound(load(path.join(folder, name))) === digest,
       "Changed fact-grading evidence: " + name,
     );
+  verifyFactGrade(execution, g, folder);
   const info = questions(execution.manifest.suite, execution.events);
   requireThat(
     info.length === g.outcomes.length,
@@ -389,6 +489,19 @@ export function seriesRecord(
       graded: counts.PASS + counts.PARTIAL + counts.FAIL,
     },
     questions: rows,
+    ...(openSeal(path.join(folder, "plan.json")).schema >= 2
+      ? {
+          otherMessages: execution.events.map((event: any) => ({
+            sequence: event.sequence,
+            inputId: event.inputId,
+            count: (event.otherMessages ?? []).length,
+          })),
+          otherMessageCount: execution.events.reduce(
+            (n: number, event: any) => n + (event.otherMessages ?? []).length,
+            0,
+          ),
+        }
+      : {}),
     sequence: "One ordered workload; later questions share earlier state.",
     plan: g.plan,
     requests: summary.requests,
@@ -436,6 +549,13 @@ export function seriesMarkdown(record: ReturnType<typeof seriesRecord>) {
       " · model-graded " +
       record.coverage.graded,
     "",
+    ...(record.otherMessageCount === undefined
+      ? []
+      : [
+          "Other visible messages excluded from answers: " +
+            record.otherMessageCount,
+          "",
+        ]),
     ...Object.entries(record.counts).map(([k, n]) => k + " " + n),
     "",
   ].join("\n");

@@ -124,6 +124,8 @@ export async function claimHistory(m: any, run: string) {
   // Snapshots contain only run IDs and freezes. Never copy credentials or private
   // account paths into a report. The lock makes the observed claim set consistent.
   const at = new Date().toISOString();
+  const unavailable = { status: "UNAVAILABLE", at, claims: null };
+  if (!process.env.BENCHMARK_OPERATOR_ACCOUNT) return unavailable;
   try {
     const account = accountDirectory();
     return await lease(account, async () => {
@@ -150,8 +152,10 @@ export async function claimHistory(m: any, run: string) {
         : [];
       return { status: "RECORDED", at: new Date().toISOString(), claims };
     });
-  } catch {
-    return { status: "UNAVAILABLE", at, claims: null };
+  } catch (error: any) {
+    if (["EACCES", "EIO", "ENODEV", "ESTALE"].includes(error.code))
+      return unavailable;
+    throw error;
   }
 }
 export async function remainingJudgeCalls(m: any, run: string) {

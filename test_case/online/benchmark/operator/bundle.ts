@@ -2,6 +2,7 @@ import { gradeJSONBytes } from "../grading-transaction.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { noLinks, requireThat, inside, sha } from "../io.ts";
+import { verifyFactGrade } from "./series.ts";
 import { eventTexts, questions } from "./questions.ts";
 import { providerContent } from "./grading.ts";
 import { dir, openSeal, put, seal, load } from "./files.ts";
@@ -203,6 +204,14 @@ export function verifyBundle(root: string) {
         input.text === texts[i],
       "Event input mismatch",
     );
+  }
+  if (e.manifest.suite.timeline) {
+    for (const member of Object.keys(index.members).filter((n) =>
+      /^grades\/(original|[a-f0-9-]+)\/grade\.json$/.test(n),
+    )) {
+      const g = openSeal(path.join(root, member));
+      verifyFactGrade(e, g, path.join(root, path.dirname(member)));
+    }
   }
   return e;
 }

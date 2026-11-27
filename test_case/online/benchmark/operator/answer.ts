@@ -14,3 +14,15 @@ export function isAnswerMessage(
     !message.withdrawn
   );
 }
+
+export function partitionAnswers(visible: any[], input: any, calls: any[]) {
+  const fresh = new Map(calls.map((c) => [c.id, c]));
+  const messages: any[] = [],
+    otherMessages: any[] = [];
+  for (const item of visible) {
+    const call = fresh.get(item.call_id);
+    const owned = call && isAnswerMessage(input, call, call.context, item);
+    (owned ? messages : otherMessages).push(item);
+  }
+  return { messages, otherMessages };
+}

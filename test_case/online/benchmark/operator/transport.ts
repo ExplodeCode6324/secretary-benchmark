@@ -101,24 +101,28 @@ export async function checkRoute(recordOnly = false) {
   );
   return rule;
 }
-// An explicit bounded cohort is single-use. Ordinary measured runs each own their claim.
-function claimFile(account: string, m: any, run: string) {
-  const name =
-    m.config.billingPolicy === "record-only" ? bound(m) + "-" + run : bound(m);
-  return path.join(account, "claims", name + ".json");
+// A freeze designates one target execution. Judge-only regrades reuse that claim.
+function claimFile(account: string, m: any) {
+  return path.join(account, "claims", bound(m) + ".json");
 }
 export async function claim(m: any, run: string) {
   const account = accountDirectory();
   const digest = bound(m);
   const binding = { digest, run };
   await lease(account, async () => {
-    save(claimFile(account, m, run), binding);
+    const file = claimFile(account, m);
+    if (m.config.billingPolicy === "record-only")
+      requireThat(
+        !fs.existsSync(file),
+        "This freeze already has a target execution; select a new cohort for a new measurement",
+      );
+    save(file, binding);
   });
 }
 export async function remainingJudgeCalls(m: any, run: string) {
   const account = accountDirectory();
   return lease(account, async () => {
-    const binding = load(claimFile(account, m, run));
+    const binding = load(claimFile(account, m));
     requireThat(
       binding.run === run && binding.digest === bound(m),
       "Freeze claimed by a different run",
@@ -149,7 +153,7 @@ export async function send(
       kind === "judge"
         ? openSeal(path.join(root, "execution.json")).id
         : path.basename(root);
-  const binding = load(claimFile(account, m, run));
+  const binding = load(claimFile(account, m));
   requireThat(
     binding.run === run && binding.digest === freeze,
     "Freeze claimed by a different run",

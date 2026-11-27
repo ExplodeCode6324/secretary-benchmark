@@ -112,7 +112,7 @@ export function config(file: string) {
     "Mixing real and simulated profiles is unsupported",
   );
   return c.workload === "opencode-go"
-    ? { ...c, billingPolicy: c.billingPolicy ?? "record-only" }
+    ? { ...c, billingPolicy: c.billingPolicy ?? "bounded" }
     : c;
 }
 export function manifest(c: any) {

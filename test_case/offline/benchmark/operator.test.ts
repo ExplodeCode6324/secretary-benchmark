@@ -749,8 +749,13 @@ test("record-only runs retain missing billing and stop on an actual provider rej
       send(root, m, "workload", body),
       /no usable model response/,
     );
-    await claim(m, "run-two");
-    await send(path.join(parent, "run-two"), m, "workload", body);
+    await assert.rejects(claim(m, "run-two"), /already has a target execution/);
+    const next = {
+      ...m,
+      config: { ...m.config, cohort: "second-measurement" },
+    };
+    await claim(next, "run-two");
+    await send(path.join(parent, "run-two"), next, "workload", body);
     assert.equal(calls, 4);
   } finally {
     globalThis.fetch = originalFetch;

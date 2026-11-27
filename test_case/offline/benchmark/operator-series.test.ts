@@ -599,6 +599,11 @@ print(json.dumps(dict(type="result",wire=h,session=s,raw=raw)),flush=True)
       rows[0].reason,
       "Fact response digest or question count mismatch",
     );
+    assert.equal(r.publisher, m.source);
+    assert.equal(r.qualification.plannedPackets, controls.length);
+    assert.equal(r.qualification.sentPackets, controls.length);
+    assert.equal(r.qualification.matchedFacts, r.qualification.checkedFacts);
+    assert.deepEqual(r.qualification.disagreements, []);
     assert.equal(r.grade, diagnostic.grade);
     assert.equal(r.canonical, false);
     assert.equal(r.status, "INCOMPLETE");
@@ -1142,5 +1147,64 @@ test("recover-run publishes accepted original packet decisions without starting 
     }
     if (root) fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("claim snapshots retain per-run legacy records and reject ambiguous identities", async () => {
+  const { claimHistory } =
+    await import("../../online/benchmark/operator/transport.ts");
+  const { config, manifest, bound, save } =
+    await import("../../online/benchmark/operator/files.ts");
+  const { randomUUID } = await import("node:crypto");
+  const root = fs.mkdtempSync(
+    path.join(repository, ".local", "legacy-claims-"),
+  );
+  const previous = process.env.BENCHMARK_OPERATOR_ACCOUNT;
+  try {
+    process.env.BENCHMARK_OPERATOR_ACCOUNT = root;
+    const m = manifest(config("examples/secretary-questions.json"));
+    m.config.workload = "opencode-go";
+    const digest = bound(m),
+      historic = "a".repeat(64),
+      run = randomUUID(),
+      first = randomUUID(),
+      second = randomUUID();
+    const claims = path.join(root, "claims");
+    const add = (name: string, value: any) =>
+      save(path.join(claims, name), value);
+    add(digest + ".json", { digest, run });
+    add(historic + "-" + first + ".json", { digest: historic, run: first });
+    let report = await claimHistory(m, run);
+    assert.equal(report!.claims!.length, 2);
+    add(historic + "-" + second + ".json", { digest: historic, run: second });
+    report = await claimHistory(m, run);
+    assert.deepEqual(
+      report!
+        .claims!.filter((c) => c.format === "legacy-per-run")
+        .map((c) => c.run)
+        .sort(),
+      [first, second].sort(),
+    );
+    assert.equal(report!.claims!.find((c) => c.current)?.run, run);
+    for (const [name, payload] of [
+      ["note.txt", { digest, run }],
+      ["b".repeat(64) + ".json", { digest, run }],
+      [historic + "-" + run + ".json", { digest: historic, run: second }],
+      [historic + "-invalid.json", { digest: historic, run: "invalid" }],
+      ["c".repeat(64) + ".json", { digest: "c".repeat(64), run, extra: 1 }],
+      [historic + ".json", { digest: historic, run: randomUUID() }],
+      [historic + ".json", { digest: historic, run: first }],
+    ] as const) {
+      add(name, payload);
+      await assert.rejects(
+        claimHistory(m, run),
+        /Invalid measurement claim|Conflicting measurement claims/,
+      );
+      fs.unlinkSync(path.join(claims, name));
+    }
+  } finally {
+    if (previous === undefined) delete process.env.BENCHMARK_OPERATOR_ACCOUNT;
+    else process.env.BENCHMARK_OPERATOR_ACCOUNT = previous;
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

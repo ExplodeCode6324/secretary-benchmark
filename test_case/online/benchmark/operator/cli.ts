@@ -69,6 +69,7 @@ import {
   seriesRecord,
   seriesMarkdown,
   recoveredOutcomes,
+  qualificationSummary,
   sealInterruptedGrade,
 } from "./series.ts";
 import { eventTexts, questions } from "./questions.ts";
@@ -368,14 +369,23 @@ async function assess(root: string, again: boolean) {
   return publishGrade(root, await gradeExecution(root, again));
 }
 async function publishGrade(root: string, id: string) {
-  const grade = openSeal(path.join(root, "grades", id, "grade.json"));
+  const folder = path.join(root, "grades", id),
+    grade = openSeal(path.join(folder, "grade.json"));
+  const execution = openSeal(path.join(root, "execution.json"));
   const failures = path.join(root, "failures");
-  seal(path.join(root, "grades", id, "accounting.json"), {
+  seal(path.join(folder, "accounting.json"), {
     grade: bound(grade),
-    claimHistory: await claimHistory(
-      openSeal(path.join(root, "manifest.json")),
-      openSeal(path.join(root, "execution.json")).id,
-    ),
+    claimHistory: await claimHistory(execution.manifest, execution.id),
+    ...(execution.manifest.suite.timeline
+      ? {
+          publisher: execFileSync(
+            "git",
+            ["-C", repository, "rev-parse", "HEAD"],
+            { encoding: "utf8" },
+          ).trim(),
+          qualification: qualificationSummary(root, folder),
+        }
+      : {}),
     at: new Date().toISOString(),
     requests: meter(root),
     failures: fs.existsSync(failures)

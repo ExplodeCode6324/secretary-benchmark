@@ -516,6 +516,86 @@ export async function gradeSeries(
   });
   return id;
 }
+// Count provider dispatches by their actual native session and wire receipt.
+export function qualificationSummary(root: string, folder: string) {
+  const plan = openSeal(path.join(folder, "plan.json"));
+  const keyPath = path.join(folder, "qualification-key.json");
+  const keys = fs.existsSync(keyPath) ? openSeal(keyPath) : [];
+  const transport = path.join(root, "transport");
+  const sent = new Set(
+    (fs.existsSync(transport) ? fs.readdirSync(transport) : [])
+      .filter((n) => n.endsWith(".request.json"))
+      .map((n) => load(path.join(transport, n)))
+      .filter((r) => r.kind === "judge")
+      .map((r) => r.routing?.session + ":" + r.digest),
+  );
+  let sentPackets = 0,
+    returnedPackets = 0,
+    checkedFacts = 0,
+    matchedFacts = 0,
+    checkedAbstentions = 0,
+    matchedAbstentions = 0;
+  const disagreements = [];
+  for (const [i, spec] of plan.controls.entries()) {
+    const sub = path.join(folder, "qualification", String(i + 1));
+    const wirePath = path.join(sub, "wire.json");
+    if (fs.existsSync(wirePath)) {
+      const w = load(wirePath);
+      if (sent.has(w.session + ":" + w.sha256)) sentPackets++;
+    }
+    if (!fs.existsSync(path.join(sub, "results.json"))) continue;
+    requireThat(
+      keys[i] && bound(keys[i]) === spec.keyDigest,
+      "Qualification summary key differs",
+    );
+    const results = openSeal(path.join(sub, "results.json"));
+    returnedPackets++;
+    for (const [j, item] of spec.packet.items.entries()) {
+      const result = results.find(
+        (r: any) => r.question_id === item.question_id,
+      );
+      const expected = keys[i][j];
+      const key = [...expected.required, ...expected.forbidden];
+      const facts = item.reference_facts.map((fact: any, k: number) => {
+        const answer = result.facts.find((f: any) => f.id === fact.id);
+        checkedFacts++;
+        if (answer.verdict === key[k]) matchedFacts++;
+        return {
+          id: fact.id,
+          reference: fact.text,
+          expected: key[k],
+          returned: answer.verdict,
+          reason: answer.reason,
+        };
+      });
+      checkedAbstentions++;
+      if (expected.abstained === result.abstained) matchedAbstentions++;
+      if (
+        expected.abstained !== result.abstained ||
+        facts.some((f: any) => f.expected !== f.returned)
+      )
+        disagreements.push({
+          packet: i + 1,
+          question: item.question_id,
+          facts,
+          abstention: {
+            expected: expected.abstained,
+            returned: result.abstained,
+          },
+        });
+    }
+  }
+  return {
+    plannedPackets: plan.controls.length,
+    sentPackets,
+    returnedPackets,
+    checkedFacts,
+    matchedFacts,
+    checkedAbstentions,
+    matchedAbstentions,
+    disagreements,
+  };
+}
 export function seriesRecord(
   execution: any,
   g: any,
@@ -584,6 +664,9 @@ export function seriesRecord(
     case: execution.manifest.config.case,
     execution: g.execution,
     harness: execution.manifest.source,
+    ...(summary.publisher
+      ? { publisher: summary.publisher, qualification: summary.qualification }
+      : {}),
     policy: g.policy,
     grade: g.id,
     canonical: g.canonical,
@@ -668,6 +751,40 @@ export function seriesMarkdown(record: ReturnType<typeof seriesRecord>) {
             record.otherMessageCount,
           "",
         ]),
+    ...(record.qualification
+      ? [
+          "Accounting published by " + record.publisher,
+          "Qualification packets sent: " +
+            record.qualification.sentPackets +
+            "/" +
+            record.qualification.plannedPackets +
+            "; usable replies: " +
+            record.qualification.returnedPackets,
+          ...record.qualification.disagreements.map(
+            (q: any) =>
+              "Packet " +
+              q.packet +
+              ", " +
+              q.question +
+              ": " +
+              q.facts
+                .map(
+                  (f: any) =>
+                    f.id +
+                    " expected " +
+                    f.expected +
+                    ", returned " +
+                    f.returned,
+                )
+                .join(" / ") +
+              " / abstained expected " +
+              q.abstention.expected +
+              ", returned " +
+              q.abstention.returned,
+          ),
+          "",
+        ]
+      : []),
     ...Object.entries(record.counts).map(([k, n]) => k + " " + n),
     "",
   ].join("\n");

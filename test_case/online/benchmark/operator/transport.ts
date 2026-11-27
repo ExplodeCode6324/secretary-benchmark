@@ -14,6 +14,7 @@ import {
   targetedBillingHold,
 } from "../stage-c-go-provider.ts";
 import { checkGoHeadroom } from "../stage-c-go-quota.ts";
+import { gradeUUID } from "../grading-transaction.ts";
 import { goReaderPolicy } from "../stage-c-visibility-rubric.ts";
 import { bound, dir, load, save, openSeal } from "./files.ts";
 
@@ -130,28 +131,49 @@ export async function claimHistory(m: any, run: string) {
     const account = accountDirectory();
     return await lease(account, async () => {
       const directory = path.join(account, "claims");
-      const claims = fs.existsSync(directory)
-        ? fs
-            .readdirSync(directory)
-            .filter((name) => name.endsWith(".json"))
-            .sort()
-            .map((name) => {
-              const { digest, run: claimedRun } = load(
-                path.join(directory, name),
-              );
-              requireThat(
-                typeof claimedRun === "string" &&
-                  /^[a-f0-9]{64}$/.test(digest) &&
-                  name === digest + ".json",
-                "Invalid measurement claim",
-              );
-              return {
-                run: claimedRun,
-                freeze: digest,
-                current: claimedRun === run && digest === bound(m),
-              };
-            })
+      const formats = new Map<string, string>(),
+        pairs = new Set<string>();
+      const names = fs.existsSync(directory)
+        ? fs.readdirSync(directory).sort()
         : [];
+      const claims = names.map((name) => {
+        requireThat(
+          /^[a-f0-9]{64}(?:-[a-f0-9-]{36})?\.json$/.test(name),
+          "Invalid measurement claim filename",
+        );
+        const value = load(path.join(directory, name));
+        requireThat(
+          value && Object.keys(value).sort().join(",") === "digest,run",
+          "Invalid measurement claim payload",
+        );
+        const { digest, run: claimedRun } = value;
+        const modern = name === digest + ".json";
+        requireThat(
+          typeof digest === "string" &&
+            /^[a-f0-9]{64}$/.test(digest) &&
+            typeof claimedRun === "string" &&
+            claimedRun.length > 0 &&
+            (modern ||
+              (gradeUUID(claimedRun) &&
+                name === digest + "-" + claimedRun + ".json")),
+          "Invalid measurement claim",
+        );
+        const format = modern ? "one-per-freeze" : "legacy-per-run";
+        const pair = digest + ":" + claimedRun;
+        requireThat(
+          !pairs.has(pair) &&
+            (!formats.has(digest) || formats.get(digest) === format),
+          "Conflicting measurement claims",
+        );
+        pairs.add(pair);
+        formats.set(digest, format);
+        return {
+          run: claimedRun,
+          freeze: digest,
+          current: claimedRun === run && digest === bound(m),
+          format,
+        };
+      });
       return { status: "RECORDED", at: new Date().toISOString(), claims };
     });
   } catch (error: any) {

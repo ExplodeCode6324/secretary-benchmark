@@ -600,6 +600,7 @@ print(json.dumps(dict(type="result",wire=h,session=s,raw=raw)),flush=True)
       "Fact response digest or question count mismatch",
     );
     assert.equal(r.publisher, m.source);
+    assert.equal(r.publisherTrackedDirty, false);
     assert.equal(r.qualification.plannedPackets, controls.length);
     assert.equal(r.qualification.sentPackets, controls.length);
     assert.equal(r.qualification.matchedFacts, r.qualification.checkedFacts);
@@ -1126,6 +1127,34 @@ test("recover-run publishes accepted original packet decisions without starting 
         compared.samePrompt &&
         compared.questions.every((q: any) => q.sameReference),
     );
+    const { seal } = await import("../../online/benchmark/operator/files.ts");
+    const account = path.join(original, "accounting.json"),
+      archived = account + ".preserved";
+    const accounting = openSeal(account);
+    fs.renameSync(account, archived);
+    seal(account, {
+      ...accounting,
+      qualification: { ...accounting.qualification, matchedFacts: 9999 },
+    });
+    await assert.rejects(
+      operatorCommand("report", ["--run", first.run]),
+      /qualification differs/,
+    );
+    await assert.rejects(
+      operatorCommand("compare", ["--run", first.run, "--reference", bundle]),
+      /qualification differs/,
+    );
+    await assert.rejects(
+      operatorCommand("export-run", [
+        "--run",
+        first.run,
+        "--output",
+        path.join(scratch, "changed-export"),
+      ]),
+      /qualification differs/,
+    );
+    fs.unlinkSync(account);
+    fs.renameSync(archived, account);
     const grade = openSeal(path.join(original, "grade.json"));
     grade.outcomes[0].verdict =
       grade.outcomes[0].verdict === "PASS" ? "FAIL" : "PASS";
@@ -1186,6 +1215,15 @@ test("claim snapshots retain per-run legacy records and reject ambiguous identit
       [first, second].sort(),
     );
     assert.equal(report!.claims!.find((c) => c.current)?.run, run);
+    const pendingName = digest + ".json." + randomUUID();
+    fs.writeFileSync(path.join(claims, pendingName), "{");
+    const withPending = await claimHistory(m, run);
+    assert.deepEqual(withPending!.incompleteWrites, [
+      { freeze: digest, run: null },
+    ]);
+    assert.equal(withPending!.claims!.length, 3);
+    fs.unlinkSync(path.join(claims, pendingName));
+
     for (const [name, payload] of [
       ["note.txt", { digest, run }],
       ["b".repeat(64) + ".json", { digest, run }],

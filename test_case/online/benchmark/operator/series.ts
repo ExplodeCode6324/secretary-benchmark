@@ -596,6 +596,25 @@ export function qualificationSummary(root: string, folder: string) {
     disagreements,
   };
 }
+export function verifyQualificationAccounting(
+  root: string,
+  folder: string,
+  accounting: any,
+) {
+  if (
+    accounting.publisher !== undefined ||
+    accounting.qualification !== undefined
+  ) {
+    requireThat(
+      typeof accounting.publisher === "string" &&
+        /^[a-f0-9]{40}$/.test(accounting.publisher) &&
+        accounting.qualification &&
+        bound(accounting.qualification) ===
+          bound(qualificationSummary(root, folder)),
+      "Published qualification differs from sealed packet evidence",
+    );
+  }
+}
 export function seriesRecord(
   execution: any,
   g: any,
@@ -616,6 +635,11 @@ export function seriesRecord(
       "Changed fact-grading evidence: " + name,
     );
   verifyFactGrade(execution, g, folder);
+  verifyQualificationAccounting(
+    path.dirname(path.dirname(folder)),
+    folder,
+    summary,
+  );
   const info = questions(execution.manifest.suite, execution.events);
   requireThat(
     info.length === g.outcomes.length,
@@ -664,6 +688,9 @@ export function seriesRecord(
     case: execution.manifest.config.case,
     execution: g.execution,
     harness: execution.manifest.source,
+    ...(typeof summary.publisherTrackedDirty === "boolean"
+      ? { publisherTrackedDirty: summary.publisherTrackedDirty }
+      : {}),
     ...(summary.publisher
       ? { publisher: summary.publisher, qualification: summary.qualification }
       : {}),
@@ -753,7 +780,13 @@ export function seriesMarkdown(record: ReturnType<typeof seriesRecord>) {
         ]),
     ...(record.qualification
       ? [
-          "Accounting published by " + record.publisher,
+          "Accounting published by " +
+            record.publisher +
+            (record.publisherTrackedDirty === undefined
+              ? ""
+              : record.publisherTrackedDirty
+                ? " (tracked changes present)"
+                : " (clean tracked files)"),
           "Qualification packets sent: " +
             record.qualification.sentPackets +
             "/" +

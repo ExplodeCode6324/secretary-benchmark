@@ -383,6 +383,19 @@ async function publishGrade(root: string, id: string) {
             ["-C", repository, "rev-parse", "HEAD"],
             { encoding: "utf8" },
           ).trim(),
+          publisherTrackedDirty:
+            execFileSync(
+              "git",
+              [
+                "-C",
+                repository,
+                "status",
+                "--porcelain",
+                "--untracked-files=no",
+                "--ignore-submodules=untracked",
+              ],
+              { encoding: "utf8" },
+            ).trim() !== "",
           qualification: qualificationSummary(root, folder),
         }
       : {}),

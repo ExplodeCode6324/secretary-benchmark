@@ -2,7 +2,7 @@ import { gradeJSONBytes } from "../grading-transaction.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { noLinks, requireThat, inside, sha } from "../io.ts";
-import { verifyFactGrade } from "./series.ts";
+import { verifyFactGrade, verifyQualificationAccounting } from "./series.ts";
 import { eventTexts, questions } from "./questions.ts";
 import { providerContent } from "./grading.ts";
 import { dir, openSeal, put, seal, load } from "./files.ts";
@@ -210,7 +210,17 @@ export function verifyBundle(root: string) {
       /^grades\/(original|[a-f0-9-]+)\/grade\.json$/.test(n),
     )) {
       const g = openSeal(path.join(root, member));
-      verifyFactGrade(e, g, path.join(root, path.dirname(member)));
+      const folder = path.join(root, path.dirname(member));
+      verifyFactGrade(e, g, folder);
+      const accountMember = path.join(path.dirname(member), "accounting.json");
+      if (Object.hasOwn(index.members, accountMember)) {
+        const accounting = openSeal(path.join(root, accountMember));
+        requireThat(
+          accounting.grade === sha(gradeJSONBytes(g)),
+          "Accounting grade mismatch",
+        );
+        verifyQualificationAccounting(root, folder, accounting);
+      }
     }
   }
   return e;

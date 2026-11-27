@@ -136,7 +136,27 @@ export async function claimHistory(m: any, run: string) {
       const names = fs.existsSync(directory)
         ? fs.readdirSync(directory).sort()
         : [];
-      const claims = names.map((name) => {
+      const incompleteWrites: { freeze: string; run: string | null }[] = [];
+      const completeNames = names.filter((name) => {
+        // put() writes an owner-only <final name>.<uuid> before linking the
+        // committed record. A process can stop on either side of that link.
+        const temp =
+          /^([a-f0-9]{64})(?:-([a-f0-9-]{36}))?\.json\.([a-f0-9-]{36})$/.exec(
+            name,
+          );
+        if (!temp) return true;
+        const file = path.join(directory, name);
+        noLinks(file);
+        requireThat(
+          gradeUUID(temp[3]) &&
+            (!temp[2] || gradeUUID(temp[2])) &&
+            fs.lstatSync(file).isFile(),
+          "Invalid measurement claim temporary entry",
+        );
+        incompleteWrites.push({ freeze: temp[1], run: temp[2] ?? null });
+        return false;
+      });
+      const claims = completeNames.map((name) => {
         requireThat(
           /^[a-f0-9]{64}(?:-[a-f0-9-]{36})?\.json$/.test(name),
           "Invalid measurement claim filename",
@@ -174,7 +194,12 @@ export async function claimHistory(m: any, run: string) {
           format,
         };
       });
-      return { status: "RECORDED", at: new Date().toISOString(), claims };
+      return {
+        status: "RECORDED",
+        at: new Date().toISOString(),
+        claims,
+        incompleteWrites,
+      };
     });
   } catch (error: any) {
     if (["EACCES", "EIO", "ENODEV", "ESTALE"].includes(error.code))

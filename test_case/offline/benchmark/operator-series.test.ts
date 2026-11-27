@@ -479,7 +479,11 @@ print(json.dumps(dict(type="result",wire=h,session=s,raw=raw)),flush=True)
       rows.map((row) => row.verdict),
       ["JUDGE_FAILED", "FAIL", "NOT_EXECUTED"],
     );
-    assert.match(rows[0].reason!, /packet|result/i);
+    assert.equal(rows[0].reason, r.questions[0].reason);
+    assert.equal(
+      rows[0].reason,
+      "Fact response digest or question count mismatch",
+    );
     assert.equal(r.grade, diagnostic.grade);
     assert.equal(r.canonical, false);
     assert.equal(r.status, "INCOMPLETE");

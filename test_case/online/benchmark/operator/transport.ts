@@ -230,6 +230,10 @@ export async function send(
       kind,
       at: stamp,
       digest: sha(body),
+      routing: {
+        session: headers["x-opencode-session"] ?? null,
+        userAgent: headers["user-agent"] ?? null,
+      },
       body: payload,
       ceiling: reserve,
     });
@@ -334,14 +338,28 @@ export async function gateway(
 ) {
   const capability = randomUUID();
   let queue = Promise.resolve();
+  let firstFailure: string | undefined;
   const server = http.createServer(async (req, res) => {
     try {
+      requireThat(
+        !firstFailure,
+        "Workload transport stopped after first failure",
+      );
       requireThat(
         req.method === "POST" &&
           req.url === "/v1/chat/completions" &&
           req.headers.authorization === "Bearer " + capability,
         "Invalid target capability",
       );
+      const session = req.headers["x-opencode-session"],
+        agent = req.headers["user-agent"];
+      requireThat(
+        typeof session === "string" &&
+          /^[A-Za-z0-9_.:-]{1,256}$/.test(session) &&
+          agent === "secretary-pi-demo/0.2",
+        "Missing or invalid native Secretary Go routing headers",
+      );
+      const routing = { "x-opencode-session": session, "user-agent": agent };
       let size = 0;
       const chunks: Buffer[] = [];
       for await (const chunk of req) {
@@ -378,20 +396,14 @@ export async function gateway(
         save(path.join(root, "mock-wires", id + ".json"), {
           at: new Date().toISOString(),
           kind: "workload",
+          routing,
           body: payload,
           digest: sha(body),
         });
         sse = rehearsal(payload);
       } else {
         const next = queue.then(() =>
-          send(
-            root,
-            m,
-            "workload",
-            body,
-            { "user-agent": "secretary-pi-demo/0.2" },
-            signal,
-          ),
+          send(root, m, "workload", body, routing, signal),
         );
         queue = next.then(
           () => {},
@@ -402,6 +414,7 @@ export async function gateway(
       res.writeHead(200, { "Content-Type": "text/event-stream" });
       res.end(sse);
     } catch (error: any) {
+      firstFailure ??= error.message;
       save(path.join(root, "failures", randomUUID() + ".json"), {
         at: new Date().toISOString(),
         error: error.message,
@@ -420,6 +433,9 @@ export async function gateway(
   return {
     port,
     capability,
+    get firstFailure() {
+      return firstFailure;
+    },
     url: "http://127.0.0.1:" + port + "/v1",
     close: () =>
       new Promise<void>((r) => {

@@ -64,6 +64,13 @@ test("operator runs isolated target, exports, regrades and renders independently
       if (workload === "wire-rehearsal") {
         assert.ok(JSON.stringify(e.firstProbeMessages).includes("REED-843"));
         assert.ok(fs.readdirSync(path.join(root, "mock-wires")).length >= 2);
+        for (const name of fs.readdirSync(path.join(root, "mock-wires"))) {
+          const wire = JSON.parse(
+            fs.readFileSync(path.join(root, "mock-wires", name), "utf8"),
+          );
+          assert.ok(wire.routing["x-opencode-session"]);
+          assert.equal(wire.routing["user-agent"], "secretary-pi-demo/0.2");
+        }
         assert.equal(fs.existsSync(path.join(root, "transport")), false);
       }
       const bundle = path.join(temp, target + "-portable");
@@ -558,6 +565,99 @@ test("a portable judge failure can be reconciled by original execution identity"
       else process.env[k] = env[k];
     }
     if (source) fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test("the provider receives the native Secretary routing headers through the gateway", async () => {
+  const { claim, gateway } =
+    await import("../../online/benchmark/operator/transport.ts");
+  const { save } = await import("../../online/benchmark/operator/files.ts");
+  const temp = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "operator-routing-"),
+    ),
+    original = globalThis.fetch;
+  const env = { ...process.env };
+  const sockets: Awaited<ReturnType<typeof gateway>>[] = [];
+  let posts = 0;
+  try {
+    process.env.BENCHMARK_OPERATOR_ACCOUNT = path.join(temp, "account");
+    process.env.SECRETARY_BENCHMARK_GO_API_KEY = "upstream-test-key";
+    const root = path.join(temp, "run"),
+      m = {
+        config: { maxJudgeCalls: 5, maxWorkloadCalls: 11, timeoutSeconds: 15 },
+        maxWireBytes: 524288,
+        maxOutput: 49152,
+      };
+    save(path.join(root, "guard.json"), []);
+    await claim(m, "run");
+    const session = "native-fixture-conversation",
+      agent = "secretary-pi-demo/0.2";
+    globalThis.fetch = async (url, init) => {
+      if (String(url).endsWith("/usage")) {
+        const w = {
+          status: "ok",
+          percent: 0,
+          resetsAt: new Date(Date.now() + 600000).toISOString(),
+        };
+        return Response.json({ usage: { rolling: w, weekly: w, monthly: w } });
+      }
+      posts++;
+      const h = new Headers(init?.headers);
+      assert.equal(h.get("x-opencode-session"), session);
+      assert.equal(h.get("user-agent"), agent);
+      assert.equal(h.get("authorization"), "Bearer upstream-test-key");
+      assert.equal(h.has("x-private"), false);
+      const frame = {
+        model: "deepseek-v4.1-flash",
+        choices: [
+          { index: 0, delta: { content: "ok" }, finish_reason: "stop" },
+        ],
+        usage: {
+          cost: 0,
+          opencode: { billing_source: "go", list_cost: 0.002 },
+        },
+      };
+      return new Response(
+        "data: " + JSON.stringify(frame) + "\n\ndata: [DONE]\n\n",
+      );
+    };
+    for (const hasSession of [false, true]) {
+      const gate = await gateway(root, m, new AbortController().signal);
+      sockets.push(gate);
+      const body = JSON.stringify({
+        model: "deepseek-v4.1-flash",
+        stream: true,
+        max_tokens: 128,
+        messages: [],
+      });
+      const headers: Record<string, string> = {
+        authorization: "Bearer " + gate.capability,
+        "user-agent": agent,
+        "x-private": "local-only",
+      };
+      if (hasSession) headers["x-opencode-session"] = session;
+      for (let i = 0; i < (hasSession ? 2 : 1); i++) {
+        const resp = await original(gate.url + "/chat/completions", {
+          method: "POST",
+          headers,
+          body,
+        });
+        assert.equal(resp.status, hasSession ? 200 : 409);
+        await resp.text();
+      }
+      assert.equal(posts, hasSession ? 2 : 0);
+    }
+  } finally {
+    for (const gate of sockets) await gate.close();
+    globalThis.fetch = original;
+    for (const k of [
+      "BENCHMARK_OPERATOR_ACCOUNT",
+      "SECRETARY_BENCHMARK_GO_API_KEY",
+    ]) {
+      if (env[k] === undefined) delete process.env[k];
+      else process.env[k] = env[k];
+    }
     fs.rmSync(temp, { recursive: true, force: true });
   }
 });

@@ -254,6 +254,7 @@ function incomplete(root: string, output?: string) {
             .readdirSync(failures)
             .sort()
             .map((f) => load(path.join(failures, f)))
+            .sort((a, b) => String(a.at).localeCompare(String(b.at)))
         : [],
       requests: meter(root),
     });
@@ -301,6 +302,7 @@ async function assess(root: string, again: boolean) {
           .readdirSync(failures)
           .sort()
           .map((f) => load(path.join(failures, f)))
+          .sort((a, b) => String(a.at).localeCompare(String(b.at)))
       : [],
   });
   return writeReport(root, id);
@@ -463,6 +465,9 @@ async function execute(root: string, m: any, approved?: string) {
     };
     requireThat((await target.call("stop")).stopped, "Target did not stop");
     seal(path.join(root, "execution.json"), execution);
+  } catch (error) {
+    if (gate?.firstFailure) throw Error(gate.firstFailure);
+    throw error;
   } finally {
     if (
       fs.existsSync(alias) &&

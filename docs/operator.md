@@ -40,7 +40,7 @@ git -C "$BENCHMARK_HERMES_ROOT" rev-parse HEAD
 npm run benchmark -- reader-check --run RUN_UUID
 ```
 
-Replace RUN_UUID with the UUID printed by the smoke run. Reader-check makes one native Hermes turn with simulated transport and prints its source revision, wire hash and external call count. Every grading turn gets a fresh home, no tools, no fallback and one native call. The controller sends the validated wire to the fixed endpoint.
+Replace RUN_UUID with the UUID printed by the smoke run. Reader-check makes one native Hermes turn with simulated transport and prints its source revision, wire hash and external call count. Every grading turn gets a fresh home, no tools, no fallback and one native call. The controller sends the validated wire to the fixed endpoint. For workload calls it forwards the session ID produced by the pinned Pi runtime and Secretary’s own user agent. The wire rehearsal checks these headers before dispatch. [OpenCode Go client requirements](https://opencode.ai/docs/console/go/#where-can-i-use-it)
 
 Supply references to existing owner-only credential files (mode 0600). Each file uses one `NAME=value` line for the referenced variable. The controller reads only the selected field. Two references can point to a single authorized subscription for which the operator maintains a shared ledger. Set BENCHMARK_PRIOR_EXPOSURE_USD to cover unsettled or unreflected usage from earlier tools using this account. Once configured, keep the account directory across checkouts and attempts.
 

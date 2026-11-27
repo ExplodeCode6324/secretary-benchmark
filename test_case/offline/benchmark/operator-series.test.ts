@@ -6,6 +6,10 @@ import { operatorCommand } from "../../online/benchmark/operator/cli.ts";
 import { rootFor, openSeal } from "../../online/benchmark/operator/files.ts";
 import { repository } from "../../online/benchmark/io.ts";
 
+test.before(() => {
+  fs.mkdirSync(path.join(repository, ".local"), { recursive: true });
+});
+
 test("a continuous workload grades every question and replays the full denominator", async () => {
   const directory = fs.mkdtempSync(
     path.join(repository, ".local", "question-series-"),

@@ -42,7 +42,7 @@ npm run benchmark -- reader-check --run RUN_UUID
 
 Replace RUN_UUID with the UUID printed by the smoke run. Reader-check makes one native Hermes turn with simulated transport and prints its source revision, wire hash and external call count. Every grading turn gets a fresh home, no tools, no fallback and one native call. The controller sends the validated wire to the fixed endpoint. For workload calls it forwards the session ID produced by the pinned Pi runtime and Secretary’s own user agent. The wire rehearsal checks these headers before dispatch. [OpenCode Go client requirements](https://opencode.ai/docs/console/go/#where-can-i-use-it)
 
-Supply references to existing owner-only credential files (mode 0600). Each file uses one `NAME=value` line for the referenced variable. The controller reads only the selected field. Two references can point to a single authorized subscription for which the operator maintains a shared ledger. Set BENCHMARK_PRIOR_EXPOSURE_USD to cover unsettled or unreflected usage from earlier tools using this account. Once configured, keep the account directory across checkouts and attempts.
+Supply references to existing owner-only credential files (mode 0600). Each file uses one `NAME=value` line for the referenced variable. The controller reads only the selected field. Two references can point to a single authorized subscription for which the operator maintains a shared ledger. Once configured, keep the account directory across checkouts and attempts.
 
 ```sh
 export SECRETARY_BENCHMARK_GO_FILE=/private/path/to/workload.env
@@ -50,21 +50,18 @@ export SECRETARY_BENCHMARK_GO_VARIABLE=OPENCODE_GO_API_KEY
 export SECRETARY_BENCHMARK_JUDGE_FILE=/private/path/to/reader.env
 export SECRETARY_BENCHMARK_JUDGE_VARIABLE=OPENCODE_GO_API_KEY
 export BENCHMARK_OPERATOR_ACCOUNT=/private/path/to/shared-account-ledger
-npm run benchmark -- freeze --config examples/secretary-live.json
-```
-
-Review the displayed source, config, model publication and ceilings. This profile allows one target execution, at most 12 workload sends and five grading sends (calibration, two discrimination controls, original and regrade). The live example allows up to 900 seconds per RPC and HTTP send to accommodate long reasoning responses. It requires subscription billing and zero cash debit. Once authorized for this exact freeze, set its digest and run the complete pipeline.
-
-```sh
-export BENCHMARK_APPROVAL=APPROVED_DIGEST
 npm run benchmark -- evaluate --config examples/secretary-live.json
 ```
 
-To preregister a separate measurement, copy the config under .local and give its optional cohort field a new lowercase identifier. Each live cohort requires its own freeze authorization. A failed or uncertain send is retained, and the same live freeze cannot launch a replacement execution. Inspect the run's failures, transport receipts and shared ledger before deciding how to resolve an outstanding send. A changed identity, failed calibration or exhausted allowance needs a separate decision. If a controller was interrupted during an execution, use `npm run benchmark -- recover-run --run RUN_UUID` to verify and stop its own PG cluster and retain the incomplete result. Raw bundles and reports belong in private operator storage.
+One invocation runs the public case, calibration, independent grading and report. The example uses `record-only` billing. It records reported usage, list price and cash charges. Missing fields appear as unknown. Only an actual provider quota rejection is reported as a quota limit. The 12 workload and five judge request limits describe the experiment, and each send has a 900-second timeout. Each invocation starts a distinct run. Inspect the resulting UUID and first failure before repeating an interrupted experiment. The optional `freeze` command prints the exact config and published model. Set an optional `cohort` identifier to label a series.
 
-### An uncertain request
+The operator rubric `issue122-operator-reader-go-v2` applies one fixed procedure to identify the requested value from the first request and classify coverage. The controller seals the 28 private expected labels before dispatch, sends only the blind controls, and records each returned label beside its expected value locally. Qualification requires all 28 correct and both case-shaped discrimination controls. The historical R79 policy and its results keep their original version.
 
-Match the original request UUID, run, freeze and wire digest in the private transport records to the account ledger. Inspect the first HTTP record and raw provider bytes if available. Identity-only holds close the affected run when billing is verified. Financial or transport holds apply to the shared account. If the account owner elects to retain the entire request ceiling as unresolved, create a private JSON statement with attempt, run, freeze, wireDigest, disposition (`retain-full-ceiling`) and basis (the evidence reviewed). Approve the SHA-256 of those exact bytes, then run `npm run benchmark -- reconcile-call --run RUN_UUID --attempt REQUEST_UUID --evidence STATEMENT_FILE --approval STATEMENT_SHA256`. For a regrade from a portable copy use `--bundle "$BUNDLE"` in place of `--run RUN_UUID`. Keep the original execution UUID in the statement. The tool verifies the bundle and its local transport evidence against the shared ledger. The command appends the disposition, keeps the full exposure in the account and closes that freeze. It never resends the request or assigns the unknown cash amount a value. Any subsequent live cohort has its own approval.
+If a controller was interrupted during an execution, use `npm run benchmark -- recover-run --run RUN_UUID` to verify and stop its own PG cluster and retain the incomplete result. Raw bundles and reports belong in private operator storage.
+
+### Historical bounded runs
+
+For a profile explicitly using `"billingPolicy": "bounded"`, use `freeze` and set BENCHMARK_APPROVAL to the approved digest before evaluation. Set BENCHMARK_PRIOR_EXPOSURE_USD to any earlier unsettled exposure. These profiles retain their original settlement rules. Match the original request UUID, run, freeze and wire digest in the private transport records to the account ledger. Inspect the first HTTP record and raw provider bytes if available. Identity-only holds close the affected run when billing is verified. Financial or transport holds apply to the shared account. If the account owner elects to retain the entire request ceiling as unresolved, create a private JSON statement with attempt, run, freeze, wireDigest, disposition (`retain-full-ceiling`) and basis (the evidence reviewed). Approve the SHA-256 of those exact bytes, then run `npm run benchmark -- reconcile-call --run RUN_UUID --attempt REQUEST_UUID --evidence STATEMENT_FILE --approval STATEMENT_SHA256`. For a regrade from a portable copy use `--bundle "$BUNDLE"` in place of `--run RUN_UUID`. Keep the original execution UUID in the statement. The tool verifies the bundle and its local transport evidence against the shared ledger. The command appends the disposition, keeps the full exposure in the account and closes that freeze. It never resends the request or assigns the unknown cash amount a value. Any subsequent live cohort has its own approval.
 
 ## Verify and replay
 
@@ -81,7 +78,7 @@ cmp ".local/benchmark/$RUN/reports/report.md" ".local/rebuilt-$RUN/report.md"
 npm run benchmark -- compare --run "$RUN" --reference "$BUNDLE"
 ```
 
-The printed diagnostic grade UUID can replace original to render its report. Compare validates the imported bundle and prints both original verdicts and contract compatibility. Each live request must pass the returned-model and subscription checks. Keep unverified cross-system comparisons separate.
+The printed diagnostic grade UUID can replace original to render its report. Compare validates the imported bundle and prints both original verdicts and contract compatibility. Each live request must match its frozen serving identity. Keep unverified cross-system comparisons separate.
 
 To archive a stopped original facility, configure the existing ignored .local/archive.json with the mount and destination on a mounted private volume (mode 0600). Preview with `npm run benchmark -- archive-run --run "$RUN"`. To publish the verified full archive and release the owned source, add `--apply true`. The archive retains the private PG state, failures and all raw data. Keep portable copies and their diagnostic grades in private storage as well.
 

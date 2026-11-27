@@ -97,7 +97,11 @@ function meter(root: string) {
         cost: r?.billing?.list_cost ?? null,
         cash: r?.billing?.cash_debit_usd ?? null,
         elapsedMs: r?.elapsedMs ?? null,
-        unknownExposure: r && !r.hold ? 0 : req.data.ceiling,
+        accountingStatus:
+          r?.accountingStatus ??
+          (r?.billing?.list_cost == null ? "UNKNOWN" : "REPORTED"),
+        unknownExposure:
+          r && !r.hold && r.billing?.list_cost != null ? 0 : req.data.ceiling,
       };
     });
 }
@@ -198,14 +202,21 @@ function writeReport(root: string, id: string, output?: string) {
       "External judge calls": record.requests.filter(
         (r: any) => r.kind === "judge",
       ).length,
+      "Requests with incomplete billing": record.requests.filter(
+        (r: any) => r.accountingStatus === "UNKNOWN",
+      ).length,
       "Known list cost (USD)": record.requests.reduce(
         (sum: number, r: any) => sum + (r.cost ?? 0),
         0,
       ),
-      "Unknown exposure (USD)": record.requests.reduce(
-        (sum: number, r: any) => sum + r.unknownExposure,
-        0,
-      ),
+      "Unknown exposure (USD)": record.requests.some(
+        (r: any) => r.unknownExposure === null,
+      )
+        ? "UNKNOWN"
+        : record.requests.reduce(
+            (sum: number, r: any) => sum + r.unknownExposure,
+            0,
+          ),
       "Execution (ms)": run.durationMs,
     }).map(([k, v]) => "| " + k + " | " + v + " |"),
     "",
@@ -356,7 +367,7 @@ async function execute(root: string, m: any, approved?: string) {
       verifyApproval(m, approved);
       credential("workload");
       credential("judge");
-      const route = await checkRoute();
+      const route = await checkRoute(c.billingPolicy === "record-only");
       save(path.join(root, "route.json"), route);
       gate = await gateway(root, m, signal.signal);
     }
@@ -533,16 +544,21 @@ export async function operatorCommand(command: string, args: string[]) {
     const c = config(options["--config"] ?? "examples/secretary-smoke.json"),
       m = manifest(c);
     if (command === "freeze") {
-      const model = c.workload === "opencode-go" ? await checkRoute() : null;
+      const model =
+        c.workload === "opencode-go"
+          ? await checkRoute(c.billingPolicy === "record-only")
+          : null;
       return {
         digest: bound(m),
         manifest: m,
         publishedModel: model?.published_version ?? null,
         maxTariffEquivalent:
-          c.workload !== "opencode-go"
-            ? 0
-            : (c.maxWorkloadCalls + c.maxJudgeCalls) *
-              goReaderPolicy.request_ceiling_usd_equivalent.candidate,
+          c.billingPolicy === "record-only"
+            ? null
+            : c.workload !== "opencode-go"
+              ? 0
+              : (c.maxWorkloadCalls + c.maxJudgeCalls) *
+                goReaderPolicy.request_ceiling_usd_equivalent.candidate,
       };
     }
     if (c.workload === "opencode-go")

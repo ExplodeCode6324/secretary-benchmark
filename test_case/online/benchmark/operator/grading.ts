@@ -14,6 +14,7 @@ import {
   admittedReaderQuery,
   goReader,
   goVisibilityVersion,
+  operatorVisibilityVersion,
   goReaderPolicy,
 } from "../stage-c-visibility-rubric.ts";
 import { repository, requireThat, sha } from "../io.ts";
@@ -25,6 +26,14 @@ const named = {
   model: goReaderPolicy.model,
   reasoning_effort: "max",
 };
+function operatorRubric() {
+  return {
+    ...scoringRubric(goReader, goVisibilityVersion),
+    version: operatorVisibilityVersion,
+    visibilityProcedure:
+      "First identify the specific current value the probe asks for. Determine whether the captured first-request content identifies that value. Knowing a historical value or knowing that the value is undetermined does not identify a current value. If the value is identifiable, return RESIDENT. Otherwise check all four surfaces: return COLD with complete inspectable coverage or OPAQUE with incomplete coverage. Apply this same test independently to each visibility decision.",
+  };
+}
 const evidence = (text: string) => ({
   id: randomUUID(),
   text: safeExcerpt(text),
@@ -56,7 +65,7 @@ export function candidate(execution: any, control?: "good" | "bad") {
   ];
   return {
     packet: {
-      rubric: scoringRubric(goReader, goVisibilityVersion),
+      rubric: operatorRubric(),
       assertions: ["natural_access"],
       evidence: rows,
     },
@@ -249,6 +258,8 @@ async function grade(
   );
   dir(folder);
   const query = admittedReaderQuery(packet);
+  if (key)
+    seal(path.join(folder, "answer-key.json"), { packet: bound(packet), key });
   save(path.join(folder, "input.json"), { packet, query, digest: sha(query) });
   let raw: string;
   if (m.config.judge === "fixture") {
@@ -268,9 +279,14 @@ async function grade(
     save(path.join(folder, "response.json"), response);
     raw = response.raw;
   }
-  return validateJudgeReply(raw, packet, key);
+  return validateJudgeReply(raw, packet, key, folder);
 }
-export function validateJudgeReply(raw: string, packet: any, key?: any[]) {
+export function validateJudgeReply(
+  raw: string,
+  packet: any,
+  key?: any[],
+  folder?: string,
+) {
   const mark = JSON.parse(
     raw
       .trim()
@@ -281,16 +297,32 @@ export function validateJudgeReply(raw: string, packet: any, key?: any[]) {
     "Judge identity or packet mismatch",
   );
   if (key) {
+    const labels = Array.isArray(mark.labels) ? mark.labels : [];
+    const items = key.map(({ id, expected }) => {
+      const returned = labels
+        .filter((label: any) => label?.id === id)
+        .map((label: any) => label.verdict);
+      return {
+        id,
+        expected,
+        returned,
+        matched: returned.length === 1 && returned[0] === expected,
+      };
+    });
+    const matched = items.filter((item) => item.matched).length;
+    if (folder)
+      seal(path.join(folder, "comparison.json"), {
+        packet: bound(packet),
+        response: sha(raw),
+        matched,
+        returned: labels.length,
+        items,
+      });
     requireThat(
-      mark.labels?.length === key.length &&
-        key.length === 28 &&
-        key.every(
-          (k) =>
-            mark.labels.filter(
-              (l: any) => l.id === k.id && l.verdict === k.expected,
-            ).length === 1,
-        ),
-      "28-item calibration failed",
+      key.length === 28 &&
+        labels.length === key.length &&
+        matched === key.length,
+      `28-item calibration failed (${matched}/28 matched, ${labels.length} labels returned)`,
     );
   } else {
     const ids = new Set(packet.evidence.map((r: any) => r.id));
@@ -352,7 +384,13 @@ export async function gradeExecution(root: string, regrade: boolean) {
     }
     const c = targetedControls(),
       prefix = path.join(root, "calibrations", randomUUID());
-    await grade(root, m, path.join(prefix, "calibration"), c.packet, c.key);
+    await grade(
+      root,
+      m,
+      path.join(prefix, "calibration"),
+      { ...c.packet, rubric: operatorRubric() },
+      c.key,
+    );
     for (const control of ["good", "bad"] as const) {
       const p = candidate(execution, control);
       const mark = await grade(
@@ -373,6 +411,9 @@ export async function gradeExecution(root: string, regrade: boolean) {
       for (const name of [
         "input.json",
         "response.json",
+        ...(stage === "calibration"
+          ? ["answer-key.json", "comparison.json"]
+          : []),
         ...(m.config.judge === "hermes-go"
           ? ["wire.json", "provider-content.json"]
           : []),

@@ -10,6 +10,7 @@ import {
   syncDir,
 } from "../io.ts";
 import { gradeJSONBytes, gradeUUID } from "../grading-transaction.ts";
+import { operatorVisibilityVersion } from "../stage-c-visibility-rubric.ts";
 import { caseDefinition } from "../stage-c-plan.ts";
 import { verifySut } from "../source.ts";
 import { execFileSync } from "node:child_process";
@@ -74,7 +75,9 @@ export function config(file: string) {
     "timeoutSeconds",
   ];
   requireThat(
-    Object.keys(c).every((k) => keys.includes(k) || k === "cohort") &&
+    Object.keys(c).every(
+      (k) => keys.includes(k) || k === "cohort" || k === "billingPolicy",
+    ) &&
       (c.cohort === undefined ||
         (typeof c.cohort === "string" &&
           /^[a-z0-9][a-z0-9-]{0,63}$/.test(c.cohort))) &&
@@ -82,7 +85,10 @@ export function config(file: string) {
     "Invalid configuration keys",
   );
   requireThat(
-    c.version === 1 &&
+    (c.billingPolicy === undefined ||
+      c.billingPolicy === "record-only" ||
+      c.billingPolicy === "bounded") &&
+      c.version === 1 &&
       c.suite === "public-resident-v1" &&
       c.case === "C04-resident" &&
       ["secretary", "scripted-good", "scripted-bad"].includes(c.target) &&
@@ -105,7 +111,9 @@ export function config(file: string) {
       (c.workload === "fixture" || c.target === "secretary"),
     "Mixing real and simulated profiles is unsupported",
   );
-  return c;
+  return c.workload === "opencode-go"
+    ? { ...c, billingPolicy: c.billingPolicy ?? "record-only" }
+    : c;
 }
 export function manifest(c: any) {
   const git = (...args: string[]) =>
@@ -131,7 +139,7 @@ export function manifest(c: any) {
     implementation: Object.fromEntries(
       files.map((f) => [f, sha(fs.readFileSync(path.join(source, f)))]),
     ),
-    judgePolicy: "issue122-comparison-reader-go-v1",
+    judgePolicy: operatorVisibilityVersion,
     readerRelease:
       c.judge === "hermes-go"
         ? "97a9ae8ee55d31bebce49f1fb6b5ef775323976a"
@@ -146,7 +154,10 @@ export function manifest(c: any) {
       c.judge === "fixture" ? "scripted-judge" : "deepseek-v4.1-flash",
     effort: c.judge === "fixture" ? null : "max",
     protocol: 1,
-    tariff: { inputUSDPerMillion: 0.3, outputUSDPerMillion: 1.2 },
+    tariff:
+      c.billingPolicy === "record-only"
+        ? null
+        : { inputUSDPerMillion: 0.3, outputUSDPerMillion: 1.2 },
     maxWireBytes: 524288,
     maxOutput: 49152,
     rubricSource: sha(
@@ -157,7 +168,10 @@ export function manifest(c: any) {
 }
 export const bound = (m: any) => sha(gradeJSONBytes(m));
 export function verifyApproval(m: any, approval?: string) {
-  if (m.config.workload === "opencode-go")
+  if (
+    m.config.workload === "opencode-go" &&
+    (m.config.billingPolicy !== "record-only" || approval !== undefined)
+  )
     requireThat(
       bound(m) === approval,
       "LIVE_FREEZE_REQUIRED: run freeze, then supply the approved digest",

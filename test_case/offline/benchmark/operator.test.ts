@@ -281,7 +281,7 @@ test("the fixed-prompt judge rejects a mislabelled control and false visibility 
   labels[0].verdict = "invalid";
   assert.throws(
     () => validateJudgeReply(JSON.stringify(mark), packet, key),
-    /calibration failed/,
+    /calibration failed \(27\/28 matched, 28 labels returned\)/,
   );
   const evidence = {
     evidence: [{ id: "reply", text: "Observable reply: REED-843" }],
@@ -659,5 +659,105 @@ test("the provider receives the native Secretary routing headers through the gat
       else process.env[k] = env[k];
     }
     fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test("record-only runs retain missing billing and stop on an actual provider rejection", async () => {
+  const { claim, send } =
+    await import("../../online/benchmark/operator/transport.ts");
+  const { seal } = await import("../../online/benchmark/operator/files.ts");
+  const parent = fs.mkdtempSync(
+    path.join(fs.realpathSync(os.tmpdir()), "operator-record-"),
+  );
+  const originalFetch = globalThis.fetch;
+  const settings = {
+    BENCHMARK_OPERATOR_ACCOUNT: path.join(parent, "account"),
+    SECRETARY_BENCHMARK_GO_API_KEY: "workload-fixture",
+    SECRETARY_BENCHMARK_JUDGE_KEY: "judge-fixture",
+  };
+  const previous = Object.fromEntries(
+    Object.keys(settings).map((k) => [k, process.env[k]]),
+  );
+  Object.assign(process.env, settings);
+  const m = {
+    config: {
+      billingPolicy: "record-only",
+      maxJudgeCalls: 5,
+      maxWorkloadCalls: 12,
+      timeoutSeconds: 15,
+    },
+    maxWireBytes: 1000,
+    maxOutput: 256,
+  };
+  const body = JSON.stringify({
+    model: "deepseek-v4.1-flash",
+    stream: true,
+    max_tokens: 128,
+    messages: [],
+  });
+  let calls = 0;
+  try {
+    globalThis.fetch = async (url, init) => {
+      assert.ok(String(url).endsWith("/chat/completions"));
+      assert.equal(init?.method, "POST");
+      calls++;
+      if (calls === 3)
+        return Response.json(
+          { error: { code: "insufficient_quota" } },
+          { status: 429 },
+        );
+      const frame = {
+        model: "deepseek-v4.1-flash",
+        choices: [
+          { index: 0, delta: { content: "ok" }, finish_reason: "stop" },
+        ],
+        usage:
+          calls === 2
+            ? {
+                cost: 1.5,
+                opencode: { list_cost: 9, billing_source: "balance" },
+              }
+            : undefined,
+      };
+      return new Response(
+        "data: " + JSON.stringify(frame) + "\n\ndata: [DONE]\n\n",
+      );
+    };
+    const root = path.join(parent, "run-one");
+    await claim(m, "run-one");
+    seal(path.join(root, "execution.json"), { id: "run-one" });
+    await send(root, m, "workload", body);
+    await send(root, m, "judge", body);
+    const receipts = fs
+      .readdirSync(path.join(root, "transport"))
+      .filter((n) => n.endsWith(".response.json"))
+      .map((n) =>
+        JSON.parse(fs.readFileSync(path.join(root, "transport", n), "utf8")),
+      );
+    const unknown = receipts.find((r) => r.kind === "workload");
+    const known = receipts.find((r) => r.kind === "judge");
+    assert.equal(unknown.accountingStatus, "UNKNOWN");
+    assert.equal(unknown.cost, null);
+    assert.equal(unknown.usage, null);
+    assert.equal(known.cost, 9);
+    assert.equal(known.billing.cash_debit_usd, 1.5);
+    await assert.rejects(
+      send(root, m, "workload", body),
+      /PROVIDER_QUOTA_LIMIT HTTP 429/,
+    );
+    await assert.rejects(
+      send(root, m, "workload", body),
+      /no usable model response/,
+    );
+    await claim(m, "run-two");
+    await send(path.join(parent, "run-two"), m, "workload", body);
+    assert.equal(calls, 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [k, v] of Object.entries(previous)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    fs.rmSync(parent, { recursive: true, force: true });
   }
 });

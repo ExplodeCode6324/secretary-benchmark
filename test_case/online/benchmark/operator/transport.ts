@@ -73,7 +73,7 @@ export function credential(kind: "workload" | "judge") {
   );
   return value;
 }
-export async function checkRoute() {
+export async function checkRoute(recordOnly = false) {
   const response = await fetch(goCatalogue, {
     redirect: "error",
     signal: AbortSignal.timeout(15000),
@@ -83,6 +83,14 @@ export async function checkRoute() {
     (x: any) => x.id === goModel,
   );
   const rule = goModelRule(model, new Date().toISOString(), true);
+  if (recordOnly)
+    return {
+      published_version: rule.published_version,
+      checked_at: rule.checked_at,
+      publication_url: rule.publication_url,
+      provenance_sha256: rule.provenance_sha256,
+      published_cost: model.cost ?? null,
+    };
   requireThat(
     model.cost.text.input.price === 0.15 &&
       model.cost.text.output.price === 0.6 &&
@@ -93,18 +101,24 @@ export async function checkRoute() {
   );
   return rule;
 }
+// An explicit bounded cohort is single-use. Ordinary measured runs each own their claim.
+function claimFile(account: string, m: any, run: string) {
+  const name =
+    m.config.billingPolicy === "record-only" ? bound(m) + "-" + run : bound(m);
+  return path.join(account, "claims", name + ".json");
+}
 export async function claim(m: any, run: string) {
   const account = accountDirectory();
   const digest = bound(m);
   const binding = { digest, run };
   await lease(account, async () => {
-    save(path.join(account, "claims", digest + ".json"), binding);
+    save(claimFile(account, m, run), binding);
   });
 }
 export async function remainingJudgeCalls(m: any, run: string) {
   const account = accountDirectory();
   return lease(account, async () => {
-    const binding = load(path.join(account, "claims", bound(m) + ".json"));
+    const binding = load(claimFile(account, m, run));
     requireThat(
       binding.run === run && binding.digest === bound(m),
       "Freeze claimed by a different run",
@@ -135,7 +149,7 @@ export async function send(
       kind === "judge"
         ? openSeal(path.join(root, "execution.json")).id
         : path.basename(root);
-  const binding = load(path.join(account, "claims", freeze + ".json"));
+  const binding = load(claimFile(account, m, run));
   requireThat(
     binding.run === run && binding.digest === freeze,
     "Freeze claimed by a different run",
@@ -161,6 +175,7 @@ export async function send(
     "Unapproved wire model, bytes or output ceiling",
   );
   requireThat(!body.includes(key), "Credential in outbound body");
+  const recordOnly = m.config.billingPolicy === "record-only";
   const started = Date.now(),
     stamp = new Date().toISOString();
   const ledger = path.join(account, "requests");
@@ -175,48 +190,63 @@ export async function send(
       prior.filter((x) => x.kind === kind).length < countLimit,
       "Call allowance exhausted",
     );
-    let local = Number(process.env.BENCHMARK_PRIOR_EXPOSURE_USD ?? 0);
-    requireThat(Number.isFinite(local) && local >= 0, "Invalid prior exposure");
-    for (const entry of entries) {
-      const reconciled = path.join(ledger, entry.id + ".reconciled.json");
-      if (fs.existsSync(reconciled)) {
-        const r = load(reconciled);
+    if (recordOnly) {
+      // Transport and identity failures end the affected measurement. Other runs'
+      // billing records and allowance estimates do not pre-empt an actual request.
+      for (const entry of prior) {
+        const f = path.join(ledger, entry.id + ".settled.json");
         requireThat(
-          r.run === entry.run &&
-            r.freeze === entry.freeze &&
-            r.cost === entry.ceiling &&
-            r.attempt === entry.id,
-          "Invalid reconciliation",
+          fs.existsSync(f) && !load(f).hold,
+          "Earlier request has no usable model response in this run",
         );
-        requireThat(
-          entry.run !== run,
-          "Reconciled run is closed; freeze a new authorized cohort",
-        );
-        if (Date.now() - entry.start < 31 * 86400e3) local += entry.ceiling;
-        continue;
       }
-      const closed = path.join(ledger, entry.id + ".settled.json");
+    } else {
+      let local = Number(process.env.BENCHMARK_PRIOR_EXPOSURE_USD ?? 0);
       requireThat(
-        fs.existsSync(closed),
-        "Uncertain provider send; reconcile first",
+        Number.isFinite(local) && local >= 0,
+        "Invalid prior exposure",
       );
-      const receipt = load(closed);
-      requireThat(
-        !receipt.hold || (receipt.holdScope === "run" && entry.run !== run),
-        "Provider settlement hold; reconcile the original attempt",
+      for (const entry of entries) {
+        const reconciled = path.join(ledger, entry.id + ".reconciled.json");
+        if (fs.existsSync(reconciled)) {
+          const r = load(reconciled);
+          requireThat(
+            r.run === entry.run &&
+              r.freeze === entry.freeze &&
+              r.cost === entry.ceiling &&
+              r.attempt === entry.id,
+            "Invalid reconciliation",
+          );
+          requireThat(
+            entry.run !== run,
+            "Reconciled run is closed; freeze a new authorized cohort",
+          );
+          if (Date.now() - entry.start < 31 * 86400e3) local += entry.ceiling;
+          continue;
+        }
+        const closed = path.join(ledger, entry.id + ".settled.json");
+        requireThat(
+          fs.existsSync(closed),
+          "Uncertain provider send; reconcile first",
+        );
+        const receipt = load(closed);
+        requireThat(
+          !receipt.hold || (receipt.holdScope === "run" && entry.run !== run),
+          "Provider settlement hold; reconcile the original attempt",
+        );
+        if (Date.now() - entry.start < 31 * 86400e3) local += receipt.cost;
+      }
+      const usage = await checkGoUsage(key, fetch);
+      const remainingJudge = Math.max(
+        0,
+        m.config.maxJudgeCalls - prior.filter((x) => x.kind === "judge").length,
       );
-      if (Date.now() - entry.start < 31 * 86400e3) local += receipt.cost;
+      checkGoHeadroom(
+        usage,
+        reserve * (kind === "workload" ? 1 + remainingJudge : 1),
+        { rolling: local, monthly: local, weekly: local },
+      );
     }
-    const usage = await checkGoUsage(key, fetch);
-    const remainingJudge = Math.max(
-      0,
-      m.config.maxJudgeCalls - prior.filter((x) => x.kind === "judge").length,
-    );
-    checkGoHeadroom(
-      usage,
-      reserve * (kind === "workload" ? 1 + remainingJudge : 1),
-      { rolling: local, monthly: local, weekly: local },
-    );
     save(path.join(ledger, attempt + ".reservation.json"), {
       id: attempt,
       run,
@@ -224,7 +254,7 @@ export async function send(
       kind,
       start: started,
       wireDigest: sha(body),
-      ceiling: reserve,
+      ceiling: recordOnly ? null : reserve,
     });
     save(path.join(root, "transport", attempt + ".request.json"), {
       kind,
@@ -235,7 +265,7 @@ export async function send(
         userAgent: headers["user-agent"] ?? null,
       },
       body: payload,
-      ceiling: reserve,
+      ceiling: recordOnly ? null : reserve,
     });
   });
   const timeout = AbortSignal.timeout(m.config.timeoutSeconds * 1000);
@@ -261,11 +291,30 @@ export async function send(
     ...status,
     body: sse,
   });
+  // Distinguish explicit provider quota errors from transport errors and local estimates.
+  let quotaError = false;
+  if (!r.ok) {
+    let message = sse;
+    try {
+      const e = JSON.parse(sse).error;
+      if (e && typeof e === "object")
+        message = [e.code, e.type, e.name, e.message].join(" ");
+    } catch {
+      /* Some providers return a plain-text error. */
+    }
+    quotaError =
+      /insufficient[ _-](?:quota|credits|balance)|quota.{0,30}(?:exceed|exhaust|limit|reach)|(?:usage|allowance|spending)[ _-]limit|allowance.{0,30}exhaust/i.test(
+        message,
+      );
+  }
   const meter = goResponseMeter(),
     ids = new Set<string>();
   let usage: any = null,
     finished = false,
-    parseError = r.ok ? null : "Provider HTTP " + r.status;
+    parseError = r.ok
+      ? null
+      : (quotaError ? "PROVIDER_QUOTA_LIMIT HTTP " : "Provider HTTP ") +
+        r.status;
   if (!parseError)
     try {
       for (const line of sse.split(/\r?\n/)) {
@@ -295,20 +344,20 @@ export async function send(
       ),
   );
   const cost = meter.receipt.list_cost;
-  const financialHold =
-    parseError ||
-    targetedBillingHold(
-      meter.receipt,
-      finished && sse.includes("[DONE]") && usage !== null,
-    ) ||
-    (cost === null || cost > reserve ? "Unverified tariff" : null);
+  const complete = finished && sse.includes("[DONE]");
+  const financialHold = recordOnly
+    ? null
+    : targetedBillingHold(meter.receipt, complete && usage !== null) ||
+      (cost === null || cost > reserve ? "Unverified tariff" : null);
+  const protocolHold =
+    parseError || (!complete ? "Incomplete provider stream" : null);
   const identityHold =
     identityChanged ||
     ids.size !== 1 ||
     ![goModel, goCanonicalModel].includes([...ids][0])
       ? "Unexpected or changed served identity"
       : null;
-  const hold = financialHold || identityHold;
+  const hold = protocolHold || financialHold || identityHold;
   const receipt = {
     at: stamp,
     id: attempt,
@@ -316,10 +365,18 @@ export async function send(
     models: [...ids],
     usage,
     elapsedMs: Date.now() - started,
-    cost: cost ?? reserve,
+    cost: recordOnly ? cost : (cost ?? reserve),
+    accountingStatus:
+      usage === null || cost === null || meter.receipt.cash_debit_usd === null
+        ? "UNKNOWN"
+        : "REPORTED",
     billing: meter.receipt,
     hold,
-    holdScope: financialHold ? "account" : identityHold ? "run" : null,
+    holdScope: hold
+      ? recordOnly || (!protocolHold && !financialHold)
+        ? "run"
+        : "account"
+      : null,
   };
   save(path.join(root, "transport", attempt + ".response.json"), {
     ...receipt,

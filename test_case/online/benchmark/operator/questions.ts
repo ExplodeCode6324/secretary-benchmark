@@ -34,8 +34,20 @@ export function validateTimeline(value: unknown): asserts value is Timeline {
     "Supply an ordered timeline with information and questions",
   );
   const ids = new Set<string>();
+  const delivered = new Set<string>();
   for (const event of value) {
     requireThat(event && nonempty(event.text), "Missing timeline event text");
+    requireThat(
+      (event.text.match(/[\p{L}\p{N}]/gu) ?? []).length >= 6,
+      "Use distinctive event text with at least six letters or numbers for the future-event guard",
+    );
+    requireThat(
+      ![...delivered].some(
+        (prior) => prior !== event.text && prior.includes(event.text),
+      ),
+      "A future event is contained in earlier input; use the full repeated wording or a distinct event",
+    );
+    delivered.add(event.text);
     if (event.type === "information") {
       requireThat(
         Object.keys(event).every((k) => ["type", "text"].includes(k)),

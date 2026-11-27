@@ -271,6 +271,33 @@ test("fact scoring uses the time-specific key, validates every ID, and handles m
 });
 
 test("the future-event and reference canaries stop outbound requests before transport", async () => {
+  const { validateTimeline } =
+    await import("../../online/benchmark/operator/questions.ts");
+  const question = {
+    type: "question",
+    id: "first",
+    text: "今天应该去哪里取件？",
+    reference: {
+      required: ["邮局"],
+      forbidden: [],
+      abstention: "NOT_ACCEPTABLE",
+    },
+  };
+  assert.doesNotThrow(() =>
+    validateTimeline([question, { ...question, id: "again" }]),
+  );
+  assert.throws(
+    () => validateTimeline([{ ...question, text: "ok?" }]),
+    /six letters/,
+  );
+  assert.throws(
+    () =>
+      validateTimeline([
+        { type: "information", text: "上条提问是" + question.text },
+        question,
+      ]),
+    /contained/,
+  );
   const { gateway } =
     await import("../../online/benchmark/operator/transport.ts");
   const { save } = await import("../../online/benchmark/operator/files.ts");

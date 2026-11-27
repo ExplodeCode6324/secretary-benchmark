@@ -119,6 +119,41 @@ export async function claim(m: any, run: string) {
     save(file, binding);
   });
 }
+export async function claimHistory(m: any, run: string) {
+  if (m.config.workload !== "opencode-go") return undefined;
+  // Snapshots contain only run IDs and freezes. Never copy credentials or private
+  // account paths into a report. The lock makes the observed claim set consistent.
+  const at = new Date().toISOString();
+  try {
+    const account = accountDirectory();
+    return await lease(account, async () => {
+      const directory = path.join(account, "claims");
+      const claims = fs.existsSync(directory)
+        ? fs
+            .readdirSync(directory)
+            .filter((name) => name.endsWith(".json"))
+            .sort()
+            .map((name) => {
+              const { digest, run: claimedRun } = load(
+                path.join(directory, name),
+              );
+              requireThat(
+                typeof claimedRun === "string" && /^[a-f0-9]{64}$/.test(digest),
+                "Invalid measurement claim",
+              );
+              return {
+                run: claimedRun,
+                freeze: digest,
+                current: claimedRun === run && digest === bound(m),
+              };
+            })
+        : [];
+      return { status: "RECORDED", at: new Date().toISOString(), claims };
+    });
+  } catch {
+    return { status: "UNAVAILABLE", at, claims: null };
+  }
+}
 export async function remainingJudgeCalls(m: any, run: string) {
   const account = accountDirectory();
   return lease(account, async () => {
@@ -198,6 +233,21 @@ export async function send(
       // Transport and identity failures end the affected measurement. Other runs'
       // billing records and allowance estimates do not pre-empt an actual request.
       for (const entry of prior) {
+        // A failed target delivery does not make the independently sealed prefix
+        // uncertain. The judge may assess it without resending the delivery.
+        if (
+          m.suite?.timeline &&
+          kind === "judge" &&
+          entry.kind === "workload"
+        ) {
+          const file = path.join(ledger, entry.id + ".settled.json");
+          const hold = fs.existsSync(file) ? load(file).hold : null;
+          requireThat(
+            !String(hold).includes("PROVIDER_QUOTA_LIMIT"),
+            "PROVIDER_QUOTA_LIMIT on workload",
+          );
+          continue;
+        }
         const f = path.join(ledger, entry.id + ".settled.json");
         requireThat(
           fs.existsSync(f) && !load(f).hold,
@@ -314,6 +364,7 @@ export async function send(
   const meter = goResponseMeter(),
     ids = new Set<string>();
   let usage: any = null,
+    finishReason: string | null = null,
     finished = false,
     parseError = r.ok
       ? null
@@ -329,7 +380,11 @@ export async function send(
         if (frame.model) ids.add(frame.model);
         meter.observe(frame);
         if (frame.usage) usage = frame.usage;
-        if (frame.choices?.some((x: any) => x.finish_reason)) finished = true;
+        for (const choice of frame.choices ?? [])
+          if (choice.index === 0 && choice.finish_reason) {
+            finishReason = choice.finish_reason;
+            finished = true;
+          }
       }
     } catch {
       parseError = "Malformed provider response";
@@ -367,6 +422,7 @@ export async function send(
     id: attempt,
     kind,
     models: [...ids],
+    finishReason,
     usage,
     elapsedMs: Date.now() - started,
     cost: recordOnly ? cost : (cost ?? reserve),
@@ -389,6 +445,8 @@ export async function send(
   });
   save(path.join(ledger, attempt + ".settled.json"), receipt);
   requireThat(!receipt.hold, receipt.hold ?? "Provider hold");
+  if (kind === "judge" && m.suite?.timeline && finishReason !== "stop")
+    throw Error("JUDGE_FINISH_REASON: " + finishReason);
   return sse;
 }
 export async function gateway(
@@ -400,6 +458,8 @@ export async function gateway(
   const capability = randomUUID();
   let queue = Promise.resolve();
   let firstFailure: string | undefined;
+  let activeSequence = 0,
+    sendsThisEvent = 0;
   const server = http.createServer(async (req, res) => {
     try {
       requireThat(
@@ -429,10 +489,31 @@ export async function gateway(
         chunks.push(chunk);
       }
       const body = Buffer.concat(chunks).toString("utf8");
-      const blocked = load(path.join(root, "guard.json"));
+      const guard = load(path.join(root, "guard.json"));
+      const blocked = Array.isArray(guard) ? guard : guard.blocked;
+      if (m.suite?.timeline) {
+        requireThat(
+          Number.isSafeInteger(guard.sequence) &&
+            guard.sequence >= activeSequence &&
+            guard.sequence > 0,
+          "Invalid active timeline event",
+        );
+        if (activeSequence !== guard.sequence) {
+          activeSequence = guard.sequence;
+          sendsThisEvent = 0;
+        }
+        requireThat(
+          ++sendsThisEvent <= m.config.workloadCallsPerEvent,
+          "Workload request allowance exhausted for this event",
+        );
+      }
       function containsGuard(value: unknown): boolean {
         if (typeof value === "string")
-          return blocked.some((text: string) => value.includes(text));
+          return blocked.some((text: string) =>
+            m.suite?.timeline && text.length < 8
+              ? value === text
+              : value.includes(text),
+          );
         return (
           value !== null &&
           typeof value === "object" &&

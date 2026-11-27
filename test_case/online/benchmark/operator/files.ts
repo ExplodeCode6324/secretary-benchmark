@@ -11,6 +11,7 @@ import {
 } from "../io.ts";
 import { gradeJSONBytes, gradeUUID } from "../grading-transaction.ts";
 import { operatorVisibilityVersion } from "../stage-c-visibility-rubric.ts";
+import { factPolicy, validateTimeline } from "./questions.ts";
 import { caseDefinition } from "../stage-c-plan.ts";
 import { verifySut } from "../source.ts";
 import { execFileSync } from "node:child_process";
@@ -62,6 +63,8 @@ export function openSeal(p: string) {
 }
 export function config(file: string) {
   const c = load(path.resolve(file));
+  const series = c.suite === "question-series-v1";
+  if (series) validateTimeline(c.timeline);
   const keys = [
     "version",
     "suite",
@@ -70,9 +73,12 @@ export function config(file: string) {
     "workload",
     "judge",
     "repeat",
-    "maxWorkloadCalls",
+    ...(series
+      ? ["workloadCallsPerEvent", "caseVersion"]
+      : ["maxWorkloadCalls"]),
     "maxJudgeCalls",
     "timeoutSeconds",
+    ...(series ? ["timeline", "questionsPerRequest"] : []),
   ];
   requireThat(
     Object.keys(c).every(
@@ -88,9 +94,15 @@ export function config(file: string) {
     (c.billingPolicy === undefined ||
       c.billingPolicy === "record-only" ||
       c.billingPolicy === "bounded") &&
-      c.version === 1 &&
-      c.suite === "public-resident-v1" &&
-      c.case === "C04-resident" &&
+      c.version === (series ? 2 : 1) &&
+      (series
+        ? typeof c.case === "string" &&
+          /^[a-zA-Z0-9_-]+$/.test(c.case) &&
+          Number.isSafeInteger(c.questionsPerRequest) &&
+          c.questionsPerRequest > 0 &&
+          c.questionsPerRequest <= 12 &&
+          c.caseVersion === 1
+        : c.suite === "public-resident-v1" && c.case === "C04-resident") &&
       ["secretary", "scripted-good", "scripted-bad"].includes(c.target) &&
       ["fixture", "wire-rehearsal", "opencode-go"].includes(c.workload) &&
       ["fixture", "hermes-go"].includes(c.judge) &&
@@ -98,12 +110,17 @@ export function config(file: string) {
       Number.isSafeInteger(c.timeoutSeconds) &&
       c.timeoutSeconds >= 10 &&
       c.timeoutSeconds <= 1200 &&
-      Number.isSafeInteger(c.maxWorkloadCalls) &&
-      c.maxWorkloadCalls >= 1 &&
-      c.maxWorkloadCalls <= 32 &&
+      (series
+        ? Number.isSafeInteger(c.workloadCallsPerEvent) &&
+          c.workloadCallsPerEvent > 0 &&
+          Number.isSafeInteger(c.timeline.length * c.workloadCallsPerEvent)
+        : Number.isSafeInteger(c.maxWorkloadCalls) &&
+          c.maxWorkloadCalls >= 1 &&
+          c.maxWorkloadCalls <= 32) &&
       Number.isSafeInteger(c.maxJudgeCalls) &&
-      c.maxJudgeCalls >= 5 &&
-      c.maxJudgeCalls <= 10,
+      (series
+        ? c.maxJudgeCalls >= 2
+        : c.maxJudgeCalls >= 5 && c.maxJudgeCalls <= 10),
     "Unsupported profile or limits; see the operator README",
   );
   requireThat(
@@ -111,6 +128,7 @@ export function config(file: string) {
       (c.workload === "fixture" || c.target === "secretary"),
     "Mixing real and simulated profiles is unsupported",
   );
+  if (series) c.maxWorkloadCalls = c.timeline.length * c.workloadCallsPerEvent;
   return c.workload === "opencode-go"
     ? { ...c, billingPolicy: c.billingPolicy ?? "bounded" }
     : c;
@@ -128,18 +146,20 @@ export function manifest(c: any) {
   const source = path.join(repository, "test_case/online/benchmark/operator");
   const files = fs
     .readdirSync(source)
-    .filter((f) => /\.(?:ts|py)$/.test(f))
+    .filter((f) => /\.(?:ts|py|mjs|txt|json)$/.test(f))
     .sort();
   return {
     version: 1,
     config: c,
     source: git("rev-parse", "HEAD"),
     sut: verifySut(),
-    suite: caseDefinition(c.case),
+    suite: c.timeline
+      ? { id: c.case, timeline: c.timeline }
+      : caseDefinition(c.case),
     implementation: Object.fromEntries(
       files.map((f) => [f, sha(fs.readFileSync(path.join(source, f)))]),
     ),
-    judgePolicy: operatorVisibilityVersion,
+    judgePolicy: c.timeline ? factPolicy : operatorVisibilityVersion,
     readerRelease:
       c.judge === "hermes-go"
         ? "97a9ae8ee55d31bebce49f1fb6b5ef775323976a"

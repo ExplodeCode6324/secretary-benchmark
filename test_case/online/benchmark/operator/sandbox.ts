@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
+import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
 import { repository, requireThat } from "../io.ts";
 
@@ -102,15 +103,25 @@ export function startTarget(work: string, ports: number[], timeout: number) {
   const log = fs.openSync(path.join(work, "target.stderr"), "wx", 0o600);
   let child;
   try {
-    child = spawn(launcher, args, {
-      detached: true,
-      cwd: work,
-      env: {
-        ...env,
-        PATH: path.dirname(exe) + ":/opt/homebrew/bin:/usr/bin:/bin",
+    child = spawn(
+      exe,
+      [
+        path.join(directory, "supervisor.mjs"),
+        "--run",
+        token,
+        launcher,
+        ...args,
+      ],
+      {
+        detached: true,
+        cwd: work,
+        env: {
+          ...env,
+          PATH: path.dirname(exe) + ":/opt/homebrew/bin:/usr/bin:/bin",
+        },
+        stdio: ["pipe", "pipe", log, "ipc"],
       },
-      stdio: ["pipe", "pipe", log],
-    });
+    );
   } finally {
     fs.closeSync(log);
   }
@@ -126,13 +137,7 @@ export function startTarget(work: string, ports: number[], timeout: number) {
     proc.once("close", () => resolve()),
   );
   const stopGroup = () => {
-    if (proc.pid && proc.exitCode === null && proc.signalCode === null) {
-      try {
-        process.kill(-proc.pid, "SIGKILL");
-      } catch (e: any) {
-        if (e.code !== "ESRCH") throw e;
-      }
-    }
+    if (proc.connected) proc.send("stop", () => {});
   };
   return {
     token,
@@ -173,9 +178,26 @@ export function startTarget(work: string, ports: number[], timeout: number) {
       const timer = setTimeout(stopGroup, 3000);
       try {
         await closed;
+        if (proc.pid) await confirmGroupStopped(proc.pid);
       } finally {
         clearTimeout(timer);
       }
     },
   };
+}
+
+// Never signal a numeric group ID after the supervisor exits. A new process
+// could have claimed that ID. An unconfirmed stop leaves the facility recoverable.
+export async function confirmGroupStopped(pgid: number) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(-pgid, 0);
+    } catch (error: any) {
+      if (error.code === "ESRCH") return;
+      throw error;
+    }
+    await delay(25);
+  }
+  throw Error("Target process group has not confirmed exit");
 }

@@ -16,6 +16,7 @@ let app: App | undefined;
 let service: ApplicationService | undefined;
 let observations: any[] = [];
 let target = "";
+let questionSeries = false;
 let scriptedSetup = "";
 const commands = [
   "capabilities",
@@ -54,6 +55,7 @@ async function handle(command: string, data: any) {
         );
     }
     target = data.target;
+    questionSeries = data.questionSeries === true;
     if (target === "secretary") {
       let config;
       if (data.workload === "fixture") {
@@ -83,6 +85,14 @@ async function handle(command: string, data: any) {
     let observation;
     if (app && service) {
       const before = new Set(app.store.all("ModelCall").map((row) => row.id));
+      const previousPage: any = questionSeries
+        ? await service.query(
+            service.principal,
+            "timeline",
+            new URLSearchParams({ limit: "1" }),
+          )
+        : null;
+      const previousTail = previousPage?.items.at(-1)?.id;
       const receipt = service.command(service.principal, "messages", {
         request_id: data.id,
         text: data.text,
@@ -100,21 +110,84 @@ async function handle(command: string, data: any) {
       const calls = app.store
         .all<any>("ModelCall")
         .filter((c) => !before.has(c.id));
-      const messages = timeline.items.filter(
-        (item: any) =>
-          item.kind === "message" &&
-          item.role === "assistant" &&
-          calls.some((c) => c.id === item.call_id),
+      let freshItems = timeline.items;
+      if (questionSeries) {
+        let page = timeline;
+        while (
+          page.before &&
+          (!previousTail ||
+            !freshItems.some((item: any) => item.id === previousTail))
+        ) {
+          page = await service.query(
+            service.principal,
+            "timeline",
+            new URLSearchParams({
+              limit: "200",
+              direction: "before",
+              cursor: page.before,
+            }),
+          );
+          freshItems = [...page.items, ...freshItems];
+        }
+        if (previousTail)
+          freshItems = freshItems.slice(
+            freshItems.findIndex((item: any) => item.id === previousTail) + 1,
+          );
+      }
+      const callIds = new Set(calls.map((c) => c.id));
+      const visible = freshItems.filter(
+        (item: any) => item.kind === "message" && item.role === "assistant",
       );
+      const belongs = (item: any) => {
+        if (!callIds.has(item.call_id)) return false;
+        if (!questionSeries) return true;
+        const call = app!.store.get<any>("ModelCall", item.call_id);
+        const ctx = app!.store.get<any>("Context", call.context_id);
+        return (
+          ctx.loop_id === input.loop_id &&
+          ctx.purpose === "MAIN" &&
+          call.completed_at &&
+          call.completed_at <= input.updated_at &&
+          !item.incomplete &&
+          !item.withdrawn
+        );
+      };
+      const messages = visible.filter(belongs);
+      if (questionSeries)
+        for (const msg of messages) {
+          while (msg.next_cursor) {
+            const piece: any = await service.query(
+              service.principal,
+              "messages/" + msg.id + "/content",
+              new URLSearchParams({ cursor: msg.next_cursor }),
+            );
+            if (
+              piece.id !== msg.id ||
+              piece.revision !== msg.revision ||
+              piece.next_cursor === msg.next_cursor
+            )
+              throw Error("Unstable answer body");
+            msg.text += piece.text;
+            msg.next_cursor = piece.next_cursor;
+          }
+        }
       observation = {
         inputId,
         loop: input.loop_id,
         receipt,
         messages,
+        ...(questionSeries
+          ? {
+              otherMessages: visible.filter((item: any) => !belongs(item)),
+              handledAt: input.updated_at,
+            }
+          : {}),
         calls: calls.map((c) => ({
           id: c.id,
           state: c.state,
-          request: app!.store.read(c.request),
+          ...(questionSeries
+            ? { contextId: c.context_id }
+            : { request: app!.store.read(c.request) }),
         })),
         effects: app.store.all("Operation").map((op: any) => ({
           id: op.id,

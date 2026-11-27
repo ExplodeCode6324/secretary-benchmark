@@ -1,5 +1,7 @@
 # Secretary Benchmark
 
+For an ordered multi-question workload with factual reference answers, run `npm run benchmark -- evaluate --config examples/secretary-questions.json`. The [operator guide](docs/operator.md) explains the per-question results, configurable packet sizes and offline replay.
+
 Run one configured evaluation with `npm run benchmark -- evaluate --config examples/secretary-smoke.json`. For the live DeepSeek workload, fixed-prompt Hermes judge, portable regrade and offline report, follow the [operator guide](docs/operator.md).
 
 A separately versioned benchmark harness for [Secretary](https://github.com/ExplodeCode6324/Secretary). It owns isolated test facilities, immutable grading receipts, fixed-input replay and coverage reports. The Secretary SUT is pinned in `sut.lock.json` and checked out recursively under `sut/secretary`.

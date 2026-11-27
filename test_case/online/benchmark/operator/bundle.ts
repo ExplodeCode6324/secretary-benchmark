@@ -1,6 +1,8 @@
+import { gradeJSONBytes } from "../grading-transaction.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { noLinks, requireThat, inside, sha } from "../io.ts";
+import { eventTexts, questions } from "./questions.ts";
 import { providerContent } from "./grading.ts";
 import { dir, openSeal, put, seal, load } from "./files.ts";
 
@@ -8,6 +10,8 @@ import { dir, openSeal, put, seal, load } from "./files.ts";
 // Include the source inputs and receipts so a portable copy can also be audited.
 const components = [
   "manifest.json",
+  "series-started.json",
+  "references.json",
   "execution.json",
   "incomplete.json",
   "route.json",
@@ -128,6 +132,24 @@ export function verifyBundle(root: string) {
         JSON.stringify(openSeal(path.join(root, "manifest.json"))),
     "Bundle identity mismatch",
   );
+  const texts = eventTexts(e.manifest.suite);
+  if (
+    e.manifest.suite.timeline &&
+    fs.existsSync(path.join(root, "references.json"))
+  ) {
+    const source = openSeal(path.join(root, "references.json"));
+    requireThat(
+      sha(gradeJSONBytes(source.references)) ===
+        sha(gradeJSONBytes(questions(e.manifest.suite, []).map((q) => q.item))),
+      "Host references differ from manifest",
+    );
+  }
+  requireThat(
+    e.partial
+      ? e.events.length <= texts.length
+      : e.events.length === texts.length,
+    "Incomplete exported timeline",
+  );
   for (const [i, event] of e.events.entries()) {
     requireThat(
       JSON.stringify(
@@ -135,11 +157,26 @@ export function verifyBundle(root: string) {
       ) === JSON.stringify(event),
       "Event trace mismatch",
     );
+    if (e.manifest.suite.timeline) {
+      const ack = openSeal(path.join(root, "events", i + ".ack.json"));
+      requireThat(
+        ack.observation === sha(gradeJSONBytes(event)) &&
+          ack.input ===
+            sha(
+              gradeJSONBytes(
+                load(path.join(root, "events", i + ".input.json")),
+              ),
+            ) &&
+          ack.sequence === i + 1 &&
+          ack.inputId === event.inputId,
+        "Event receipt mismatch",
+      );
+    }
     const input = load(path.join(root, "events", i + ".input.json"));
     requireThat(
       input.id === event.id &&
         input.sequence === i + 1 &&
-        input.text === [...e.manifest.suite.setup, e.manifest.suite.probe][i],
+        input.text === texts[i],
       "Event input mismatch",
     );
   }

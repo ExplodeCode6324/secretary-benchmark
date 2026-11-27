@@ -24,6 +24,31 @@ git -c protocol.file.allow=always \
 
 On macOS with Homebrew, use `brew install postgresql@18` and add `$(brew --prefix postgresql@18)/bin` to PATH. Linux installations can use the PGDG postgresql-18 package. Work in a clean checkout outside any deployment instance. The operator creates a private PG cluster, delivers the setup and probe to the pinned Secretary, grades the observable answer and prints the run UUID, verdict and two report paths. A measured FAIL exits successfully. An incomplete or ungraded measurement exits with an error and retains its first failure. The smoke configuration uses scripted model responses. To exercise the real Secretary request builder and local mock SSE endpoint, substitute `examples/secretary-wire.json`. Both configurations work offline after installation.
 
+## Score an ordered workload against reference answers
+
+Run the public offline example with one command:
+
+```sh
+npm run benchmark -- evaluate --config examples/secretary-questions.json
+```
+
+Keep the question-series v2 configuration on the controller. The case-package version is 1. Put information and questions in `timeline` in the order Secretary should receive them. Use a unique `id` for each question. Write its `reference.required` and `reference.forbidden` facts as they stood when the question was asked. Set the abstention policy to REQUIRED, ACCEPTABLE or NOT_ACCEPTABLE. The controller delivers only each event's text through Secretary's normal messages endpoint. It retains the full observed reply from the corresponding handled loop and stores other output separately.
+
+The public example uses scripted model transport and a fixture judge. For a live series on supported macOS, configure credentials and pinned Hermes as described below. Copy the example to a private controller location, select workload `opencode-go`, judge `hermes-go`, billing policy `record-only` and an appropriate per-send timeout. A live run sends the selected event data to the worker and the question, standard facts and recorded answer to the judge. The workload call limit is `timeline.length × workloadCallsPerEvent`. Choose `maxJudgeCalls` for both the original and any diagnostic regrade; each grade includes its own qualification. The operator refuses an insufficient allowance before sending a scoring packet.
+
+The fixed [factual grading prompt](../test_case/online/benchmark/operator/fact-grading-v1.txt) applies to every series packet. A packet contains only its included questions, each question’s own versioned reference and recorded answer. `questionsPerRequest` defaults to the value in the example; set it to 1 for single-question requests or up to 12 to batch. The controller may split sooner to fit the input bytes and number of facts qualified by the preregistered controls. Each packet gets a fresh, tool-free reader session. The controller freezes packet membership and reference/answer digests before dispatch. It accepts each expected question and fact ID exactly once and records the first response. An oversized item or invalid reply stays in the report. Failed packets are never retried automatically.
+
+| Host outcome | Interpretation |
+| --- | --- |
+| PASS | All required facts are supported or the answer explicitly abstains where permitted. |
+| PARTIAL | At least one required fact is supported and the remaining required facts are absent. |
+| FAIL | A required fact is contradicted, a forbidden claim is asserted, abstention violates policy, or no required fact is supported. These conditions take precedence over partial credit. |
+| MISSING | A handled question received no visible answer. |
+| JUDGE_FAILED | The report records the oversize, calibration, transport or validation failure, or an unsent packet. |
+| NOT_EXECUTED | The question has no confirmed delivery and observation. |
+
+An acknowledged refusal is an answer and is judged under its question’s abstention policy. Reports retain the full planned denominator and original order. Each grade records its account claim snapshot when available. A timed-out event stops further input; already acknowledged questions remain eligible. Use `recover-run` for an interrupted controller and `regrade` for an explicit diagnostic from the sealed evidence. Open `grades/original/plan.json` for packet membership and `grades/original/packets/N/input.json` for the exact question packet and rendered prompt. During a live grade the sister `wire.json` records the native request. The original C04 example below uses the historical access-and-visibility rubric.
+
 ## Live evaluation
 
 The live example runs one public synthetic C04-resident case. The worker receives the Elm token in the first event and is asked for it in the second. The selected workload profile uses Secretary with OpenCode Go DeepSeek V4.1 Flash at low reasoning. The independent native Hermes reader uses the same published model at max reasoning and a fixed versioned prompt. It calibrates on 28 labels and a known-good and known-bad answer before grading the actual reply. Inspect the count, first answer, judgement and citations in the private run bundle. A resident-use result covers one assertion in one case.

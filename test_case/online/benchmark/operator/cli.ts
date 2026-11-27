@@ -50,6 +50,7 @@ import {
   accountDirectory,
   checkRoute,
   claim,
+  claimHistory,
   gateway,
   credential,
   reconcile,
@@ -62,6 +63,21 @@ import {
   archiveFacility,
   assertArchiveTargetExternal,
 } from "../archive.ts";
+import {
+  verifySeriesPlan,
+  seriesRecord,
+  seriesMarkdown,
+  initialOutcomes,
+} from "./series.ts";
+import {
+  factPlan,
+  factQuery,
+  factPacket,
+  fixtureFacts,
+  factResults,
+  eventTexts,
+  questions,
+} from "./questions.ts";
 import { pack, verifyBundle } from "./bundle.ts";
 function receipts(root: string) {
   const tr = path.join(root, "transport");
@@ -121,7 +137,7 @@ function writeReport(root: string, id: string, output?: string) {
   }
   const run = openSeal(path.join(root, "execution.json"));
   const g = openSeal(gradePath);
-  for (const key of ["input", "response"])
+  for (const key of run.manifest.suite.timeline ? [] : ["input", "response"])
     requireThat(
       g[key] === bound(load(path.join(root, "grades", id, key + ".json"))),
       "Grade evidence mismatch",
@@ -137,6 +153,20 @@ function writeReport(root: string, id: string, output?: string) {
     summary.grade === bound(g),
     "Accounting does not match sealed grade",
   );
+  if (run.manifest.suite.timeline) {
+    const r = seriesRecord(run, g, summary, path.dirname(gradePath));
+    const out =
+      output ?? path.join(root, "reports", ...(id === "original" ? [] : [id]));
+    emitReports(out, r, seriesMarkdown(r));
+    return {
+      run: run.id,
+      grade: id,
+      status: r.status,
+      counts: r.counts,
+      report: path.join(out, "report.md"),
+      json: path.join(out, "report.json"),
+    };
+  }
   const orig =
     id === "original"
       ? g
@@ -172,6 +202,7 @@ function writeReport(root: string, id: string, output?: string) {
     firstFailures: summary.failures,
     executionMs: run.durationMs,
     requests: summary.requests,
+    claimHistory: summary.claimHistory,
     scoringEvidence: {
       calibration: g.calibration,
       input: g.input,
@@ -227,6 +258,16 @@ function writeReport(root: string, id: string, output?: string) {
   ].join("\n");
   const dest =
     output ?? path.join(root, "reports", ...(id === "original" ? [] : [id]));
+  emitReports(dest, record, md);
+  return {
+    run: run.id,
+    grade: id,
+    verdict: a.verdict,
+    report: path.join(dest, "report.md"),
+    json: path.join(dest, "report.json"),
+  };
+}
+function emitReports(dest: string, record: unknown, md: string) {
   dir(dest);
   for (const [name, bytes] of [
     ["report.json", gradeJSONBytes(record)],
@@ -241,15 +282,12 @@ function writeReport(root: string, id: string, output?: string) {
       );
     else put(file, bytes);
   }
-  return {
-    run: run.id,
-    grade: id,
-    verdict: a.verdict,
-    report: path.join(dest, "report.md"),
-    json: path.join(dest, "report.json"),
-  };
 }
-function incomplete(root: string, output?: string) {
+function incomplete(
+  root: string,
+  output?: string,
+  history?: Awaited<ReturnType<typeof claimHistory>>,
+) {
   const file = path.join(root, "incomplete.json");
   if (!fs.existsSync(file)) {
     const m = openSeal(path.join(root, "manifest.json")),
@@ -258,8 +296,31 @@ function incomplete(root: string, output?: string) {
     seal(file, {
       run: path.basename(root),
       case: m.config.case,
-      status: hasRun ? "UNGRADED" : "INCOMPLETE",
-      coverage: { planned: 1, executed: hasRun ? 1 : 0, graded: 0 },
+      status:
+        hasRun && !openSeal(path.join(root, "execution.json")).partial
+          ? "UNGRADED"
+          : "INCOMPLETE",
+      claimHistory: history,
+      coverage: m.suite.timeline
+        ? {
+            planned: questions(m.suite, []).length,
+            executed: hasRun
+              ? questions(
+                  m.suite,
+                  openSeal(path.join(root, "execution.json")).events,
+                ).filter((q) => q.inputId).length
+              : 0,
+            graded: 0,
+          }
+        : { planned: 1, executed: hasRun ? 1 : 0, graded: 0 },
+      questions: m.suite.timeline
+        ? initialOutcomes({
+            manifest: m,
+            events: hasRun
+              ? openSeal(path.join(root, "execution.json")).events
+              : [],
+          })
+        : undefined,
       firstFailures: fs.existsSync(failures)
         ? fs
             .readdirSync(failures)
@@ -300,12 +361,24 @@ function incomplete(root: string, output?: string) {
     json: path.join(out, "report.json"),
   };
 }
+async function publishIncomplete(root: string) {
+  const m = openSeal(path.join(root, "manifest.json"));
+  return incomplete(
+    root,
+    undefined,
+    await claimHistory(m, path.basename(root)),
+  );
+}
 async function assess(root: string, again: boolean) {
   const id = await gradeExecution(root, again),
     grade = openSeal(path.join(root, "grades", id, "grade.json"));
   const failures = path.join(root, "failures");
   seal(path.join(root, "grades", id, "accounting.json"), {
     grade: bound(grade),
+    claimHistory: await claimHistory(
+      openSeal(path.join(root, "manifest.json")),
+      openSeal(path.join(root, "execution.json")).id,
+    ),
     at: new Date().toISOString(),
     requests: meter(root),
     failures: fs.existsSync(failures)
@@ -318,7 +391,46 @@ async function assess(root: string, again: boolean) {
   });
   return writeReport(root, id);
 }
-async function execute(root: string, m: any, approved?: string) {
+export function sealPrefix(root: string, m: any) {
+  const started = openSeal(path.join(root, "series-started.json")),
+    events = [];
+  requireThat(
+    started.manifest === bound(m) && started.id === path.basename(root),
+    "Series ownership mismatch",
+  );
+  const texts = eventTexts(m.suite);
+  for (let i = 0; i < texts.length; i++) {
+    const prefix = path.join(root, "events", String(i));
+    if (!fs.existsSync(prefix + ".ack.json")) break;
+    const ack = openSeal(prefix + ".ack.json"),
+      input = load(prefix + ".input.json"),
+      observation = load(prefix + ".observation.json");
+    requireThat(
+      ack.sequence === i + 1 &&
+        ack.input === bound(input) &&
+        ack.observation === bound(observation) &&
+        input.text === texts[i] &&
+        input.id === observation.id &&
+        ack.inputId === observation.inputId,
+      "Invalid acknowledged prefix",
+    );
+    events.push(observation);
+  }
+  seal(path.join(root, "execution.json"), {
+    schema: 2,
+    id: started.id,
+    manifest: m,
+    events,
+    partial: true,
+    durationMs: Date.now() - started.at,
+  });
+}
+async function execute(
+  root: string,
+  m: any,
+  approved?: string,
+  configPath?: string,
+) {
   const start = Date.now(),
     id = path.basename(root),
     work = path.join(root, "target");
@@ -331,6 +443,19 @@ async function execute(root: string, m: any, approved?: string) {
   put(path.join(work, "control"), Buffer.from(control));
   fs.symlinkSync(privateFile, alias);
   const c = m.config;
+  const denied = [privateFile, alias];
+  let referenceCanary: string | undefined;
+  if (m.suite.timeline) {
+    referenceCanary = randomUUID();
+    const ref = path.join(root, "references.json");
+    seal(ref, {
+      canary: referenceCanary,
+      references: questions(m.suite, []).map((q) => q.item),
+    });
+    const otherAlias = path.join(work, "reference-alias");
+    fs.symlinkSync(ref, otherAlias);
+    denied.push(ref, otherAlias, path.resolve(configPath!));
+  }
   const db =
     c.target === "secretary"
       ? await newDatabase(path.join(root, "pg/data"))
@@ -391,18 +516,25 @@ async function execute(root: string, m: any, approved?: string) {
     );
     const ready = await target.call("start", {
       target: c.target,
+      questionSeries: !!m.suite.timeline,
       workload: c.workload,
       control,
-      denied: [privateFile, alias],
+      denied,
       dsn: db ? coreDSN(db) : null,
       gateway: gate?.url,
       capability: gate?.capability,
     });
     requireThat(
-      ready.ready && ready.denied === 2,
+      ready.ready && ready.denied === denied.length,
       "Target isolation preflight failed",
     );
     if (c.workload === "opencode-go") await claim(m, id);
+    if (m.suite.timeline)
+      seal(path.join(root, "series-started.json"), {
+        id,
+        manifest: bound(m),
+        at: start,
+      });
     const captured = () =>
       c.workload === "wire-rehearsal"
         ? fs
@@ -413,15 +545,27 @@ async function execute(root: string, m: any, approved?: string) {
             }))
         : receipts(root).filter((x) => x.name.endsWith(".request.json"));
     if (c.workload === "wire-rehearsal") dir(path.join(root, "mock-wires"));
-    const texts = [...m.suite.setup, m.suite.probe],
+    const texts = eventTexts(m.suite),
       events: any[] = [];
     let probeBefore = new Set<string>();
     for (const [i, text] of texts.entries()) {
-      writeJSON(path.join(root, "guard.json"), [
+      const blocked = [
         sentinel,
-        ...texts.slice(i + 1),
-      ]);
-      if (i === texts.length - 1)
+        ...(referenceCanary ? [referenceCanary] : []),
+        ...texts
+          .slice(i + 1)
+          .filter(
+            (future) =>
+              !texts
+                .slice(0, i + 1)
+                .some((delivered) => delivered.includes(future)),
+          ),
+      ];
+      writeJSON(
+        path.join(root, "guard.json"),
+        m.suite.timeline ? { sequence: i + 1, blocked } : blocked,
+      );
+      if (!m.suite.timeline && i === texts.length - 1)
         probeBefore = new Set(captured().map((x) => x.name));
       const event = { id: randomUUID(), sequence: i + 1, text };
       save(path.join(root, "events", String(i) + ".input.json"), event);
@@ -435,6 +579,13 @@ async function execute(root: string, m: any, approved?: string) {
         "Missing normal-entry acknowledgement",
       );
       save(path.join(root, "events", String(i) + ".observation.json"), value);
+      if (m.suite.timeline)
+        seal(path.join(root, "events", String(i) + ".ack.json"), {
+          sequence: i + 1,
+          input: bound(event),
+          observation: bound(value),
+          inputId: value.inputId,
+        });
       events.push(value);
     }
     requireThat(
@@ -442,27 +593,31 @@ async function execute(root: string, m: any, approved?: string) {
       "Target export differs from observations",
     );
     requireThat(
-      events.at(-1).messages.some((r: any) => r.text?.trim()),
+      m.suite.timeline ||
+        events.at(-1).messages.some((r: any) => r.text?.trim()),
       "Missing observable final answer",
     );
     requireThat(
       !fs.existsSync(path.join(root, "failures")),
       "Target transport failed; inspect the first dispatch failure",
     );
-    const wire = captured()
-      .filter((x) => !probeBefore.has(x.name))
-      .sort((a, b) => a.data.at.localeCompare(b.data.at))[0];
-    if (c.workload === "opencode-go")
+    const wire = m.suite.timeline
+      ? undefined
+      : captured()
+          .filter((x) => !probeBefore.has(x.name))
+          .sort((a, b) => a.data.at.localeCompare(b.data.at))[0];
+    if (!m.suite.timeline && c.workload === "opencode-go")
       requireThat(
         wire && wire.data.kind === "workload",
         "Missing first probe wire",
       );
-    const firstProbeMessages =
-      wire?.data.body.messages ??
-      events.at(-1).calls[0]?.request?.messages ??
-      (c.target.startsWith("scripted-")
-        ? texts.map((text) => ({ role: "user", content: text }))
-        : []);
+    const firstProbeMessages = m.suite.timeline
+      ? undefined
+      : (wire?.data.body.messages ??
+        events.at(-1).calls[0]?.request?.messages ??
+        (c.target.startsWith("scripted-")
+          ? texts.map((text) => ({ role: "user", content: text }))
+          : []));
     const execution = {
       schema: 1,
       id,
@@ -477,6 +632,12 @@ async function execute(root: string, m: any, approved?: string) {
     requireThat((await target.call("stop")).stopped, "Target did not stop");
     seal(path.join(root, "execution.json"), execution);
   } catch (error) {
+    if (
+      m.suite.timeline &&
+      fs.existsSync(path.join(root, "series-started.json")) &&
+      !fs.existsSync(path.join(root, "execution.json"))
+    )
+      sealPrefix(root, m);
     if (gate?.firstFailure) throw Error(gate.firstFailure);
     throw error;
   } finally {
@@ -486,10 +647,24 @@ async function execute(root: string, m: any, approved?: string) {
       fs.readlinkSync(alias) === privateFile
     )
       fs.unlinkSync(alias);
+    if (referenceCanary) {
+      const link = path.join(work, "reference-alias");
+      if (
+        fs.lstatSync(link).isSymbolicLink() &&
+        fs.readlinkSync(link) === path.join(root, "references.json")
+      )
+        fs.unlinkSync(link);
+    }
     signal.abort();
-    if (target) await target.close();
-    if (gate) await gate.close();
-    if (db && pgRunning(db)) await stopDatabase(db);
+    try {
+      if (target) await target.close();
+    } finally {
+      try {
+        if (gate) await gate.close();
+      } finally {
+        if (db && pgRunning(db)) await stopDatabase(db);
+      }
+    }
     seal(path.join(root, "stopped.json"), {
       id,
       at: new Date().toISOString(),
@@ -578,6 +753,7 @@ export async function operatorCommand(command: string, args: string[]) {
           root,
           m,
           options["--approval"] ?? process.env.BENCHMARK_APPROVAL,
+          options["--config"] ?? "examples/secretary-smoke.json",
         );
         return assess(root, false);
       });
@@ -586,7 +762,17 @@ export async function operatorCommand(command: string, args: string[]) {
         at: new Date().toISOString(),
         error: error.message,
       });
-      const result = incomplete(root);
+      if (
+        c.timeline &&
+        fs.existsSync(path.join(root, "stopped.json")) &&
+        fs.existsSync(path.join(root, "execution.json")) &&
+        !fs.existsSync(path.join(root, "grades", "original"))
+      ) {
+        const partial = await assess(root, false);
+        console.error(JSON.stringify(partial));
+        throw error;
+      }
+      const result = await publishIncomplete(root);
       console.error(JSON.stringify(result));
       throw error;
     }
@@ -618,7 +804,17 @@ export async function operatorCommand(command: string, args: string[]) {
         marker.repository === repository && gradeUUID(marker.nonce),
         "Unknown facility",
       );
+      const m = openSeal(path.join(root, "manifest.json"));
+      const sealRecoveredPrefix = () => {
+        if (
+          m.suite.timeline &&
+          fs.existsSync(path.join(root, "series-started.json")) &&
+          !fs.existsSync(path.join(root, "execution.json"))
+        )
+          sealPrefix(root, m);
+      };
       if (fs.existsSync(path.join(root, "stopped.json"))) {
+        sealRecoveredPrefix();
         if (fs.existsSync(path.join(root, "grades/original/accounting.json")))
           return writeReport(root, "original");
         if (!fs.existsSync(path.join(root, "incomplete.json")))
@@ -626,18 +822,8 @@ export async function operatorCommand(command: string, args: string[]) {
             at: new Date().toISOString(),
             error: "Recovered stopped facility with unpublished original grade",
           });
-        return incomplete(root);
+        return publishIncomplete(root);
       }
-      const owner = openSeal(path.join(root, "ownership.json")),
-        db = openSeal(path.join(root, "pg/recovery.json"));
-      requireThat(
-        owner.id === path.basename(root) &&
-          db.directory === path.join(root, "pg/data") &&
-          owner.directory === db.directory &&
-          owner.systemID === db.systemID &&
-          controlID(db) === db.systemID,
-        "PG ownership mismatch",
-      );
       const workerFile = path.join(root, "worker.json");
       if (fs.existsSync(workerFile)) {
         const worker = openSeal(workerFile);
@@ -652,17 +838,32 @@ export async function operatorCommand(command: string, args: string[]) {
           if (e.code !== "ESRCH") throw e;
         }
       }
-      await stopDatabase(db);
+      let systemID;
+      if (m.config.target === "secretary") {
+        const owner = openSeal(path.join(root, "ownership.json")),
+          db = openSeal(path.join(root, "pg/recovery.json"));
+        requireThat(
+          owner.id === path.basename(root) &&
+            db.directory === path.join(root, "pg/data") &&
+            owner.directory === db.directory &&
+            owner.systemID === db.systemID &&
+            controlID(db) === db.systemID,
+          "PG ownership mismatch",
+        );
+        await stopDatabase(db);
+        systemID = db.systemID;
+      }
+      sealRecoveredPrefix();
       seal(path.join(root, "stopped.json"), {
-        id: owner.id,
-        systemID: db.systemID,
+        id: path.basename(root),
+        systemID,
         at: new Date().toISOString(),
       });
       save(path.join(root, "failures", randomUUID() + ".json"), {
         at: new Date().toISOString(),
         error: "Interrupted execution; owned facility recovered",
       });
-      return incomplete(root);
+      return publishIncomplete(root);
     });
   }
   if (command === "archive-run") {
@@ -710,6 +911,40 @@ export async function operatorCommand(command: string, args: string[]) {
       );
       return g.mark.assertions[0].verdict;
     };
+    if (x.manifest.suite.timeline || y.manifest.suite.timeline) {
+      requireThat(
+        x.manifest.suite.timeline && y.manifest.suite.timeline,
+        "Incompatible scoring policies",
+      );
+      const records = [root, other].map((dir, i) => {
+        const folder = path.join(dir, "grades", "original"),
+          g = openSeal(path.join(folder, "grade.json")),
+          accounting = openSeal(path.join(folder, "accounting.json"));
+        requireThat(
+          g.execution === bound([x, y][i]) &&
+            accounting.grade === bound(g) &&
+            g.canonical &&
+            g.id === "original",
+          "Series reference mismatch",
+        );
+        return seriesRecord([x, y][i], g, accounting, folder);
+      });
+      const ids = [
+        ...new Set(records.flatMap((r) => r.questions.map((q: any) => q.id))),
+      ];
+      return {
+        sameContract: bound(x.manifest) === bound(y.manifest),
+        coverage: records.map((r) => r.coverage),
+        questions: ids.map((id) => ({
+          id,
+          verdicts: records.map(
+            (r) =>
+              r.questions.find((q: any) => q.id === id)?.verdict ??
+              "NOT_IN_PACKAGE",
+          ),
+        })),
+      };
+    }
     return {
       verdicts: [grade(root), grade(other)],
       sameContract: bound(x.manifest) === bound(y.manifest),
@@ -722,6 +957,28 @@ export async function operatorCommand(command: string, args: string[]) {
   );
   const e = openSeal(path.join(root, "execution.json"));
   if (command === "reader-check") {
+    if (e.manifest.suite.timeline) {
+      const p = factPlan(e),
+        packets = p.batches.map(factPacket),
+        sessions = [];
+      for (const packet of packets) {
+        const folder = path.join(root, "reader-check", randomUUID());
+        dir(folder);
+        const receipt = await nativeTurn(
+          folder,
+          factQuery(packet),
+          async () => mockStream(fixtureFacts(packet)),
+          120000,
+        );
+        factResults(receipt.raw, packet);
+        sessions.push({
+          session: receipt.session,
+          wire: receipt.wire,
+          ids: packet.items.map((i) => i.question_id),
+        });
+      }
+      return { externalCalls: 0, sessions };
+    }
     const q = admittedReaderQuery(candidate(e, "good").packet),
       folder = path.join(root, "reader-check", randomUUID());
     dir(folder);
@@ -748,6 +1005,11 @@ export async function operatorCommand(command: string, args: string[]) {
     options["--approval"] ?? process.env.BENCHMARK_APPROVAL,
   );
   verifyJudgeSource(e.manifest);
+  if (
+    e.manifest.suite.timeline &&
+    fs.existsSync(path.join(root, "grades/original/plan.json"))
+  )
+    verifySeriesPlan(path.join(root, "grades/original"), e);
   try {
     return await lease(root, async () => assess(root, true));
   } catch (error: any) {

@@ -119,7 +119,13 @@ async function main() {
         )))
   ) {
     const { operatorCommand } = await import("./operator/cli.ts");
-    console.log(JSON.stringify(await operatorCommand(command, args), null, 2));
+    const result: any = await operatorCommand(command, args);
+    console.log(JSON.stringify(result, null, 2));
+    if (
+      ["evaluate", "regrade"].includes(command) &&
+      ["INCOMPLETE", "UNGRADED"].includes(result.status)
+    )
+      process.exitCode = 1;
     return;
   }
   for (let i = 0; i < args.length; i += 2) {

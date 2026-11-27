@@ -19,6 +19,7 @@ import {
 } from "../stage-c-visibility-rubric.ts";
 import { repository, requireThat, sha } from "../io.ts";
 import { send, remainingJudgeCalls } from "./transport.ts";
+import { gradeSeries } from "./series.ts";
 import { bound, dir, save, seal, openSeal } from "./files.ts";
 
 const named = {
@@ -365,6 +366,37 @@ export async function gradeExecution(root: string, regrade: boolean) {
   const id = regrade ? randomUUID() : "original",
     folder = path.join(root, "grades", id);
   dir(folder);
+  if (m.suite.timeline) {
+    requireThat(
+      process.env.BENCHMARK_DISABLE_JUDGE !== "1",
+      "Judge disabled by operator",
+    );
+    return gradeSeries(
+      root,
+      folder,
+      id,
+      execution,
+      async (sub, query, bytes) => {
+        const response = await nativeTurn(
+          sub,
+          query,
+          async (wire) => {
+            requireThat(
+              Buffer.byteLength(wire.body) === bytes,
+              "Native judge wire length differs from qualification plan",
+            );
+            return send(root, m, "judge", wire.body, {
+              "x-opencode-session": wire.session,
+              "user-agent": wire.userAgent,
+            });
+          },
+          m.config.timeoutSeconds * 1000,
+        );
+        save(path.join(sub, "response.json"), response);
+        return response.raw;
+      },
+    );
+  }
   const calRoot = path.join(root, "calibrations");
   dir(calRoot);
   const prior = fs

@@ -41,6 +41,8 @@ jobs:
           brew install postgresql@18
           echo "$(brew --prefix postgresql@18)/bin" >> "$GITHUB_PATH"
       - run: npm ci
+      - name: Operator acceptance fixtures
+        run: node --import tsx --test test_case/offline/benchmark/operator.test.ts
       - run: npm run verify
 
   continuation:

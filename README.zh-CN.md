@@ -1,5 +1,9 @@
 # Secretary Benchmark
 
+多题事实评分入口为 `npm run benchmark -- evaluate --config examples/secretary-questions.json`。同一个 Secretary 连续处理全部事件，裁判对照每题在当时有效的标准事实评分；每批可含一题或多题。[操作手册](docs/operator.md)
+
+单配置评测入口为 `npm run benchmark -- evaluate --config examples/secretary-smoke.json`。该命令启动隔离 Secretary、投递案例、评分并输出报告。真实 DeepSeek 配置、独立 Hermes 评分、仅凭归档轨迹重新评分及离线重建报告的命令见[操作手册](docs/operator.md)。
+
 独立的 Secretary benchmark 仓库，负责隔离测试环境、评分记录、固定输入回放与报告。Secretary 是固定提交的只读测试依赖，存放在 `sut/secretary`；具体提交由 `sut.lock.json` 绑定。
 
 交付范围是 **benchmark 可运行、证据可追溯、报告可复现、测量限制明确**。结果为 ADVISORY / NOT_HUMAN_QUALIFIED；本仓库不宣布 Secretary 性能达标，也不设置验收阈值。
@@ -17,3 +21,7 @@
 本仓库尚未选择或授予额外软件许可；公开可见不代表开放源代码许可。第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 若操作系统账号数据库无法解析当前用户（例如容器 UID 没有对应记录），受保护目录检查会拒绝运行；运行前需提供正常账号记录。
+
+## 原子事实评分
+
+运行 `npm run benchmark -- evaluate --config examples/secretary-questions-v2.json`，可在同一 Secretary 中按顺序处理公开三题，逐个原子事实评分并查看报告。实测的独立裁判只接收当时有效的参考事实和原答。[配置和实测说明](docs/operator.md#score-atomic-facts-across-a-continuous-workload)

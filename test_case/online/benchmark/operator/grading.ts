@@ -1,0 +1,576 @@
+import { fixtureAtomic, type AtomicItem } from "./atomic.ts";
+import fs from "node:fs";
+import path from "node:path";
+import readline from "node:readline";
+import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
+import { gradeJSONBytes } from "../grading-transaction.ts";
+import { targetedControls } from "../targeted-reader-packet.ts";
+import {
+  safeExcerpt,
+  scoringRubric,
+  matchesReader,
+} from "../stage-c-grading.ts";
+import {
+  admittedReaderQuery,
+  goReader,
+  goVisibilityVersion,
+  operatorVisibilityVersion,
+  goReaderPolicy,
+} from "../stage-c-visibility-rubric.ts";
+import { repository, requireThat, sha } from "../io.ts";
+import { send, remainingJudgeCalls } from "./transport.ts";
+import {
+  factPlan,
+  wireQuery,
+  deterministicRaw,
+  wirePacket,
+  seriesResults,
+  fixtureFacts,
+  packetLimits,
+} from "./questions.ts";
+import { gradeSeries, TerminalFactTransport } from "./series.ts";
+import { bound, dir, save, seal, openSeal, load } from "./files.ts";
+
+const named = {
+  provider: goReaderPolicy.provider,
+  model: goReaderPolicy.model,
+  reasoning_effort: "max",
+};
+function operatorRubric() {
+  return {
+    ...scoringRubric(goReader, goVisibilityVersion),
+    version: operatorVisibilityVersion,
+    visibilityProcedure:
+      "First identify the specific current value the probe asks for. Determine whether the captured first-request content identifies that value. Knowing a historical value or knowing that the value is undetermined does not identify a current value. If the value is identifiable, return RESIDENT. Otherwise check all four surfaces: return COLD with complete inspectable coverage or OPAQUE with incomplete coverage. Apply this same test independently to each visibility decision.",
+  };
+}
+const evidence = (text: string) => ({
+  id: randomUUID(),
+  text: safeExcerpt(text),
+});
+export function candidate(execution: any, control?: "good" | "bad") {
+  const s = execution.manifest.suite,
+    last = execution.events.at(-1);
+  const setup = s.setup,
+    question = s.probe;
+  const answer = control
+    ? control === "good"
+      ? "REED-843"
+      : "PINK-000"
+    : last.messages.map((x: any) => x.text).join("\n");
+  const messages = execution.firstProbeMessages;
+  const rows = [
+    evidence("Events in order: " + JSON.stringify([...setup, question])),
+    evidence("Observable reply: " + answer),
+    ...messages.map((message: unknown, index: number) =>
+      evidence(
+        "First eligible request message " +
+          (index + 1) +
+          ": " +
+          JSON.stringify(message),
+      ),
+    ),
+    evidence("Capture coverage: " + execution.probeCoverage),
+    evidence("Observed effects: " + JSON.stringify(last.effects)),
+  ];
+  return {
+    packet: {
+      rubric: operatorRubric(),
+      assertions: ["natural_access"],
+      evidence: rows,
+    },
+    expected: control ? (control === "good" ? "PASS" : "FAIL") : undefined,
+    answer,
+  };
+}
+function fixtureReply(packet: any, key?: any[], answer?: string) {
+  const header = { packet_sha256: sha(gradeJSONBytes(packet)), judge: named };
+  if (key)
+    return {
+      ...header,
+      labels: key.map((k) => ({ id: k.id, verdict: k.expected })),
+    };
+  const valid = answer?.includes("REED-843");
+  return {
+    ...header,
+    visibility: packet.evidence.some(
+      (row: any) =>
+        row.text.startsWith("First eligible request message") &&
+        row.text.includes("REED-843"),
+    )
+      ? "RESIDENT"
+      : "OPAQUE",
+    visibility_evidence: [
+      (
+        packet.evidence.find(
+          (row: any) =>
+            row.text.startsWith("First eligible request message") &&
+            row.text.includes("REED-843"),
+        ) ??
+        packet.evidence.find((row: any) =>
+          row.text.startsWith("Capture coverage:"),
+        )
+      ).id,
+    ],
+    assertions: [
+      {
+        assertion: "natural_access",
+        verdict: valid ? "PASS" : "FAIL",
+        rationale: "Scripted protocol control",
+        evidence: [packet.evidence[1].id],
+      },
+    ],
+  };
+}
+export function mockStream(raw: string) {
+  const chunk = (delta: any, finish: string | null, usage?: any) =>
+    "data: " +
+    JSON.stringify({
+      id: "mock",
+      object: "chat.completion.chunk",
+      created: 1,
+      model: goReaderPolicy.model,
+      choices: [{ index: 0, delta, finish_reason: finish }],
+      usage,
+    }) +
+    "\n\n";
+  return (
+    chunk({ role: "assistant", content: raw }, null) +
+    chunk({}, "stop", {
+      prompt_tokens: 5,
+      completion_tokens: 5,
+      total_tokens: 10,
+    }) +
+    "data: [DONE]\n\n"
+  );
+}
+export function providerContent(sse: string) {
+  let text = "";
+  for (const line of sse.split(/\r?\n/)) {
+    if (!line.startsWith("data:")) continue;
+    const data = line.slice(5).trim();
+    if (!data || data === "[DONE]") continue;
+    const delta = JSON.parse(data).choices?.find(
+      (choice: any) => choice.index === 0,
+    )?.delta;
+    if (typeof delta?.content === "string") text += delta.content;
+  }
+  return text;
+}
+export async function nativeTurn(
+  directory: string,
+  query: string,
+  dispatch: (wire: any) => Promise<string>,
+  timeout: number,
+) {
+  const hermes = process.env.BENCHMARK_HERMES_ROOT;
+  requireThat(
+    hermes && path.isAbsolute(hermes),
+    "Set BENCHMARK_HERMES_ROOT to the supported Hermes checkout",
+  );
+  const py =
+    process.env.BENCHMARK_HERMES_PYTHON ?? path.join(hermes, "venv/bin/python");
+  requireThat(fs.existsSync(py), "Hermes venv missing");
+  const home = path.join(directory, "reader-home");
+  dir(home);
+  const log = fs.openSync(path.join(directory, "reader.stderr"), "wx", 0o600);
+  const proc = spawn(
+    py,
+    [
+      "-I",
+      path.join(repository, "test_case/online/benchmark/operator/reader.py"),
+    ],
+    {
+      cwd: home,
+      env: {
+        HOME: home,
+        HERMES_HOME: home,
+        HERMES_SAFE_MODE: "1",
+        HERMES_IGNORE_RULES: "1",
+        HERMES_IGNORE_USER_CONFIG: "1",
+        HERMES_DISABLE_PLUGINS: "1",
+        HERMES_DISABLE_MCP: "1",
+        HERMES_STREAM_RETRIES: "0",
+        HERMES_DISABLE_LAZY_INSTALLS: "1",
+        PATH: "/usr/bin:/bin:/opt/homebrew/bin",
+        LANG: "en_US.UTF-8",
+      },
+      stdio: ["pipe", "pipe", log],
+    },
+  );
+  fs.closeSync(log);
+  const closed = new Promise<number | null>((resolve, reject) => {
+    proc.once("error", reject);
+    proc.once("close", resolve);
+  });
+  const timer = setTimeout(() => proc.kill("SIGKILL"), timeout);
+  let wire: any,
+    result: any,
+    providerText = "";
+  try {
+    proc.stdin!.write(JSON.stringify({ hermes, query }) + "\n");
+    for await (const line of readline.createInterface({
+      input: proc.stdout!,
+    })) {
+      const event = JSON.parse(line);
+      if (event.type === "wire") {
+        requireThat(
+          !wire && event.sha256 === sha(event.body),
+          "Duplicate or damaged reader wire",
+        );
+        wire = event;
+        save(path.join(directory, "wire.json"), wire);
+        const sse = await dispatch(wire);
+        providerText = providerContent(sse);
+        save(path.join(directory, "provider-content.json"), {
+          raw: providerText,
+          wire: wire.sha256,
+          responseStream: sha(sse),
+        });
+        proc.stdin!.end(JSON.stringify({ sse }) + "\n");
+      } else {
+        requireThat(
+          event.type === "result" &&
+            wire &&
+            event.wire === wire.sha256 &&
+            !result,
+          "Invalid Hermes receipt",
+        );
+        result = event;
+      }
+    }
+    requireThat(
+      (await closed) === 0 && result && result.session === wire.session,
+      "Hermes did not produce a complete receipt; see reader.stderr",
+    );
+    requireThat(
+      providerText.length > 0 && result.raw.trim() === providerText.trim(),
+      "Native reader text differs from the first provider response",
+    );
+    return { ...result, providerContent: sha(providerText) };
+  } finally {
+    clearTimeout(timer);
+    proc.kill();
+    await closed;
+  }
+}
+async function grade(
+  root: string,
+  m: any,
+  folder: string,
+  packet: any,
+  key?: any[],
+  answer?: string,
+) {
+  requireThat(
+    process.env.BENCHMARK_DISABLE_JUDGE !== "1",
+    "Judge disabled by operator",
+  );
+  dir(folder);
+  const query = admittedReaderQuery(packet);
+  if (key)
+    seal(path.join(folder, "answer-key.json"), { packet: bound(packet), key });
+  save(path.join(folder, "input.json"), { packet, query, digest: sha(query) });
+  let raw: string;
+  if (m.config.judge === "fixture") {
+    raw = JSON.stringify(fixtureReply(packet, key, answer));
+    save(path.join(folder, "response.json"), { raw, mode: "FIXTURE" });
+  } else {
+    const response = await nativeTurn(
+      folder,
+      query,
+      (w) =>
+        send(root, m, "judge", w.body, {
+          "x-opencode-session": w.session,
+          "user-agent": w.userAgent,
+        }),
+      m.config.timeoutSeconds * 1000,
+    );
+    save(path.join(folder, "response.json"), response);
+    raw = response.raw;
+  }
+  return validateJudgeReply(raw, packet, key, folder);
+}
+export function validateJudgeReply(
+  raw: string,
+  packet: any,
+  key?: any[],
+  folder?: string,
+) {
+  const mark = JSON.parse(
+    raw
+      .trim()
+      .replace(/^\x60\x60\x60(?:json)?\s*([\s\S]*?)\s*\x60\x60\x60$/i, "$1"),
+  );
+  requireThat(
+    matchesReader(mark, sha(gradeJSONBytes(packet)), goReader),
+    "Judge identity or packet mismatch",
+  );
+  if (key) {
+    const labels = Array.isArray(mark.labels) ? mark.labels : [];
+    const items = key.map(({ id, expected }) => {
+      const returned = labels
+        .filter((label: any) => label?.id === id)
+        .map((label: any) => label.verdict);
+      return {
+        id,
+        expected,
+        returned,
+        matched: returned.length === 1 && returned[0] === expected,
+      };
+    });
+    const matched = items.filter((item) => item.matched).length;
+    if (folder)
+      seal(path.join(folder, "comparison.json"), {
+        packet: bound(packet),
+        response: sha(raw),
+        matched,
+        returned: labels.length,
+        items,
+      });
+    requireThat(
+      key.length === 28 &&
+        labels.length === key.length &&
+        matched === key.length,
+      `28-item calibration failed (${matched}/28 matched, ${labels.length} labels returned)`,
+    );
+  } else {
+    const ids = new Set(packet.evidence.map((r: any) => r.id));
+    const refs = (v: any) =>
+      Array.isArray(v) && v.length > 0 && v.every((x) => ids.has(x));
+    const visibilityIds = new Set(
+      packet.evidence
+        .filter((row: any) =>
+          row.text.startsWith(
+            mark.visibility === "RESIDENT"
+              ? "First eligible request message"
+              : "Capture coverage:",
+          ),
+        )
+        .map((r: any) => r.id),
+    );
+    requireThat(
+      refs(mark.visibility_evidence) &&
+        mark.visibility_evidence.every((id: string) => visibilityIds.has(id)),
+      "Visibility must cite the first request or capture coverage",
+    );
+    const a = mark.assertions?.[0];
+    requireThat(
+      mark.assertions.length === 1 &&
+        a.assertion === "natural_access" &&
+        ["PASS", "FAIL", "UNRESOLVED", "NOT_TESTED"].includes(a.verdict) &&
+        typeof a.rationale === "string" &&
+        a.rationale.trim() &&
+        refs(a.evidence) &&
+        ["RESIDENT", "COLD", "OPAQUE"].includes(mark.visibility) &&
+        refs(mark.visibility_evidence),
+      "Invalid semantic judgement or evidence references",
+    );
+  }
+  return mark;
+}
+export async function checkSeriesReader(root: string, execution: any) {
+  const plan = factPlan(execution),
+    sessions = [];
+  const specs = [
+    ...plan.controls.map((c) => ({ stage: "qualification", items: c.items })),
+    ...plan.batches
+      .filter((items) => deterministicRaw(items) === null)
+      .map((items) => ({ stage: "formal", items })),
+  ];
+  for (const { stage, items } of specs) {
+    const folder = path.join(root, "reader-check", randomUUID());
+    dir(folder);
+    const packet = wirePacket(items),
+      query = wireQuery(packet),
+      plannedBytes = packetLimits(items).bytes;
+    const receipt = await nativeTurn(
+      folder,
+      query,
+      async (wire) => {
+        const messages = JSON.parse(wire.body).messages;
+        requireThat(
+          bound(messages) === bound([{ role: "user", content: query }]) &&
+            Buffer.byteLength(wire.body) === plannedBytes,
+          "Native factual reader differs from planned query or UTF-8 bytes",
+        );
+        return mockStream(
+          items[0]?.atomic
+            ? fixtureAtomic(items as AtomicItem[])
+            : fixtureFacts(packet),
+        );
+      },
+      120000,
+    );
+    seriesResults(receipt.raw, packet, items);
+    sessions.push({
+      stage,
+      session: receipt.session,
+      wire: receipt.wire,
+      bytes: plannedBytes,
+      runtime: receipt.runtime,
+      release: receipt.release,
+      ids: items.map((i) => i.question_id),
+    });
+  }
+  return { externalCalls: 0, sessions };
+}
+export async function gradeExecution(root: string, regrade: boolean) {
+  const execution = openSeal(path.join(root, "execution.json")),
+    m = execution.manifest;
+  const id = regrade ? randomUUID() : "original",
+    folder = path.join(root, "grades", id);
+  dir(folder);
+  if (m.suite.timeline) {
+    requireThat(
+      process.env.BENCHMARK_DISABLE_JUDGE !== "1",
+      "Judge disabled by operator",
+    );
+    return gradeSeries(
+      root,
+      folder,
+      id,
+      execution,
+      async (sub, query, bytes) => {
+        const response = await nativeTurn(
+          sub,
+          query,
+          async (wire) => {
+            requireThat(
+              Buffer.byteLength(wire.body) === bytes,
+              "Native judge wire length differs from qualification plan",
+            );
+            try {
+              return await send(root, m, "judge", wire.body, {
+                "x-opencode-session": wire.session,
+                "user-agent": wire.userAgent,
+              });
+            } catch (error) {
+              const tr = path.join(root, "transport");
+              const request =
+                fs.existsSync(tr) &&
+                fs
+                  .readdirSync(tr)
+                  .find(
+                    (name) =>
+                      name.endsWith(".request.json") &&
+                      load(path.join(tr, name)).routing?.session ===
+                        wire.session,
+                  );
+              const reply =
+                request &&
+                path.join(
+                  tr,
+                  request.replace(".request.json", ".response.json"),
+                );
+              if (!reply || !fs.existsSync(reply) || load(reply).hold)
+                throw new TerminalFactTransport(
+                  error instanceof Error ? error.message : String(error),
+                );
+              throw error;
+            }
+          },
+          m.config.timeoutSeconds * 1000,
+        );
+        save(path.join(sub, "response.json"), response);
+        return response.raw;
+      },
+      () => checkSeriesReader(root, execution),
+    );
+  }
+  const calRoot = path.join(root, "calibrations");
+  dir(calRoot);
+  const prior = fs
+    .readdirSync(calRoot)
+    .map((name) => path.join(calRoot, name, "receipt.json"))
+    .filter((file) => fs.existsSync(file))
+    .map(openSeal)
+    .filter((c) => c.manifest === bound(m))
+    .sort((a, b) => b.at - a.at);
+  let calibration = prior[0];
+  if (!calibration || Date.now() - calibration.at >= 24 * 3600e3) {
+    if (m.config.judge === "hermes-go") {
+      requireThat(
+        (await remainingJudgeCalls(m, execution.id)) >= 4,
+        "Fresh calibration and candidate require four authorized judge calls",
+      );
+    }
+    const c = targetedControls(),
+      prefix = path.join(root, "calibrations", randomUUID());
+    await grade(
+      root,
+      m,
+      path.join(prefix, "calibration"),
+      { ...c.packet, rubric: operatorRubric() },
+      c.key,
+    );
+    for (const control of ["good", "bad"] as const) {
+      const p = candidate(execution, control);
+      const mark = await grade(
+        root,
+        m,
+        path.join(prefix, control),
+        p.packet,
+        undefined,
+        p.answer,
+      );
+      requireThat(
+        mark.assertions[0].verdict === p.expected,
+        "Case-shape discrimination control failed: " + control,
+      );
+    }
+    const sources: Record<string, string> = {};
+    for (const stage of ["calibration", "good", "bad"]) {
+      for (const name of [
+        "input.json",
+        "response.json",
+        ...(stage === "calibration"
+          ? ["answer-key.json", "comparison.json"]
+          : []),
+        ...(m.config.judge === "hermes-go"
+          ? ["wire.json", "provider-content.json"]
+          : []),
+      ]) {
+        const key = stage + "/" + name;
+        sources[key] = sha(fs.readFileSync(path.join(prefix, key)));
+      }
+    }
+    calibration = {
+      sources,
+      manifest: bound(m),
+      at: Date.now(),
+      source: path.relative(root, prefix),
+      controls: 28,
+      caseControls: 2,
+      judge: m.config.judge,
+    };
+    seal(path.join(prefix, "receipt.json"), calibration);
+  }
+  requireThat(
+    calibration.manifest === bound(m) &&
+      Date.now() - calibration.at < 24 * 3600e3,
+    "Stale or incompatible calibration",
+  );
+  for (const [file, digest] of Object.entries(calibration.sources)) {
+    requireThat(
+      sha(fs.readFileSync(path.join(root, calibration.source, file))) ===
+        digest,
+      "Calibration evidence changed",
+    );
+  }
+  const openSealOrLoad = (name: string) =>
+    JSON.parse(fs.readFileSync(path.join(folder, name), "utf8"));
+  const p = candidate(execution),
+    mark = await grade(root, m, folder, p.packet, undefined, p.answer);
+  seal(path.join(folder, "grade.json"), {
+    response: bound(openSealOrLoad("response.json")),
+    input: bound(openSealOrLoad("input.json")),
+    id,
+    canonical: !regrade,
+    calibration: bound(calibration),
+    execution: bound(execution),
+    mark,
+  });
+  return id;
+}

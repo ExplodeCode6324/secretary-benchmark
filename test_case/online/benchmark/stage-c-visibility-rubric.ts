@@ -18,6 +18,9 @@ export const readerPolicy = {
   pricing_source: "https://api-docs.deepseek.com/quick_start/pricing.md",
 };
 export const goVisibilityVersion = "issue122-comparison-reader-go-v1";
+export const operatorVisibilityVersion = "issue122-operator-reader-go-v2";
+const usesGoWire = (version: string) =>
+  version === goVisibilityVersion || version === operatorVisibilityVersion;
 export const goReader = "Hermes/opencode-go/deepseek-v4.1-flash/max";
 export const goReaderPolicy = {
   provider: "opencode-go",
@@ -132,10 +135,9 @@ export function renderReaderQuery(packet: any) {
   const instruction = packet.controls
     ? "Return exactly one JSON object with judge, packet_sha256 and labels. Return one {id,verdict} per control. For visibility use RESIDENT, COLD or OPAQUE. For other assertions use PASS, FAIL or UNRESOLVED."
     : "Return exactly one JSON object with judge, packet_sha256, visibility and assertions. Give one {assertion,verdict,rationale,evidence} for each listed assertion. Cite supplied evidence IDs. Use PASS, FAIL, UNRESOLVED or NOT_TESTED. Use RESIDENT, COLD or OPAQUE for visibility. In visibility_evidence cite first-request message IDs supporting RESIDENT, or the capture-coverage record for COLD or OPAQUE.";
-  const policy =
-    packet.rubric?.version === goVisibilityVersion
-      ? goReaderPolicy
-      : readerPolicy;
+  const policy = usesGoWire(packet.rubric?.version)
+    ? goReaderPolicy
+    : readerPolicy;
   const judge = {
     provider: policy.provider,
     model: policy.model,
@@ -154,10 +156,9 @@ export function renderReaderQuery(packet: any) {
 // Frozen Hermes single-user JSON envelope, excluding the quoted content string.
 export function admittedReaderQuery(packet: any) {
   const query = renderReaderQuery(packet);
-  const additive =
-    packet.rubric?.version === goVisibilityVersion
-      ? goReaderPolicy.wire_envelope_bytes
-      : 194;
+  const additive = usesGoWire(packet.rubric?.version)
+    ? goReaderPolicy.wire_envelope_bytes
+    : 194;
   const wireBytes = Buffer.byteLength(JSON.stringify(query)) + additive;
   const ceiling = packet.controls
     ? readerPolicy.calibration_wire_bytes

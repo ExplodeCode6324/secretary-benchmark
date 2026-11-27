@@ -93,6 +93,41 @@ import { stageCommand } from "./stage-b-cli.ts";
 async function main() {
   const [command, ...args] = process.argv.slice(2),
     options: Record<string, string> = {};
+  if (
+    [
+      "evaluate",
+      "freeze",
+      "regrade",
+      "compare",
+      "reader-check",
+      "export-run",
+      "archive-run",
+      "recover-run",
+      "reconcile-call",
+      "operator-help",
+    ].includes(command) ||
+    (command === "report" &&
+      !args.includes("--root") &&
+      (args.includes("--bundle") ||
+        fs.existsSync(
+          path.join(
+            repository,
+            ".local/benchmark",
+            args[args.indexOf("--run") + 1] ?? "",
+            "manifest.json",
+          ),
+        )))
+  ) {
+    const { operatorCommand } = await import("./operator/cli.ts");
+    const result: any = await operatorCommand(command, args);
+    console.log(JSON.stringify(result, null, 2));
+    if (
+      ["evaluate", "regrade"].includes(command) &&
+      ["INCOMPLETE", "UNGRADED"].includes(result.status)
+    )
+      process.exitCode = 1;
+    return;
+  }
   for (let i = 0; i < args.length; i += 2) {
     requireThat(
       [
@@ -168,14 +203,18 @@ async function main() {
     }
     if (command === "baseline-stage-c-controls") {
       requireThat(
-        ["--root", "--reader,--root","--reader,--root,--rubric"].includes(
+        ["--root", "--reader,--root", "--reader,--root,--rubric"].includes(
           Object.keys(options).sort().join(","),
         ) && root !== path.join(repository, ".local/benchmark"),
         "STAGE_C_CONTROLS_ARGUMENTS",
       );
       console.log(
         JSON.stringify(
-          await prepareCompletionCalibration(root, options["--reader"],options["--rubric"]),
+          await prepareCompletionCalibration(
+            root,
+            options["--reader"],
+            options["--rubric"],
+          ),
         ),
       );
       return;

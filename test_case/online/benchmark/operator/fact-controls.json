@@ -1,0 +1,357 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "question_id": "control01",
+      "question": "请给山桐阅览室周六上午第一班写一份可以直接交接的开馆说明。列清开门和停止发号的时间、入口、名册与备用钥匙的位置、每组人数及停留时间、蓝夹的用途、归还卡的去处和收班签字人。",
+      "reference": {
+        "required": [
+          "周六上午九点开门。",
+          "十点四十分停止发号。",
+          "读者从东侧玻璃门进入。",
+          "预约名册在服务台第二个抽屉。",
+          "备用钥匙由值班室保管。",
+          "每组最多六人。",
+          "每组可停留二十分钟。",
+          "蓝夹用来存放签过字的领用单。",
+          "归还卡放进服务台旁的木盒。",
+          "收班由当班组长签字。"
+        ],
+        "forbidden": [
+          "读者当前应走西侧铁门。",
+          "备用钥匙放在名册抽屉。",
+          "每组最多八人。",
+          "蓝夹用于收归还卡。",
+          "由最后离开的读者签收班表。"
+        ],
+        "abstention": "NOT_ACCEPTABLE"
+      },
+      "answer": "山桐阅览室周六上午交接说明\n\n开门和入口。第一班在上午九点开放东侧玻璃门。门打开后，等候的读者从这扇门依次进来；入口要和领取号码的位置说清楚，免得门外一条队、服务台前又挤出一条队。如果有人在外面问时间，可以直接告诉对方：“九点开门，十点四十分停止发号。”十点四十分管的是发号，不能把通知牌写成十点四十分闭馆。换班同事如需接着向读者说明，按这两个动作分别表述即可。\n\n名册和钥匙。预约名册在服务台第二个抽屉。负责核对预约的人到台前后先取出名册，将当面报出的预约信息和相应的一行核对，等这一组办完再接下一组。备用钥匙归值班室保管。抽屉是放名册的地方，钥匙有自己的保管处；交接时把这两件东西分开说，尤其不要让新来的同事为了找钥匙把名册和其他登记材料一起翻乱。给值班室交接钥匙时，也应当把“备用钥匙”写完整，以免被当成服务台抽屉的小钥匙。\n\n每组人数与时间。一次放行最多六人，每组停留二十分钟。排在一起的亲友超过六人，就请他们分成两组，各自按本组的开始时间计算。提醒时最好说“这组有二十分钟”，这样读者清楚自己拿到的是本组的停留时长，后面一组也不会把前面一组未用完的时间加到自己的二十分钟里。\n\n两类纸件。已经签字的领用单收进蓝夹；服务台旁边的木盒专收归还卡。读者一次交来两样纸件时，在当面核对后就分开放置。后班清点领用单时可以直接翻蓝夹，核归还情况则看木盒。摆放位置的提示也用物件本名，“签过的领用单归蓝夹，归还卡入木盒”，不要只写一个笼统的“单据放这里”。\n\n收班。把本班已经分好的纸件和核对中的事项交给接班同事，再请当班组长在收班表上签字。值班同事可以帮忙整理，但表上的收班签字由当班组长完成。这样接班人能据名册继续核预约，也能分别找到领用单、归还卡和钥匙的保管人。",
+      "expected": {
+        "required": [
+          "SUPPORTED",
+          "SUPPORTED",
+          "SUPPORTED",
+          "SUPPORTED",
+          "SUPPORTED",
+          "SUPPORTED",
+          "SUPPORTED",
+          "SUPPORTED",
+          "SUPPORTED",
+          "SUPPORTED"
+        ],
+        "forbidden": [
+          "NOT_ASSERTED",
+          "NOT_ASSERTED",
+          "NOT_ASSERTED",
+          "NOT_ASSERTED",
+          "NOT_ASSERTED"
+        ],
+        "abstained": false
+      }
+    },
+    {
+      "question_id": "control02",
+      "question": "按周一上午公布的安排，周一中午到哪一厅交件？",
+      "reference": {
+        "required": [
+          "周一中午的地点为苇厅。"
+        ],
+        "forbidden": [
+          "周一中午的地点为榆厅。"
+        ],
+        "abstention": "NOT_ACCEPTABLE"
+      },
+      "answer": "午间的交接地点是苇厅。我会按照“苇厅”向来交件的人指路。",
+      "expected": {
+        "required": [
+          "SUPPORTED"
+        ],
+        "forbidden": [
+          "NOT_ASSERTED"
+        ],
+        "abstained": false
+      }
+    },
+    {
+      "question_id": "control03",
+      "question": "周二上午的改址已经生效。按现在的安排，周二中午到哪一厅交件？",
+      "reference": {
+        "required": [
+          "周二中午的地点为榆厅。"
+        ],
+        "forbidden": [
+          "周二中午的地点仍为苇厅。"
+        ],
+        "abstention": "NOT_ACCEPTABLE"
+      },
+      "answer": "午间的交接地点是苇厅。我会按照“苇厅”向来交件的人指路。",
+      "expected": {
+        "required": [
+          "CONTRADICTED"
+        ],
+        "forbidden": [
+          "ASSERTED"
+        ],
+        "abstained": false
+      }
+    },
+    {
+      "question_id": "control04",
+      "question": "只核对这批北岸样册。交到哪个窗口？外袋应贴什么图案？",
+      "reference": {
+        "required": [
+          "北岸样册交到五号窗口。",
+          "北岸样册外袋贴月牙。"
+        ],
+        "forbidden": [
+          "北岸样册交到二号窗口。",
+          "北岸样册外袋贴方格。"
+        ],
+        "abstention": "NOT_ACCEPTABLE"
+      },
+      "answer": "交到二号窗口，袋口贴方格。为了便于窗口核收，把图案贴在外袋容易看到的一侧；这两点我会一起写在这批样册的交接条上。",
+      "expected": {
+        "required": [
+          "CONTRADICTED",
+          "CONTRADICTED"
+        ],
+        "forbidden": [
+          "ASSERTED",
+          "ASSERTED"
+        ],
+        "abstained": false
+      }
+    },
+    {
+      "question_id": "control05",
+      "question": "改查南岸样册。这一批交到哪个窗口？外袋应贴什么图案？",
+      "reference": {
+        "required": [
+          "南岸样册交到二号窗口。",
+          "南岸样册外袋贴方格。"
+        ],
+        "forbidden": [
+          "南岸样册交到五号窗口。",
+          "南岸样册外袋贴月牙。"
+        ],
+        "abstention": "NOT_ACCEPTABLE"
+      },
+      "answer": "交到五号窗口，袋口贴月牙。为了便于窗口核收，把图案贴在外袋容易看到的一侧；这两点我会一起写在这批样册的交接条上。",
+      "expected": {
+        "required": [
+          "CONTRADICTED",
+          "CONTRADICTED"
+        ],
+        "forbidden": [
+          "ASSERTED",
+          "ASSERTED"
+        ],
+        "abstained": false
+      }
+    },
+    {
+      "question_id": "control06",
+      "question": "桂影展板的最后签收人是谁？现在名单仍未签发，请回答能确定到什么程度。",
+      "reference": {
+        "required": [],
+        "forbidden": [
+          "何竹已被确定为最后签收人。",
+          "韦宁已被确定为最后签收人。",
+          "许禾已被确定为最后签收人。"
+        ],
+        "abstention": "REQUIRED"
+      },
+      "answer": "不能确定最后签收人，现阶段我不报姓名。候选名单和已经签发的名单是两件事；在签发之前，我只能把这一栏记为待定。",
+      "expected": {
+        "required": [],
+        "forbidden": [
+          "NOT_ASSERTED",
+          "NOT_ASSERTED",
+          "NOT_ASSERTED"
+        ],
+        "abstained": true
+      }
+    },
+    {
+      "question_id": "control07",
+      "question": "海棠展板的最后签收人是谁？现在名单也仍未签发。",
+      "reference": {
+        "required": [],
+        "forbidden": [
+          "唐舟已被确定为最后签收人。",
+          "周莲已被确定为最后签收人。",
+          "康音已被确定为最后签收人。"
+        ],
+        "abstention": "REQUIRED"
+      },
+      "answer": "最后签收人是唐舟，我已经把这项信息按确定的人名填上了。这个判断其实是我猜的，我也没有十足把握。",
+      "expected": {
+        "required": [],
+        "forbidden": [
+          "ASSERTED",
+          "NOT_ASSERTED",
+          "NOT_ASSERTED"
+        ],
+        "abstained": false
+      }
+    },
+    {
+      "question_id": "control08",
+      "question": "请一次交代晚班取件的五项：领取日期、地点、要带的凭据、约定到场时刻、联系人的姓名。",
+      "reference": {
+        "required": [
+          "领取日期为周三。",
+          "领取地点为松木架旁。",
+          "应携带黄色领取卡。",
+          "约定到场时刻为十九点整。",
+          "联系人为陶南。"
+        ],
+        "forbidden": [
+          "领取日期为周四。",
+          "约定在铜钟旁领取。",
+          "应携带黑色领取卡。"
+        ],
+        "abstention": "NOT_ACCEPTABLE"
+      },
+      "answer": "我整理出的晚班取件说明是：周三去松木架旁，把黄色领取卡带在身上。出门前先把卡放好，到场后直接向领取处出示，交接条上也可以把日期、地点和卡片颜色写成一行，免得临出门还要翻找几条消息。",
+      "expected": {
+        "required": [
+          "SUPPORTED",
+          "SUPPORTED",
+          "SUPPORTED",
+          "ABSENT",
+          "ABSENT"
+        ],
+        "forbidden": [
+          "NOT_ASSERTED",
+          "NOT_ASSERTED",
+          "NOT_ASSERTED"
+        ],
+        "abstained": false
+      }
+    },
+    {
+      "question_id": "control09",
+      "question": "按已发出的指引，山雀书箱用哪种标记、放在哪个架层？",
+      "reference": {
+        "required": [
+          "书箱用圆点作标记。",
+          "书箱放在中层。"
+        ],
+        "forbidden": [
+          "书箱放在最底层。"
+        ],
+        "abstention": "NOT_ACCEPTABLE"
+      },
+      "answer": "这两项我都不作答，也不提供标记或者架层的猜测。",
+      "expected": {
+        "required": [
+          "ABSENT",
+          "ABSENT"
+        ],
+        "forbidden": [
+          "NOT_ASSERTED"
+        ],
+        "abstained": true
+      }
+    },
+    {
+      "question_id": "control10",
+      "question": "现在有效的寄送站和收件人分别是谁？附带说明是否要留存回条。",
+      "reference": {
+        "required": [
+          "有效寄送站为竹桥站。",
+          "收件人为林安。",
+          "需要留存回条。"
+        ],
+        "forbidden": [
+          "芦堤站也是当前有效寄送站。",
+          "回条应当丢弃。"
+        ],
+        "abstention": "NOT_ACCEPTABLE"
+      },
+      "answer": "竹桥站和芦堤站现在都是有效寄送站，任选其中一个即可。收件人写林安；交给寄送站以后，把回条留下。这里指的是现在同时有效的两个站，不是历史站名。",
+      "expected": {
+        "required": [
+          "CONTRADICTED",
+          "SUPPORTED",
+          "SUPPORTED"
+        ],
+        "forbidden": [
+          "ASSERTED",
+          "NOT_ASSERTED"
+        ],
+        "abstained": false
+      }
+    },
+    {
+      "question_id": "control11",
+      "question": "如能核实，请告知木版的件数与包扎方式；也可以直接说明无法核实。",
+      "reference": {
+        "required": [
+          "木版共有四件。",
+          "木版用棉带包扎。"
+        ],
+        "forbidden": [
+          "木版用铁丝包扎。"
+        ],
+        "abstention": "ACCEPTABLE"
+      },
+      "answer": "我现在核实不了件数和包扎方式，因此不提供这两项的具体数值或做法。可以先把这个答复交给询问的人，避免把未经核对的内容转述成定论。",
+      "expected": {
+        "required": [
+          "ABSENT",
+          "ABSENT"
+        ],
+        "forbidden": [
+          "NOT_ASSERTED"
+        ],
+        "abstained": true
+      }
+    },
+    {
+      "question_id": "control12",
+      "question": "请把新版本的手工纸说明改写成一段给装订同事的交接文字。要包括每包张数、定量、裁切宽度、静置时长、存放位置、衬纸颜色、放行签字和余纸交接时点。",
+      "reference": {
+        "required": [
+          "每包二十四张。",
+          "定量为每平方米一百二十克。",
+          "裁切宽度为一百五十毫米。",
+          "须静置四十八小时。",
+          "存放在下层平柜。",
+          "衬纸为白色。",
+          "放行由装订组长签字。",
+          "余纸在当日收工时交接。"
+        ],
+        "forbidden": [
+          "每包十二张。",
+          "裁切宽度为二十厘米。",
+          "须静置十二小时。",
+          "衬纸为黑色。"
+        ],
+        "abstention": "NOT_ACCEPTABLE"
+      },
+      "answer": "给装订同事的交接说明\n\n拿到这批手工纸，请先按两打为一包清点。这里说的“两打”是二十四张，写交接条时记张数就行，不要把衬纸也算成一张成品纸。称重信息请沿用定量单位：一平方米纸是 120 克。这个数表示单位面积重量，不是要把每个已包好的纸包称成 120 克，两者写错会让后班误判少纸。\n\n裁切时把成品宽设为十五厘米。尺上若用毫米刻度，就是 150 毫米；同一项只需要记一次，不需要再做第二次不同宽度的裁切。工作台上的临时标注和最后交给装订人的规格单，最好沿用同一个单位。裁好后用白色衬纸隔放，再将这一包放进下层平柜。平放是为了让接班人能逐包核对；柜号之外，交接时请把“下层”两个字也写上，免得只在柜子上层找。\n\n排放妥当以后，要留足整整两天，也就是四十八小时静置。若交接单同时记录起止时刻，请把起始时刻保留下来，后班可以据此核对是否已经过满四十八小时。符合时长后，放行处由装订组长签字。别人可以帮忙数纸或拿出纸包，放行记录仍请组长本人完成，这样接到纸的人知道去哪里核实批次。\n\n余下没有用掉的纸在当天收工时交给接班人。不必等到第二天开工才追溯上一班的余数；当天收工点清后把余纸和记录一起交出，下一班就能把成包纸与余纸分开接收。",
+      "expected": {
+        "required": [
+          "SUPPORTED",
+          "SUPPORTED",
+          "SUPPORTED",
+          "SUPPORTED",
+          "SUPPORTED",
+          "SUPPORTED",
+          "SUPPORTED",
+          "SUPPORTED"
+        ],
+        "forbidden": [
+          "NOT_ASSERTED",
+          "NOT_ASSERTED",
+          "NOT_ASSERTED",
+          "NOT_ASSERTED"
+        ],
+        "abstained": false
+      }
+    }
+  ]
+}

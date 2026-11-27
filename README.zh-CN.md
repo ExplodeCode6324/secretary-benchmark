@@ -1,5 +1,7 @@
 # Secretary Benchmark
 
+单配置评测入口为 `npm run benchmark -- evaluate --config examples/secretary-smoke.json`。该命令启动隔离 Secretary、投递案例、评分并输出报告。真实 DeepSeek 配置、独立 Hermes 评分、仅凭归档轨迹重新评分及离线重建报告的命令见[操作手册](docs/operator.md)。
+
 独立的 Secretary benchmark 仓库，负责隔离测试环境、评分记录、固定输入回放与报告。Secretary 是固定提交的只读测试依赖，存放在 `sut/secretary`；具体提交由 `sut.lock.json` 绑定。
 
 交付范围是 **benchmark 可运行、证据可追溯、报告可复现、测量限制明确**。结果为 ADVISORY / NOT_HUMAN_QUALIFIED；本仓库不宣布 Secretary 性能达标，也不设置验收阈值。

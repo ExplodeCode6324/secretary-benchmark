@@ -1,5 +1,7 @@
 # Secretary Benchmark
 
+Run one configured evaluation with `npm run benchmark -- evaluate --config examples/secretary-smoke.json`. For the live DeepSeek workload, fixed-prompt Hermes judge, portable regrade and offline report, follow the [operator guide](docs/operator.md).
+
 A separately versioned benchmark harness for [Secretary](https://github.com/ExplodeCode6324/Secretary). It owns isolated test facilities, immutable grading receipts, fixed-input replay and coverage reports. The Secretary SUT is pinned in `sut.lock.json` and checked out recursively under `sut/secretary`.
 
 **Scope:** runnable benchmark, traceable evidence and reproducible reports. Results are advisory and not human-qualified; this release does not qualify Secretary memory performance or set acceptance thresholds.

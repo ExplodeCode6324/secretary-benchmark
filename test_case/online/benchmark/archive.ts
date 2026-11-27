@@ -200,6 +200,71 @@ function verifyRehearsalAccount(root: string, hash: string) {
   }
 }
 function ownedStoppedRuns(d: Domains): Run[] {
+  if (
+    fs.existsSync(path.join(d.root, "stopped.json")) &&
+    fs.existsSync(path.join(d.root, "manifest.json"))
+  ) {
+    const readSeal = (file: string) => {
+      const v = readJSON(path.join(d.root, file));
+      requireThat(
+        v.schema === 1 &&
+          sha(JSON.stringify(v.data, null, 2) + "\n") === v.digest,
+        "ARCHIVE_OPERATOR_SEAL",
+      );
+      return v.data;
+    };
+    const stop = readSeal("stopped.json"),
+      m = readSeal("manifest.json");
+    requireThat(
+      stop.id === path.basename(d.root) &&
+        uuid.test(stop.id) &&
+        m.config?.suite === "public-resident-v1",
+      "ARCHIVE_OPERATOR_OWNER",
+    );
+    const allowed = new Set([
+      "controller.lock",
+      "facility.json",
+      "manifest.json",
+      "execution.json",
+      "incomplete.json",
+      "events",
+      "transport",
+      "mock-wires",
+      "calibration.json",
+      "calibrations",
+      "grades",
+      "failures",
+      "reports",
+      "target",
+      "guard.json",
+      "private-canary",
+      "isolation.sb",
+      "pg",
+      "ownership.json",
+      "stopped.json",
+      "worker.json",
+      "reader-check",
+      "preflight",
+      "route.json",
+    ]);
+    requireThat(
+      fs.readdirSync(d.root).every((name) => allowed.has(name)),
+      "ARCHIVE_UNKNOWN_OPERATOR_DATA",
+    );
+    if (fs.existsSync(path.join(d.root, "pg"))) {
+      const owner = readSeal("ownership.json");
+      const db = { ...owner, port: 0, adminPassword: "", password: "" };
+      requireThat(
+        owner.id === stop.id &&
+          owner.directory === path.join(d.root, "pg/data") &&
+          owner.systemID === stop.systemID &&
+          !pgRunning(db) &&
+          controlID(db) === owner.systemID,
+        "ARCHIVE_OPERATOR_PG_OWNER",
+      );
+    }
+    return [];
+  }
   assertCampaignClosed(d.root);
   let dossier;
   let verifiedTierSamples = false;
